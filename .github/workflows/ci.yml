@@ -1,0 +1,71 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    runs-on: macos-14            # arm64, matches dev machine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable   # reads rust-toolchain.toml
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@nextest
+      - run: cargo nextest run --workspace
+      - name: offline smoke (fixtures pipeline)
+        run: cargo run -p xtask -- gen-catalog --fixtures xtask/fixtures --allow-partial --out /tmp/catalog.smoke.ron
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@nextest
+      - run: cargo nextest run --workspace
+      - run: cargo build -p solar-sim --release
+      # Launch check on a GPU-less runner: wgpu falls back to a software
+      # DX12 adapter (WARP). Keep continue-on-error until proven stable,
+      # then promote to a hard gate.
+      - name: smoke launch (software adapter)
+        continue-on-error: true
+        run: ./target/release/solar-sim.exe --smoke 10
+
+  invariants:
+    runs-on: ubuntu-latest       # cheap; pure `cargo tree` checks
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: core purity — sim-core must never depend on bevy
+        run: |
+          if cargo tree -p sim-core -e normal --prefix none | grep -qi '^bevy'; then
+            echo '::error::core purity violated: sim-core depends on a bevy crate'
+            cargo tree -p sim-core -e normal | grep -i bevy
+            exit 1
+          fi
+      - name: offline rule — no network dep in default builds
+        run: |
+          for p in sim-core xtask solar-sim; do
+            if cargo tree -p "$p" -e normal --prefix none | grep -Eqi '^(ureq|reqwest|hyper)'; then
+              echo "::error::offline rule violated: $p pulls an HTTP client in its default build"
+              exit 1
+            fi
+          done
+      - name: offline rule — CI never builds the online feature
+        run: |
+          if grep -R --include='*.yml' -n -- '--features[ =]*online\|features:.*online' .github/workflows/; then
+            echo '::error::a workflow enables the online feature'
+            exit 1
+          fi

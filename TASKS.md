@@ -683,7 +683,7 @@ Optional post-beta. No brief until un-deferred by the human.
 
 | # | Question | Raised | Status |
 |---|---|---|---|
-| Q1 | Confirm Bevy 0.19.x minimum Rust toolchain and record in WP0 pin | 2026-07-12 | **answered, pending close** — crates.io reports `rust_version = 1.95.0` for bevy 0.19.0 (and all 0.19 RCs). Action: land `rust-toolchain.toml` with `channel = "1.95.0"`, then close. Evidence in `docs/open-questions-brief-2026-07-12.md` §Q1. |
+| Q1 | Confirm Bevy 0.19.x minimum Rust toolchain and record in WP0 pin | 2026-07-12 | **closed 2026-07-12** — crates.io reports `rust_version = 1.95.0` for bevy 0.19.0 (and all 0.19 RCs); `rust-toolchain.toml` pins `channel = "1.95.0"`, while `crates/sim-core/Cargo.toml` retains `rust-version = "1.75"`. Evidence: `docs/open-questions-brief-2026-07-12.md` §Q1; commit `61896e8`. |
 | Q2 | TNO GM values (Pluto 869.6 / Eris 1108 / Haumea 267 km³/s²) — accept or replace with cited values during curated review? Includes the Pluto-GM semantics decision (Pluto-only vs Pluto+Charon ≈ 975.5 for correct Charon period under μ=parent-GM). | 2026-07-12 | open — research brief with citations + recommendation ready (`docs/open-questions-brief-2026-07-12.md` §Q2) |
 | Q3 | 3I/ATLAS nucleus radius: literature is uncertain; which value + citation ships? | 2026-07-12 | open — brief recommends adopting R = 0.5 km with the HST-constrained range cited (`docs/open-questions-brief-2026-07-12.md` §Q3) |
 | Q4 | Constellation-figure line set licensing (fast-follow; Yale BSC-derived in-house vs licensed) | 2026-07-12 | open — options + recommendation in brief §Q4 (recommend in-house over public-domain BSC) |
@@ -691,6 +691,11 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-12** — Q1 closed by human direction after the toolchain pin
+  landed: Bevy 0.19.0 declares Rust 1.95.0 on crates.io;
+  `rust-toolchain.toml` pins 1.95.0 and `sim-core` retains its independent
+  `rust-version = "1.75"` claim. Evidence:
+  `docs/open-questions-brief-2026-07-12.md` §Q1 and commit `61896e8`.
 - **2026-07-12** — TASKS.md revision: added detailed Work package briefs
   (WP4–WP18) with human-owned acceptance criteria; recorded Q1 answer
   (Bevy 0.19.0 MSRV 1.95.0, crates.io evidence); raised Q5 (Horizons

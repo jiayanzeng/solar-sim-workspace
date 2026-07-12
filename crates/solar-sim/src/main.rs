@@ -80,8 +80,8 @@ fn setup(
 /// ONLY inside WP0's stub; WP5 replaces this with the SimCommand path.
 fn orbit_rig_stub(
     buttons: Res<ButtonInput<MouseButton>>,
-    mut motion: EventReader<bevy::input::mouse::MouseMotion>,
-    mut wheel: EventReader<bevy::input::mouse::MouseWheel>,
+    mut motion: MessageReader<bevy::input::mouse::MouseMotion>,
+    mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
     mut rig: ResMut<OrbitRig>,
     mut cam: Query<&mut Transform, With<Camera3d>>,
 ) {
@@ -104,7 +104,7 @@ fn orbit_rig_stub(
     }
 }
 
-fn smoke_exit(mut frames: Local<u32>, smoke: Res<SmokeFrames>, mut exit: EventWriter<AppExit>) {
+fn smoke_exit(mut frames: Local<u32>, smoke: Res<SmokeFrames>, mut exit: MessageWriter<AppExit>) {
     if let Some(n) = smoke.0 {
         *frames += 1;
         if *frames >= n {
