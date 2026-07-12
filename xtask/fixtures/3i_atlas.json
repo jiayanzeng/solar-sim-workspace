@@ -1,0 +1,15 @@
+{
+  "signature": {"source": "SYNTHETIC smoke-test fixture — NOT flight data."},
+  "object": {"fullname": "3I/ATLAS (C/2025 N1)", "des": "C/2025 N1"},
+  "orbit": {
+    "epoch": "2460900.5",
+    "elements": [
+      {"name": "e",  "value": "6.10"},
+      {"name": "q",  "value": "1.36"},
+      {"name": "i",  "value": "175.10"},
+      {"name": "om", "value": "322.00"},
+      {"name": "w",  "value": "128.00"},
+      {"name": "tp", "value": "2460978.00"}
+    ]
+  }
+}

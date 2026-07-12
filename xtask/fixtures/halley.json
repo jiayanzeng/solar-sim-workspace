@@ -1,0 +1,15 @@
+{
+  "signature": {"source": "SYNTHETIC smoke-test fixture — NOT flight data."},
+  "object": {"fullname": "1P/Halley", "des": "1P"},
+  "orbit": {
+    "epoch": "2449400.5",
+    "elements": [
+      {"name": "e",  "value": "0.967"},
+      {"name": "q",  "value": "0.586"},
+      {"name": "i",  "value": "162.26"},
+      {"name": "om", "value": "58.42"},
+      {"name": "w",  "value": "111.33"},
+      {"name": "tp", "value": "2446467.395"}
+    ]
+  }
+}

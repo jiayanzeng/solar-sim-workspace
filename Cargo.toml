@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["crates/sim-core", "xtask"]
+
+# Rev B §7: `crates/solar-sim` (the Bevy 0.19 app) joins this workspace in WP0
+# once the engine pin lands. Nothing in this workspace may make sim-core depend
+# on Bevy — that rule becomes a CI check in WP0.

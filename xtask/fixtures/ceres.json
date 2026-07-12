@@ -1,0 +1,15 @@
+{
+  "signature": {"source": "SYNTHETIC smoke-test fixture — NOT flight data."},
+  "object": {"fullname": "1 Ceres", "des": "1"},
+  "orbit": {
+    "epoch": "2461000.5",
+    "elements": [
+      {"name": "e",  "value": "0.0785"},
+      {"name": "a",  "value": "2.767"},
+      {"name": "i",  "value": "10.59"},
+      {"name": "om", "value": "80.30"},
+      {"name": "w",  "value": "73.60"},
+      {"name": "ma", "value": "123.45"}
+    ]
+  }
+}

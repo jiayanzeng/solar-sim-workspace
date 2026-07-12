@@ -1,0 +1,18 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2021"
+description = "Offline dev tooling: `cargo run -p xtask -- gen-catalog` (Rev B §4.2, WP3). Never shipped."
+
+[features]
+# Network access is opt-in so the default build stays light and CI stays
+# offline. `cargo run -p xtask --features online -- gen-catalog --online ...`
+online = ["dep:ureq"]
+
+[dependencies]
+sim-core = { path = "../crates/sim-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+anyhow = "1"
+ureq = { version = "2", optional = true }
