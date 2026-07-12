@@ -11,14 +11,15 @@ pub mod sbdb;
 use anyhow::{anyhow, bail, Context, Result};
 use fetch::Fetch;
 use manifest::{Entry, Route};
-use sim_core::catalog::{BodyRecord, Catalog, J2000_JD_TDB, FRAME_ECLIPJ2000, SCHEMA_VERSION};
+use sim_core::catalog::{BodyRecord, Catalog, FRAME_ECLIPJ2000, J2000_JD_TDB, SCHEMA_VERSION};
 
 /// Rev B default start epoch: 2026-01-01 12:00 TDB (J2000 + 9497 days).
 pub const DEFAULT_EPOCH_JD_TDB: f64 = 2_461_042.0;
 
 /// Coarse sampling years for the planet secular fit (soft time range 1800–2300).
-pub const SECULAR_SAMPLE_YEARS: [f64; 11] =
-    [1800.0, 1850.0, 1900.0, 1950.0, 2000.0, 2050.0, 2100.0, 2150.0, 2200.0, 2250.0, 2300.0];
+pub const SECULAR_SAMPLE_YEARS: [f64; 11] = [
+    1800.0, 1850.0, 1900.0, 1950.0, 2000.0, 2050.0, 2100.0, 2150.0, 2200.0, 2250.0, 2300.0,
+];
 
 pub struct GenOptions {
     pub epoch_jd_tdb: f64,
@@ -28,7 +29,10 @@ pub struct GenOptions {
 
 impl Default for GenOptions {
     fn default() -> Self {
-        Self { epoch_jd_tdb: DEFAULT_EPOCH_JD_TDB, allow_partial: false }
+        Self {
+            epoch_jd_tdb: DEFAULT_EPOCH_JD_TDB,
+            allow_partial: false,
+        }
     }
 }
 
@@ -40,7 +44,10 @@ fn jd_of_year(year: f64) -> f64 {
 
 /// TLIST for a planet: coarse secular grid + epoch + epoch+1d (mean-motion fit).
 pub fn planet_tlist(epoch_jd: f64) -> Vec<f64> {
-    let mut t: Vec<f64> = SECULAR_SAMPLE_YEARS.iter().map(|&y| jd_of_year(y)).collect();
+    let mut t: Vec<f64> = SECULAR_SAMPLE_YEARS
+        .iter()
+        .map(|&y| jd_of_year(y))
+        .collect();
     t.push(epoch_jd);
     t.push(epoch_jd + 1.0);
     t
@@ -122,13 +129,18 @@ pub fn generate(fetcher: &dyn Fetch, opts: &GenOptions) -> Result<(Catalog, Vec<
                     continue;
                 }
                 let url = horizons::elements_url(command, "500@10", &planet_tlist(epoch));
-                let body = fetcher.get(&url, e.id).with_context(|| format!("fetch {}", e.id))?;
+                let body = fetcher
+                    .get(&url, e.id)
+                    .with_context(|| format!("fetch {}", e.id))?;
                 let recs = horizons::parse_response(&body)
                     .with_context(|| format!("parse Horizons response for {}", e.id))?;
                 rec.orbit = Some(normalize::fit_planet(&recs, epoch)?.orbit);
             }
             Route::HorizonsMoon { command, center }
-            | Route::HorizonsLookupMoon { sstr: command, center_hint: center } => {
+            | Route::HorizonsLookupMoon {
+                sstr: command,
+                center_hint: center,
+            } => {
                 if opts.allow_partial && !fetcher.has(e.id) {
                     skipped.push(e.id.to_string());
                     continue;
@@ -144,7 +156,9 @@ pub fn generate(fetcher: &dyn Fetch, opts: &GenOptions) -> Result<(Catalog, Vec<
                     );
                 }
                 let url = horizons::elements_url(command, center, &[epoch]);
-                let body = fetcher.get(&url, e.id).with_context(|| format!("fetch {}", e.id))?;
+                let body = fetcher
+                    .get(&url, e.id)
+                    .with_context(|| format!("fetch {}", e.id))?;
                 let recs = horizons::parse_response(&body)
                     .with_context(|| format!("parse Horizons response for {}", e.id))?;
                 rec.orbit = Some(normalize::moon_orbit(&recs, epoch)?);
@@ -155,10 +169,13 @@ pub fn generate(fetcher: &dyn Fetch, opts: &GenOptions) -> Result<(Catalog, Vec<
                     continue;
                 }
                 let url = sbdb::sbdb_url(sstr);
-                let body = fetcher.get(&url, e.id).with_context(|| format!("fetch {}", e.id))?;
-                let parsed =
-                    sbdb::parse_response(&body).with_context(|| format!("parse SBDB for {}", e.id))?;
-                rec.orbit = Some(sbdb::to_orbit(&parsed).with_context(|| format!("normalize {}", e.id))?);
+                let body = fetcher
+                    .get(&url, e.id)
+                    .with_context(|| format!("fetch {}", e.id))?;
+                let parsed = sbdb::parse_response(&body)
+                    .with_context(|| format!("parse SBDB for {}", e.id))?;
+                rec.orbit =
+                    Some(sbdb::to_orbit(&parsed).with_context(|| format!("normalize {}", e.id))?);
             }
         }
         bodies.push(rec);
@@ -194,7 +211,11 @@ pub fn generate(fetcher: &dyn Fetch, opts: &GenOptions) -> Result<(Catalog, Vec<
     };
 
     if let Err(errs) = catalog.validate() {
-        let joined = errs.iter().map(|e| format!("  - {e}")).collect::<Vec<_>>().join("\n");
+        let joined = errs
+            .iter()
+            .map(|e| format!("  - {e}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         return Err(anyhow!("generated catalog failed validation:\n{joined}"));
     }
     Ok((catalog, skipped))

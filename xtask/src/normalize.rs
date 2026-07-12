@@ -106,7 +106,9 @@ pub fn fit_planet(records: &[(f64, RawElements)], target_epoch_jd: f64) -> Resul
         let xs: Vec<f64> = near.iter().map(|(jd, _)| *jd).collect();
         let mut ma: Vec<f64> = near.iter().map(|(_, r)| r.m0_deg).collect();
         unwrap_deg_series(&mut ma);
-        fit_linear(&xs, &ma).map(|(slope, _)| slope).filter(|s| *s > 0.0)
+        fit_linear(&xs, &ma)
+            .map(|(slope, _)| slope)
+            .filter(|s| *s > 0.0)
     } else {
         None
     };
@@ -192,7 +194,14 @@ mod tests {
     }
 
     fn raw(ma: f64) -> RawElements {
-        RawElements { a_km: 1.5e8, e: 0.016, i_deg: 0.0, raan_deg: 100.0, argp_deg: 200.0, m0_deg: ma }
+        RawElements {
+            a_km: 1.5e8,
+            e: 0.016,
+            i_deg: 0.0,
+            raan_deg: 100.0,
+            argp_deg: 200.0,
+            m0_deg: ma,
+        }
     }
 
     #[test]
@@ -201,7 +210,10 @@ mod tests {
         let fit = fit_planet(&recs, 2461042.0).unwrap();
         let n = fit.orbit.mean_motion_deg_per_day.unwrap();
         assert!((n - 0.9856).abs() < 1e-9);
-        assert!(fit.orbit.secular.is_none(), "1-day span must not yield secular rates");
+        assert!(
+            fit.orbit.secular.is_none(),
+            "1-day span must not yield secular rates"
+        );
         assert!((fit.orbit.epoch_jd_tdb - 2461042.0).abs() < 1e-9);
     }
 
@@ -220,13 +232,23 @@ mod tests {
         for k in 0..11 {
             let jd = 2451545.0 + (1800.0 + 50.0 * k as f64 - 2000.0) * 365.25;
             let cy = (jd - 2461042.0) / DAYS_PER_JULIAN_CENTURY;
-            recs.push((jd, RawElements { raan_deg: 100.0 - 0.24 * cy, ..raw(0.0) }));
+            recs.push((
+                jd,
+                RawElements {
+                    raan_deg: 100.0 - 0.24 * cy,
+                    ..raw(0.0)
+                },
+            ));
         }
         recs.push((2461042.0, raw(10.0)));
         recs.push((2461043.0, raw(10.9856)));
         let fit = fit_planet(&recs, 2461042.0).unwrap();
         let sec = fit.orbit.secular.unwrap();
-        assert!((sec.raan_deg_per_cy + 0.24).abs() < 1e-6, "got {}", sec.raan_deg_per_cy);
+        assert!(
+            (sec.raan_deg_per_cy + 0.24).abs() < 1e-6,
+            "got {}",
+            sec.raan_deg_per_cy
+        );
         assert!((sec.a_km_per_cy).abs() < 1e-6);
     }
 

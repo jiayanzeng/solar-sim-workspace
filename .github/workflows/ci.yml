@@ -8,10 +8,12 @@ env:
 
 jobs:
   lint:
-    runs-on: macos-14            # arm64, matches dev machine
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable   # reads rust-toolchain.toml
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
@@ -20,7 +22,7 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.95.0
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@nextest
       - run: cargo nextest run --workspace
@@ -31,7 +33,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.95.0
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@nextest
       - run: cargo nextest run --workspace
@@ -47,7 +49,12 @@ jobs:
     runs-on: ubuntu-latest       # cheap; pure `cargo tree` checks
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: dtolnay/rust-toolchain@1.75.0
+      - name: sim-core MSRV — verify outside the v4 workspace lockfile
+        run: |
+          cp -R crates/sim-core "$RUNNER_TEMP/sim-core-msrv"
+          cargo +1.75.0 check --manifest-path "$RUNNER_TEMP/sim-core-msrv/Cargo.toml"
       - name: core purity — sim-core must never depend on bevy
         run: |
           if cargo tree -p sim-core -e normal --prefix none | grep -qi '^bevy'; then
@@ -65,7 +72,8 @@ jobs:
           done
       - name: offline rule — CI never builds the online feature
         run: |
-          if grep -R --include='*.yml' -n -- '--features[ =]*online\|features:.*online' .github/workflows/; then
+          pattern='--features[ =]+on''line|features:.*on''line'
+          if grep -REn --include='*.yml' -- "$pattern" .github/workflows/; then
             echo '::error::a workflow enables the online feature'
             exit 1
           fi

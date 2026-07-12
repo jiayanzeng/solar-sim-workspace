@@ -31,7 +31,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 
 | WP | Deliverable | Status |
 |---|---|---|
-| 0 | Workspace, Bevy 0.19 pin, CI, window+camera+diagnostics, core-purity rule | **in-progress** (workspace + crates exist; Bevy app, toolchain pin, CI absent; human guide: `docs/wp0-dev-setup-macos.md`) |
+| 0 | Workspace, Bevy 0.19 pin, CI, window+camera+diagnostics, core-purity rule | **in-progress** (local macOS gates green; hosted macOS/Windows CI run pending; human guide: `docs/wp0-dev-setup-macos.md`) |
 | 1 | `sim-core::time` — full ladder, start epoch, LIVE, range | **✅ done** |
 | 2 | `sim-core::kepler` — elliptic + hyperbolic, guards | **✅ done** |
 | 3 | `xtask gen-catalog` + committed 66-body `catalog.ron` + validation | **in-progress** (pipeline ✅; online capture blocked on Q5; curated review brief ready) |
@@ -51,17 +51,17 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 71 passing** (51 `sim-core` · 17 `xtask` lib · 2 smoke ·
+**Test baseline: 72 passing** (52 `sim-core` · 17 `xtask` lib · 2 smoke ·
 1 spot-check harness, dormant). Any change that lowers this number without
 an accompanying change-log justification is a regression. The number may
-only go up (72 expected after the `UNIX_EPOCH_JD` warm-up patch).
+only go up.
 
 ---
 
 ## Done (evidence)
 
 ### WP1 — `sim-core::time` ✅
-`crates/sim-core/src/time.rs` (21 tests). RateIndex ±1..±12 (no zero), 24
+`crates/sim-core/src/time.rs` (22 tests). RateIndex ±1..±12 (no zero), 24
 detents, Eyes labels, symmetric-log slider mapping; SimClock with
 caller-supplied wall clock; range pins with transition-only `TickReport`;
 eased snap-to-LIVE; exact-integer calendar with leap-rule round-trips;
@@ -119,14 +119,14 @@ app loader. Spec: `docs/wp3-gen-catalog-spec.md`.
 
 Human walkthrough for every step below: `docs/wp0-dev-setup-macos.md`.
 
-- [ ] `rust-toolchain.toml` pinning **1.95.0** — Bevy 0.19.0's declared
-  MSRV per crates.io (Q1, answered pending close). Keep `sim-core`'s own
+- [x] `rust-toolchain.toml` pinning **1.95.0** — Bevy 0.19.0's declared
+  MSRV per crates.io (Q1, closed). Keep `sim-core`'s own
   MSRV claim conservative (`rust-version = "1.75"` in its Cargo.toml).
-- [ ] `crates/solar-sim` skeleton: Bevy 0.19.x pinned in `Cargo.toml`
+- [x] `crates/solar-sim` skeleton: Bevy 0.19.x pinned in `Cargo.toml`
   (`bevy = "0.19"` + committed `Cargo.lock` = exact pin), window opens,
   orbit camera stub, dev-only `DiagnosticsOverlay`, `--smoke` flag
   (render N frames, exit 0) for CI launch checks.
-- [ ] CI (GitHub Actions): fmt, clippy (deny warnings), nextest,
+- [x] CI (GitHub Actions): fmt, clippy (deny warnings), nextest,
   macOS + Windows build jobs, **core-purity rule** (fail if `sim-core`'s
   dependency tree contains any `bevy*` crate), offline rule (no `online`
   feature — and therefore no `ureq` — in default/CI builds).
@@ -691,6 +691,18 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-13** — WP0 local close-out gates completed; hosted CI remains.
+  Corrected the Bevy 0.19 shell to `MessageReader` / `MessageWriter`, made
+  the J2000−Unix derivation load-bearing with its promised regression test,
+  formatted the workspace for the new CI gate, and hardened `ci.yml` with
+  exact Rust 1.95/1.75 toolchains plus non-self-matching purity/offline
+  checks. Evidence: `cargo test` and `cargo nextest run --workspace`
+  (72 passed, 0 failed/skipped); `cargo fmt --all -- --check`;
+  `cargo clippy --workspace --all-targets -- -D warnings`; isolated
+  `cargo +1.75.0 check` for `sim-core`; fixture/purity/offline checks; and
+  normal + `--features dev` macOS launches rendering 60 smoke frames and
+  exiting 0. WP0 acceptance remains open pending the hosted macOS/Windows
+  workflow; real-Windows launch remains deferred to WP16.
 - **2026-07-12** — Q1 closed by human direction after the toolchain pin
   landed: Bevy 0.19.0 declares Rust 1.95.0 on crates.io;
   `rust-toolchain.toml` pins 1.95.0 and `sim-core` retains its independent

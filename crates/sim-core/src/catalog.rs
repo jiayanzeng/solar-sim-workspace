@@ -247,28 +247,81 @@ impl Catalog {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CatalogError {
-    SchemaVersion { found: u32, expected: u32 },
-    BadFrame { found: String },
+    SchemaVersion {
+        found: u32,
+        expected: u32,
+    },
+    BadFrame {
+        found: String,
+    },
     EmptyId,
-    BadIdChars { id: String },
-    DuplicateId { id: String },
-    DuplicateSearchKey { key: String, first: String, second: String },
-    StarCount { found: usize },
-    StarHasParentOrOrbit { id: String },
-    MissingParent { id: String },
-    UnknownParent { id: String, parent: String },
-    ParentCycle { id: String },
-    MissingOrbit { id: String },
-    HeliocentricParentNotStar { id: String, parent: String },
-    MoonParentIsStar { id: String },
-    ParentMissingGm { parent: String, child: String },
-    NonFinite { id: String, field: &'static str },
-    NonPositive { id: String, field: &'static str },
-    EccentricityAxisMismatch { id: String, a_km: f64, e: f64 },
-    ParabolicUnsupported { id: String },
-    EpochOutOfRange { id: String, jd: f64 },
-    MeanMotionInvalid { id: String },
-    EmptySource { id: String },
+    BadIdChars {
+        id: String,
+    },
+    DuplicateId {
+        id: String,
+    },
+    DuplicateSearchKey {
+        key: String,
+        first: String,
+        second: String,
+    },
+    StarCount {
+        found: usize,
+    },
+    StarHasParentOrOrbit {
+        id: String,
+    },
+    MissingParent {
+        id: String,
+    },
+    UnknownParent {
+        id: String,
+        parent: String,
+    },
+    ParentCycle {
+        id: String,
+    },
+    MissingOrbit {
+        id: String,
+    },
+    HeliocentricParentNotStar {
+        id: String,
+        parent: String,
+    },
+    MoonParentIsStar {
+        id: String,
+    },
+    ParentMissingGm {
+        parent: String,
+        child: String,
+    },
+    NonFinite {
+        id: String,
+        field: &'static str,
+    },
+    NonPositive {
+        id: String,
+        field: &'static str,
+    },
+    EccentricityAxisMismatch {
+        id: String,
+        a_km: f64,
+        e: f64,
+    },
+    ParabolicUnsupported {
+        id: String,
+    },
+    EpochOutOfRange {
+        id: String,
+        jd: f64,
+    },
+    MeanMotionInvalid {
+        id: String,
+    },
+    EmptySource {
+        id: String,
+    },
 }
 
 impl fmt::Display for CatalogError {
@@ -414,15 +467,27 @@ impl Catalog {
                 errs.push(CatalogError::EmptySource { id: id() });
             }
             if !b.radius_km.is_finite() {
-                errs.push(CatalogError::NonFinite { id: id(), field: "radius_km" });
+                errs.push(CatalogError::NonFinite {
+                    id: id(),
+                    field: "radius_km",
+                });
             } else if b.radius_km <= 0.0 {
-                errs.push(CatalogError::NonPositive { id: id(), field: "radius_km" });
+                errs.push(CatalogError::NonPositive {
+                    id: id(),
+                    field: "radius_km",
+                });
             }
             if let Some(gm) = b.gm_km3_s2 {
                 if !gm.is_finite() {
-                    errs.push(CatalogError::NonFinite { id: id(), field: "gm_km3_s2" });
+                    errs.push(CatalogError::NonFinite {
+                        id: id(),
+                        field: "gm_km3_s2",
+                    });
                 } else if gm <= 0.0 {
-                    errs.push(CatalogError::NonPositive { id: id(), field: "gm_km3_s2" });
+                    errs.push(CatalogError::NonPositive {
+                        id: id(),
+                        field: "gm_km3_s2",
+                    });
                 }
             }
             if has_children.contains(b.id.as_str()) && b.gm_km3_s2.is_none() {
@@ -451,7 +516,10 @@ impl Catalog {
                 None => errs.push(CatalogError::MissingParent { id: id() }),
                 Some(p) => {
                     if !index.contains_key(p.as_str()) {
-                        errs.push(CatalogError::UnknownParent { id: id(), parent: p.clone() });
+                        errs.push(CatalogError::UnknownParent {
+                            id: id(),
+                            parent: p.clone(),
+                        });
                     } else {
                         if b.category.orbits_star() {
                             if Some(p.clone()) != star_id {
@@ -515,13 +583,19 @@ impl Catalog {
                     let mut finite = true;
                     for (name, v) in fields {
                         if !v.is_finite() {
-                            errs.push(CatalogError::NonFinite { id: id(), field: name });
+                            errs.push(CatalogError::NonFinite {
+                                id: id(),
+                                field: name,
+                            });
                             finite = false;
                         }
                     }
                     if finite {
                         if el.e < 0.0 {
-                            errs.push(CatalogError::NonPositive { id: id(), field: "e" });
+                            errs.push(CatalogError::NonPositive {
+                                id: id(),
+                                field: "e",
+                            });
                         } else if (el.e - 1.0).abs() < 1e-9 {
                             errs.push(CatalogError::ParabolicUnsupported { id: id() });
                         } else if (el.e < 1.0 && el.a_km <= 0.0) || (el.e > 1.0 && el.a_km >= 0.0) {
@@ -559,12 +633,16 @@ impl Catalog {
         let mut out = Vec::new();
         for b in &self.bodies {
             if b.description.trim().is_empty() {
-                out.push(format!("'{}': description is empty (WP10 content pass)", b.id));
+                out.push(format!(
+                    "'{}': description is empty (WP10 content pass)",
+                    b.id
+                ));
             }
-            if b.texture.is_none()
-                && matches!(b.category, Category::Star | Category::Planet)
-            {
-                out.push(format!("'{}': no texture assigned (WP15 polish pass)", b.id));
+            if b.texture.is_none() && matches!(b.category, Category::Star | Category::Planet) {
+                out.push(format!(
+                    "'{}': no texture assigned (WP15 polish pass)",
+                    b.id
+                ));
             }
         }
         out
@@ -723,7 +801,9 @@ Catalog(
         let dup = c.bodies[1].clone();
         c.bodies.push(dup);
         let errs = c.validate().unwrap_err();
-        assert!(errs.iter().any(|e| matches!(e, CatalogError::DuplicateId { .. })));
+        assert!(errs
+            .iter()
+            .any(|e| matches!(e, CatalogError::DuplicateId { .. })));
     }
 
     #[test]
@@ -731,7 +811,9 @@ Catalog(
         let mut c = sample();
         c.bodies[1].parent = None;
         let errs = c.validate().unwrap_err();
-        assert!(errs.iter().any(|e| matches!(e, CatalogError::MissingParent { .. })));
+        assert!(errs
+            .iter()
+            .any(|e| matches!(e, CatalogError::MissingParent { .. })));
     }
 
     #[test]
@@ -739,7 +821,9 @@ Catalog(
         let mut c = sample();
         c.bodies[2].parent = Some("jupiter".into());
         let errs = c.validate().unwrap_err();
-        assert!(errs.iter().any(|e| matches!(e, CatalogError::UnknownParent { .. })));
+        assert!(errs
+            .iter()
+            .any(|e| matches!(e, CatalogError::UnknownParent { .. })));
     }
 
     #[test]
@@ -747,7 +831,9 @@ Catalog(
         let mut c = sample();
         c.bodies[1].orbit.as_mut().unwrap().elements.a_km = f64::NAN;
         let errs = c.validate().unwrap_err();
-        assert!(errs.iter().any(|e| matches!(e, CatalogError::NonFinite { .. })));
+        assert!(errs
+            .iter()
+            .any(|e| matches!(e, CatalogError::NonFinite { .. })));
     }
 
     #[test]
@@ -766,7 +852,9 @@ Catalog(
         let mut c = sample();
         c.bodies[3].orbit.as_mut().unwrap().elements.e = 1.0;
         let errs = c.validate().unwrap_err();
-        assert!(errs.iter().any(|e| matches!(e, CatalogError::ParabolicUnsupported { .. })));
+        assert!(errs
+            .iter()
+            .any(|e| matches!(e, CatalogError::ParabolicUnsupported { .. })));
     }
 
     #[test]
@@ -784,7 +872,9 @@ Catalog(
         let mut c = sample();
         c.bodies[1].gm_km3_s2 = None; // earth has moon child
         let errs = c.validate().unwrap_err();
-        assert!(errs.iter().any(|e| matches!(e, CatalogError::ParentMissingGm { .. })));
+        assert!(errs
+            .iter()
+            .any(|e| matches!(e, CatalogError::ParentMissingGm { .. })));
     }
 
     #[test]
@@ -792,7 +882,9 @@ Catalog(
         let mut c = sample();
         c.bodies[2].parent = Some("sun".into());
         let errs = c.validate().unwrap_err();
-        assert!(errs.iter().any(|e| matches!(e, CatalogError::MoonParentIsStar { .. })));
+        assert!(errs
+            .iter()
+            .any(|e| matches!(e, CatalogError::MoonParentIsStar { .. })));
     }
 
     #[test]
@@ -801,8 +893,12 @@ Catalog(
         c.schema_version = 99;
         c.frame = "EQJ2000".into();
         let errs = c.validate().unwrap_err();
-        assert!(errs.iter().any(|e| matches!(e, CatalogError::SchemaVersion { .. })));
-        assert!(errs.iter().any(|e| matches!(e, CatalogError::BadFrame { .. })));
+        assert!(errs
+            .iter()
+            .any(|e| matches!(e, CatalogError::SchemaVersion { .. })));
+        assert!(errs
+            .iter()
+            .any(|e| matches!(e, CatalogError::BadFrame { .. })));
     }
 
     #[test]

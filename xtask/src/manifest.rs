@@ -56,13 +56,19 @@ pub enum Route {
     HorizonsPlanet { command: &'static str },
     /// JPL Horizons ELEMENTS, parent-centric (`CENTER='500@<parent>'`),
     /// single sample at the catalog epoch.
-    HorizonsMoon { command: &'static str, center: &'static str },
+    HorizonsMoon {
+        command: &'static str,
+        center: &'static str,
+    },
     /// Same as `HorizonsMoon`, but the numeric COMMAND (and possibly the
     /// center designator) must first be resolved through the Horizons lookup
     /// API — the TNO satellites have no stable well-known codes.
     /// See spec "Open items". In `--fixtures` mode a plain `<id>.json`
     /// Horizons response is accepted directly.
-    HorizonsLookupMoon { sstr: &'static str, center_hint: &'static str },
+    HorizonsLookupMoon {
+        sstr: &'static str,
+        center_hint: &'static str,
+    },
     /// JPL Small-Body Database (`sbdb.api?sstr=...&full-prec=true`),
     /// heliocentric ecliptic-J2000 elements at the SBDB epoch. Comets without
     /// a mean anomaly are re-based to perihelion (epoch := Tp, M0 := 0).
@@ -120,7 +126,10 @@ macro_rules! moon {
             gm_km3_s2: None,
             radius_km: $r,
             color: C_MOON,
-            route: Route::HorizonsMoon { command: $cmd, center: $center },
+            route: Route::HorizonsMoon {
+                command: $cmd,
+                center: $center,
+            },
             blurb: "",
             source_note: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000",
         }
@@ -168,22 +177,78 @@ pub fn entries() -> Vec<Entry> {
     });
 
     // --- Planets (8) ---
-    v.push(planet!("mercury", "Mercury", "199", GM_MERCURY, 2439.7, C_MERCURY,
-        "The smallest planet and the closest to the Sun, racing through an 88-day year."));
-    v.push(planet!("venus", "Venus", "299", GM_VENUS, 6051.8, C_VENUS,
-        "Earth's near-twin in size, wrapped in a crushing greenhouse atmosphere."));
-    v.push(planet!("earth", "Earth", "399", GM_EARTH, 6371.0, C_EARTH,
-        "Our home planet — the only world known to harbor life."));
-    v.push(planet!("mars", "Mars", "499", GM_MARS, 3389.5, C_MARS,
-        "The rusty desert world, home to the solar system's tallest volcano."));
-    v.push(planet!("jupiter", "Jupiter", "599", GM_JUPITER, 69_911.0, C_JUPITER,
-        "The giant of the solar system — more massive than every other planet combined."));
-    v.push(planet!("saturn", "Saturn", "699", GM_SATURN, 58_232.0, C_SATURN,
-        "The ringed gas giant, attended by a spectacular family of moons."));
-    v.push(planet!("uranus", "Uranus", "799", GM_URANUS, 25_362.0, C_URANUS,
-        "An ice giant tipped on its side, orbiting the Sun once every 84 years."));
-    v.push(planet!("neptune", "Neptune", "899", GM_NEPTUNE, 24_622.0, C_NEPTUNE,
-        "The outermost planet, a deep-blue ice giant with supersonic winds."));
+    v.push(planet!(
+        "mercury",
+        "Mercury",
+        "199",
+        GM_MERCURY,
+        2439.7,
+        C_MERCURY,
+        "The smallest planet and the closest to the Sun, racing through an 88-day year."
+    ));
+    v.push(planet!(
+        "venus",
+        "Venus",
+        "299",
+        GM_VENUS,
+        6051.8,
+        C_VENUS,
+        "Earth's near-twin in size, wrapped in a crushing greenhouse atmosphere."
+    ));
+    v.push(planet!(
+        "earth",
+        "Earth",
+        "399",
+        GM_EARTH,
+        6371.0,
+        C_EARTH,
+        "Our home planet — the only world known to harbor life."
+    ));
+    v.push(planet!(
+        "mars",
+        "Mars",
+        "499",
+        GM_MARS,
+        3389.5,
+        C_MARS,
+        "The rusty desert world, home to the solar system's tallest volcano."
+    ));
+    v.push(planet!(
+        "jupiter",
+        "Jupiter",
+        "599",
+        GM_JUPITER,
+        69_911.0,
+        C_JUPITER,
+        "The giant of the solar system — more massive than every other planet combined."
+    ));
+    v.push(planet!(
+        "saturn",
+        "Saturn",
+        "699",
+        GM_SATURN,
+        58_232.0,
+        C_SATURN,
+        "The ringed gas giant, attended by a spectacular family of moons."
+    ));
+    v.push(planet!(
+        "uranus",
+        "Uranus",
+        "799",
+        GM_URANUS,
+        25_362.0,
+        C_URANUS,
+        "An ice giant tipped on its side, orbiting the Sun once every 84 years."
+    ));
+    v.push(planet!(
+        "neptune",
+        "Neptune",
+        "899",
+        GM_NEPTUNE,
+        24_622.0,
+        C_NEPTUNE,
+        "The outermost planet, a deep-blue ice giant with supersonic winds."
+    ));
 
     // --- Moons (32) ---
     // Earth
@@ -198,30 +263,57 @@ pub fn entries() -> Vec<Entry> {
     v.push(moon!("deimos", "Deimos", "402", "500@499", "mars", 6.2));
     // Jupiter
     v.push(moon!("io", "Io", "501", "500@599", "jupiter", 1821.6));
-    v.push(moon!("europa", "Europa", "502", "500@599", "jupiter", 1560.8));
-    v.push(moon!("ganymede", "Ganymede", "503", "500@599", "jupiter", 2634.1));
-    v.push(moon!("callisto", "Callisto", "504", "500@599", "jupiter", 2410.3));
-    v.push(moon!("amalthea", "Amalthea", "505", "500@599", "jupiter", 83.5));
-    v.push(moon!("himalia", "Himalia", "506", "500@599", "jupiter", 75.0));
+    v.push(moon!(
+        "europa", "Europa", "502", "500@599", "jupiter", 1560.8
+    ));
+    v.push(moon!(
+        "ganymede", "Ganymede", "503", "500@599", "jupiter", 2634.1
+    ));
+    v.push(moon!(
+        "callisto", "Callisto", "504", "500@599", "jupiter", 2410.3
+    ));
+    v.push(moon!(
+        "amalthea", "Amalthea", "505", "500@599", "jupiter", 83.5
+    ));
+    v.push(moon!(
+        "himalia", "Himalia", "506", "500@599", "jupiter", 75.0
+    ));
     // Saturn
     v.push(moon!("mimas", "Mimas", "601", "500@699", "saturn", 198.2));
-    v.push(moon!("enceladus", "Enceladus", "602", "500@699", "saturn", 252.1));
+    v.push(moon!(
+        "enceladus",
+        "Enceladus",
+        "602",
+        "500@699",
+        "saturn",
+        252.1
+    ));
     v.push(moon!("tethys", "Tethys", "603", "500@699", "saturn", 531.1));
     v.push(moon!("dione", "Dione", "604", "500@699", "saturn", 561.4));
     v.push(moon!("rhea", "Rhea", "605", "500@699", "saturn", 763.8));
     v.push(moon!("titan", "Titan", "606", "500@699", "saturn", 2574.7));
-    v.push(moon!("hyperion", "Hyperion", "607", "500@699", "saturn", 135.0));
-    v.push(moon!("iapetus", "Iapetus", "608", "500@699", "saturn", 734.5));
+    v.push(moon!(
+        "hyperion", "Hyperion", "607", "500@699", "saturn", 135.0
+    ));
+    v.push(moon!(
+        "iapetus", "Iapetus", "608", "500@699", "saturn", 734.5
+    ));
     v.push({
         let mut m = moon!("phoebe", "Phoebe", "609", "500@699", "saturn", 106.5);
         m.blurb = "A captured outer moon on a retrograde path (i ≈ 175°) — one of the catalog's two retrograde stress tests.";
         m
     });
     // Uranus
-    v.push(moon!("miranda", "Miranda", "705", "500@799", "uranus", 235.8));
+    v.push(moon!(
+        "miranda", "Miranda", "705", "500@799", "uranus", 235.8
+    ));
     v.push(moon!("ariel", "Ariel", "701", "500@799", "uranus", 578.9));
-    v.push(moon!("umbriel", "Umbriel", "702", "500@799", "uranus", 584.7));
-    v.push(moon!("titania", "Titania", "703", "500@799", "uranus", 788.4));
+    v.push(moon!(
+        "umbriel", "Umbriel", "702", "500@799", "uranus", 584.7
+    ));
+    v.push(moon!(
+        "titania", "Titania", "703", "500@799", "uranus", 788.4
+    ));
     v.push(moon!("oberon", "Oberon", "704", "500@799", "uranus", 761.4));
     // Neptune
     v.push({
@@ -234,25 +326,97 @@ pub fn entries() -> Vec<Entry> {
         m.blurb = "One of the most eccentric moon orbits known (e ≈ 0.75) — the catalog's high-eccentricity ellipse stress test.";
         m
     });
-    v.push(moon!("proteus", "Proteus", "808", "500@899", "neptune", 210.0));
+    v.push(moon!(
+        "proteus", "Proteus", "808", "500@899", "neptune", 210.0
+    ));
 
     // --- Dwarf planets (9) — before their moons; parents must precede children ---
     v.push(sbdb!("ceres", "Ceres", None, &["1 Ceres"], DwarfPlanet, None, 469.7, C_DWARF, "Ceres",
         "The largest object in the asteroid belt and the only dwarf planet of the inner solar system."));
-    v.push(sbdb!("pluto", "Pluto", None, &["134340"], DwarfPlanet, Some(GM_PLUTO), 1188.3, C_DWARF, "134340",
-        "The best-loved dwarf planet, ruling a five-moon system in the Kuiper Belt."));
-    v.push(sbdb!("eris", "Eris", None, &[], DwarfPlanet, Some(GM_ERIS), 1163.0, C_DWARF, "Eris",
-        "The scattered-disc heavyweight whose discovery forced the definition of 'planet'."));
-    v.push(sbdb!("haumea", "Haumea", None, &[], DwarfPlanet, Some(GM_HAUMEA), 780.0, C_DWARF, "Haumea",
-        "A fast-spinning, egg-shaped Kuiper Belt dwarf with two moons and a ring."));
-    v.push(sbdb!("makemake", "Makemake", None, &[], DwarfPlanet, None, 715.0, C_DWARF, "Makemake",
-        ""));
-    v.push(sbdb!("gonggong", "Gonggong", None, &[], DwarfPlanet, None, 615.0, C_DWARF, "Gonggong",
-        ""));
-    v.push(sbdb!("quaoar", "Quaoar", None, &[], DwarfPlanet, None, 545.0, C_DWARF, "Quaoar",
-        ""));
-    v.push(sbdb!("orcus", "Orcus", None, &[], DwarfPlanet, None, 458.0, C_DWARF, "Orcus",
-        ""));
+    v.push(sbdb!(
+        "pluto",
+        "Pluto",
+        None,
+        &["134340"],
+        DwarfPlanet,
+        Some(GM_PLUTO),
+        1188.3,
+        C_DWARF,
+        "134340",
+        "The best-loved dwarf planet, ruling a five-moon system in the Kuiper Belt."
+    ));
+    v.push(sbdb!(
+        "eris",
+        "Eris",
+        None,
+        &[],
+        DwarfPlanet,
+        Some(GM_ERIS),
+        1163.0,
+        C_DWARF,
+        "Eris",
+        "The scattered-disc heavyweight whose discovery forced the definition of 'planet'."
+    ));
+    v.push(sbdb!(
+        "haumea",
+        "Haumea",
+        None,
+        &[],
+        DwarfPlanet,
+        Some(GM_HAUMEA),
+        780.0,
+        C_DWARF,
+        "Haumea",
+        "A fast-spinning, egg-shaped Kuiper Belt dwarf with two moons and a ring."
+    ));
+    v.push(sbdb!(
+        "makemake",
+        "Makemake",
+        None,
+        &[],
+        DwarfPlanet,
+        None,
+        715.0,
+        C_DWARF,
+        "Makemake",
+        ""
+    ));
+    v.push(sbdb!(
+        "gonggong",
+        "Gonggong",
+        None,
+        &[],
+        DwarfPlanet,
+        None,
+        615.0,
+        C_DWARF,
+        "Gonggong",
+        ""
+    ));
+    v.push(sbdb!(
+        "quaoar",
+        "Quaoar",
+        None,
+        &[],
+        DwarfPlanet,
+        None,
+        545.0,
+        C_DWARF,
+        "Quaoar",
+        ""
+    ));
+    v.push(sbdb!(
+        "orcus",
+        "Orcus",
+        None,
+        &[],
+        DwarfPlanet,
+        None,
+        458.0,
+        C_DWARF,
+        "Orcus",
+        ""
+    ));
     v.push(sbdb!("sedna", "Sedna", None, &[], DwarfPlanet, None, 500.0, C_DWARF, "Sedna",
         "A distant world whose ~937 AU aphelion makes the sheer scale of the outer solar system visceral — the catalog's designated 'vastness' shot."));
 
@@ -272,7 +436,10 @@ pub fn entries() -> Vec<Entry> {
         gm_km3_s2: None,
         radius_km: 350.0,
         color: C_MOON,
-        route: Route::HorizonsLookupMoon { sstr: "Dysnomia", center_hint: "@eris (resolve via lookup)" },
+        route: Route::HorizonsLookupMoon {
+            sstr: "Dysnomia",
+            center_hint: "@eris (resolve via lookup)",
+        },
         blurb: "",
         source_note: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup)",
     });
@@ -286,7 +453,10 @@ pub fn entries() -> Vec<Entry> {
         gm_km3_s2: None,
         radius_km: 160.0,
         color: C_MOON,
-        route: Route::HorizonsLookupMoon { sstr: "Hiiaka", center_hint: "@haumea (resolve via lookup)" },
+        route: Route::HorizonsLookupMoon {
+            sstr: "Hiiaka",
+            center_hint: "@haumea (resolve via lookup)",
+        },
         blurb: "",
         source_note: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup)",
     });
@@ -300,31 +470,187 @@ pub fn entries() -> Vec<Entry> {
         gm_km3_s2: None,
         radius_km: 85.0,
         color: C_MOON,
-        route: Route::HorizonsLookupMoon { sstr: "Namaka", center_hint: "@haumea (resolve via lookup)" },
+        route: Route::HorizonsLookupMoon {
+            sstr: "Namaka",
+            center_hint: "@haumea (resolve via lookup)",
+        },
         blurb: "",
         source_note: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup)",
     });
 
     // --- Asteroids (8) ---
-    v.push(sbdb!("pallas", "2 Pallas", None, &["Pallas"], Asteroid, None, 256.0, C_AST, "2 Pallas", ""));
-    v.push(sbdb!("juno", "3 Juno", None, &["Juno"], Asteroid, None, 123.0, C_AST, "3 Juno", ""));
-    v.push(sbdb!("vesta", "4 Vesta", None, &["Vesta"], Asteroid, None, 262.7, C_AST, "4 Vesta", ""));
-    v.push(sbdb!("hygiea", "10 Hygiea", None, &["Hygiea"], Asteroid, None, 217.0, C_AST, "10 Hygiea", ""));
-    v.push(sbdb!("psyche", "16 Psyche", None, &["Psyche"], Asteroid, None, 113.0, C_AST, "16 Psyche",
-        "A metal-rich world thought to be the exposed core of a shattered protoplanet."));
-    v.push(sbdb!("eros", "433 Eros", None, &["Eros"], Asteroid, None, 8.4, C_AST, "433 Eros", ""));
-    v.push(sbdb!("bennu", "101955 Bennu", None, &["Bennu"], Asteroid, None, 0.245, C_AST, "101955 Bennu", ""));
-    v.push(sbdb!("apophis", "99942 Apophis", None, &["Apophis"], Asteroid, None, 0.17, C_AST, "99942 Apophis", ""));
+    v.push(sbdb!(
+        "pallas",
+        "2 Pallas",
+        None,
+        &["Pallas"],
+        Asteroid,
+        None,
+        256.0,
+        C_AST,
+        "2 Pallas",
+        ""
+    ));
+    v.push(sbdb!(
+        "juno",
+        "3 Juno",
+        None,
+        &["Juno"],
+        Asteroid,
+        None,
+        123.0,
+        C_AST,
+        "3 Juno",
+        ""
+    ));
+    v.push(sbdb!(
+        "vesta",
+        "4 Vesta",
+        None,
+        &["Vesta"],
+        Asteroid,
+        None,
+        262.7,
+        C_AST,
+        "4 Vesta",
+        ""
+    ));
+    v.push(sbdb!(
+        "hygiea",
+        "10 Hygiea",
+        None,
+        &["Hygiea"],
+        Asteroid,
+        None,
+        217.0,
+        C_AST,
+        "10 Hygiea",
+        ""
+    ));
+    v.push(sbdb!(
+        "psyche",
+        "16 Psyche",
+        None,
+        &["Psyche"],
+        Asteroid,
+        None,
+        113.0,
+        C_AST,
+        "16 Psyche",
+        "A metal-rich world thought to be the exposed core of a shattered protoplanet."
+    ));
+    v.push(sbdb!(
+        "eros",
+        "433 Eros",
+        None,
+        &["Eros"],
+        Asteroid,
+        None,
+        8.4,
+        C_AST,
+        "433 Eros",
+        ""
+    ));
+    v.push(sbdb!(
+        "bennu",
+        "101955 Bennu",
+        None,
+        &["Bennu"],
+        Asteroid,
+        None,
+        0.245,
+        C_AST,
+        "101955 Bennu",
+        ""
+    ));
+    v.push(sbdb!(
+        "apophis",
+        "99942 Apophis",
+        None,
+        &["Apophis"],
+        Asteroid,
+        None,
+        0.17,
+        C_AST,
+        "99942 Apophis",
+        ""
+    ));
 
     // --- Comets (8) ---
     v.push(sbdb!("halley", "1P/Halley", Some("1P"), &["Halley"], Comet, None, 5.5, C_COMET, "1P",
         "The most famous comet of all, returning roughly every 76 years; its 1986 perihelion is a demo-script stop."));
-    v.push(sbdb!("encke", "2P/Encke", Some("2P"), &["Encke"], Comet, None, 2.4, C_COMET, "2P", ""));
-    v.push(sbdb!("tempel_1", "9P/Tempel 1", Some("9P"), &["Tempel 1"], Comet, None, 3.0, C_COMET, "9P", ""));
-    v.push(sbdb!("churyumov_gerasimenko", "67P/Churyumov-Gerasimenko", Some("67P"), &["Churyumov-Gerasimenko"], Comet, None, 2.0, C_COMET, "67P", ""));
-    v.push(sbdb!("hartley_2", "103P/Hartley 2", Some("103P"), &["Hartley 2"], Comet, None, 0.6, C_COMET, "103P", ""));
-    v.push(sbdb!("hale_bopp", "Hale-Bopp", Some("C/1995 O1"), &[], Comet, None, 30.0, C_COMET, "C/1995 O1", ""));
-    v.push(sbdb!("neowise", "NEOWISE", Some("C/2020 F3"), &[], Comet, None, 2.5, C_COMET, "C/2020 F3", ""));
+    v.push(sbdb!(
+        "encke",
+        "2P/Encke",
+        Some("2P"),
+        &["Encke"],
+        Comet,
+        None,
+        2.4,
+        C_COMET,
+        "2P",
+        ""
+    ));
+    v.push(sbdb!(
+        "tempel_1",
+        "9P/Tempel 1",
+        Some("9P"),
+        &["Tempel 1"],
+        Comet,
+        None,
+        3.0,
+        C_COMET,
+        "9P",
+        ""
+    ));
+    v.push(sbdb!(
+        "churyumov_gerasimenko",
+        "67P/Churyumov-Gerasimenko",
+        Some("67P"),
+        &["Churyumov-Gerasimenko"],
+        Comet,
+        None,
+        2.0,
+        C_COMET,
+        "67P",
+        ""
+    ));
+    v.push(sbdb!(
+        "hartley_2",
+        "103P/Hartley 2",
+        Some("103P"),
+        &["Hartley 2"],
+        Comet,
+        None,
+        0.6,
+        C_COMET,
+        "103P",
+        ""
+    ));
+    v.push(sbdb!(
+        "hale_bopp",
+        "Hale-Bopp",
+        Some("C/1995 O1"),
+        &[],
+        Comet,
+        None,
+        30.0,
+        C_COMET,
+        "C/1995 O1",
+        ""
+    ));
+    v.push(sbdb!(
+        "neowise",
+        "NEOWISE",
+        Some("C/2020 F3"),
+        &[],
+        Comet,
+        None,
+        2.5,
+        C_COMET,
+        "C/2020 F3",
+        ""
+    ));
     v.push(sbdb!("3i_atlas", "3I/ATLAS", Some("C/2025 N1"), &["3I"], Comet, None, 2.5, C_COMET, "C/2025 N1",
         "The third known interstellar object, crossing the solar system on a hyperbolic path — the catalog's open-arc stress test."));
 
@@ -361,7 +687,12 @@ mod tests {
         for e in &es {
             assert!(seen.insert(e.id), "duplicate id {}", e.id);
             if let Some(p) = e.parent {
-                assert!(seen.contains(p), "parent '{}' of '{}' must precede it", p, e.id);
+                assert!(
+                    seen.contains(p),
+                    "parent '{}' of '{}' must precede it",
+                    p,
+                    e.id
+                );
             }
         }
     }

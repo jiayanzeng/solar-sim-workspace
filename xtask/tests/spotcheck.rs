@@ -41,21 +41,27 @@ fn horizons_position_spot_check() {
         return;
     }
 
-    let catalog =
-        Catalog::from_ron_str(&std::fs::read_to_string(&catalog_path).unwrap()).unwrap();
+    let catalog = Catalog::from_ron_str(&std::fs::read_to_string(&catalog_path).unwrap()).unwrap();
     catalog.validate().expect("captured catalog must validate");
     let index = catalog.id_index();
 
     let vectors: Vec<VectorFixture> =
         serde_json::from_str(&std::fs::read_to_string(&vectors_path).unwrap()).unwrap();
-    assert!(vectors.len() >= 10, "spec §9 calls for a 10-body spot-check set");
+    assert!(
+        vectors.len() >= 10,
+        "spec §9 calls for a 10-body spot-check set"
+    );
 
     let mut failures = Vec::new();
     for v in &vectors {
         let body = &catalog.bodies[*index.get(v.id.as_str()).expect("fixture id in catalog")];
         let orbit = body.orbit.as_ref().expect("spot-check body has an orbit");
         let parent = &catalog.bodies[*index
-            .get(body.parent.as_deref().expect("spot-check body has a parent"))
+            .get(
+                body.parent
+                    .as_deref()
+                    .expect("spot-check body has a parent"),
+            )
             .unwrap()];
         let mu = parent.gm_km3_s2.expect("parent has GM");
 
@@ -72,8 +78,15 @@ fn horizons_position_spot_check() {
                 v.id, v.jd_tdb, err, v.tol_km
             ));
         } else {
-            eprintln!("spot-check: {} @ JD {} within budget ({:.1} km)", v.id, v.jd_tdb, err);
+            eprintln!(
+                "spot-check: {} @ JD {} within budget ({:.1} km)",
+                v.id, v.jd_tdb, err
+            );
         }
     }
-    assert!(failures.is_empty(), "spot-check failures:\n{}", failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "spot-check failures:\n{}",
+        failures.join("\n")
+    );
 }

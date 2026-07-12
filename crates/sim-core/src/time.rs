@@ -57,18 +57,54 @@ const SNAP_DONE_S: f64 = 1.0;
 /// Months are mean months (Julian year / 12) — calendar months would make the
 /// slider's step ratios wobble for no visual gain.
 pub const LADDER: [RateStep; 12] = [
-    RateStep { seconds_per_second: 1.0, label: "REAL RATE" },
-    RateStep { seconds_per_second: 60.0, label: "1 MIN/S" },
-    RateStep { seconds_per_second: 3_600.0, label: "1 HR/S" },
-    RateStep { seconds_per_second: DAY_S, label: "1 DAY/S" },
-    RateStep { seconds_per_second: 7.0 * DAY_S, label: "1 WK/S" },
-    RateStep { seconds_per_second: JULIAN_YEAR_S / 12.0, label: "1 MTH/S" },
-    RateStep { seconds_per_second: JULIAN_YEAR_S / 2.0, label: "6 MTHS/S" },
-    RateStep { seconds_per_second: JULIAN_YEAR_S, label: "1 YR/S" },
-    RateStep { seconds_per_second: 3.0 * JULIAN_YEAR_S, label: "3 YRS/S" },
-    RateStep { seconds_per_second: 10.0 * JULIAN_YEAR_S, label: "10 YRS/S" },
-    RateStep { seconds_per_second: 30.0 * JULIAN_YEAR_S, label: "30 YRS/S" },
-    RateStep { seconds_per_second: 100.0 * JULIAN_YEAR_S, label: "100 YRS/S" },
+    RateStep {
+        seconds_per_second: 1.0,
+        label: "REAL RATE",
+    },
+    RateStep {
+        seconds_per_second: 60.0,
+        label: "1 MIN/S",
+    },
+    RateStep {
+        seconds_per_second: 3_600.0,
+        label: "1 HR/S",
+    },
+    RateStep {
+        seconds_per_second: DAY_S,
+        label: "1 DAY/S",
+    },
+    RateStep {
+        seconds_per_second: 7.0 * DAY_S,
+        label: "1 WK/S",
+    },
+    RateStep {
+        seconds_per_second: JULIAN_YEAR_S / 12.0,
+        label: "1 MTH/S",
+    },
+    RateStep {
+        seconds_per_second: JULIAN_YEAR_S / 2.0,
+        label: "6 MTHS/S",
+    },
+    RateStep {
+        seconds_per_second: JULIAN_YEAR_S,
+        label: "1 YR/S",
+    },
+    RateStep {
+        seconds_per_second: 3.0 * JULIAN_YEAR_S,
+        label: "3 YRS/S",
+    },
+    RateStep {
+        seconds_per_second: 10.0 * JULIAN_YEAR_S,
+        label: "10 YRS/S",
+    },
+    RateStep {
+        seconds_per_second: 30.0 * JULIAN_YEAR_S,
+        label: "30 YRS/S",
+    },
+    RateStep {
+        seconds_per_second: 100.0 * JULIAN_YEAR_S,
+        label: "100 YRS/S",
+    },
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -143,7 +179,16 @@ impl RateIndex {
     /// Nearest detent for a raw slider position (drag → `SimCommand::SetRate`).
     pub fn from_slider_pos(p: f32) -> RateIndex {
         let i = (p.clamp(-1.0, 1.0) * 12.0).round() as i8;
-        RateIndex::new(if i == 0 { if p < 0.0 { -1 } else { 1 } } else { i }).unwrap()
+        RateIndex::new(if i == 0 {
+            if p < 0.0 {
+                -1
+            } else {
+                1
+            }
+        } else {
+            i
+        })
+        .unwrap()
     }
 
     /// All 24 detents, left to right — the WP8 slider builds from this.
@@ -224,7 +269,10 @@ pub fn t_from_datetime(dt: &DateTime) -> Result<f64, String> {
         return Err(format!("month {} out of range", dt.month));
     }
     if dt.day == 0 || dt.day > days_in_month(dt.year, dt.month) {
-        return Err(format!("day {} invalid for {}-{:02}", dt.day, dt.year, dt.month));
+        return Err(format!(
+            "day {} invalid for {}-{:02}",
+            dt.day, dt.year, dt.month
+        ));
     }
     if dt.hour > 23 || dt.minute > 59 || dt.second > 59 {
         return Err("time component out of range".into());
@@ -238,7 +286,7 @@ pub fn t_from_datetime(dt: &DateTime) -> Result<f64, String> {
 
 /// (J2000_JD_TDB − UNIX_EPOCH_JD) · 86400 = 10957.5 d — exactly representable.
 /// Note the .5: J2000 is 2000-01-01 *noon*, not the midnight Unix milestone.
-const SECONDS_J2000_MINUS_UNIX: f64 = 946_728_000.0;
+const SECONDS_J2000_MINUS_UNIX: f64 = (J2000_JD_TDB - UNIX_EPOCH_JD) * DAY_S;
 
 /// Seconds since J2000 (TDB) → civil TDB datetime (truncated to the second).
 pub fn datetime_from_t(t: f64) -> DateTime {
@@ -298,16 +346,26 @@ pub fn parse_time(s: &str) -> Result<(u8, u8, u8), String> {
     }
     let h: u8 = b[0].parse().map_err(|_| "bad hour")?;
     let m: u8 = b[1].parse().map_err(|_| "bad minute")?;
-    let s: u8 = if b.len() == 3 { b[2].parse().map_err(|_| "bad second")? } else { 0 };
+    let s: u8 = if b.len() == 3 {
+        b[2].parse().map_err(|_| "bad second")?
+    } else {
+        0
+    };
     Ok((h, m, s))
 }
 
-pub const MONTH_ABBREV: [&str; 12] =
-    ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+pub const MONTH_ABBREV: [&str; 12] = [
+    "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+];
 
 /// Eyes-style date label: "JAN 01, 2026".
 pub fn format_date_eyes(dt: &DateTime) -> String {
-    format!("{} {:02}, {}", MONTH_ABBREV[(dt.month - 1) as usize], dt.day, dt.year)
+    format!(
+        "{} {:02}, {}",
+        MONTH_ABBREV[(dt.month - 1) as usize],
+        dt.day,
+        dt.year
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -325,7 +383,9 @@ pub enum StartMode {
 
 impl Default for StartMode {
     fn default() -> Self {
-        StartMode::FixedEpoch { jd_tdb: DEFAULT_START_EPOCH_JD_TDB }
+        StartMode::FixedEpoch {
+            jd_tdb: DEFAULT_START_EPOCH_JD_TDB,
+        }
     }
 }
 
@@ -525,9 +585,18 @@ mod tests {
         assert_eq!(RateIndex::REAL.seconds_per_second(), 1.0);
         assert_eq!(RateIndex::new(-1).unwrap().seconds_per_second(), -1.0);
         assert_eq!(RateIndex::new(4).unwrap().seconds_per_second(), DAY_S);
-        assert_eq!(RateIndex::new(12).unwrap().seconds_per_second(), 100.0 * JULIAN_YEAR_S);
-        assert_eq!(RateIndex::new(-12).unwrap().seconds_per_second(), -100.0 * JULIAN_YEAR_S);
-        assert_eq!(RateIndex::new(7).unwrap().seconds_per_second(), JULIAN_YEAR_S / 2.0);
+        assert_eq!(
+            RateIndex::new(12).unwrap().seconds_per_second(),
+            100.0 * JULIAN_YEAR_S
+        );
+        assert_eq!(
+            RateIndex::new(-12).unwrap().seconds_per_second(),
+            -100.0 * JULIAN_YEAR_S
+        );
+        assert_eq!(
+            RateIndex::new(7).unwrap().seconds_per_second(),
+            JULIAN_YEAR_S / 2.0
+        );
     }
 
     #[test]
@@ -549,9 +618,18 @@ mod tests {
     fn stepping_skips_zero_and_saturates() {
         assert_eq!(RateIndex::REAL.stepped(-1), RateIndex::new(-1).unwrap());
         assert_eq!(RateIndex::new(-1).unwrap().stepped(1), RateIndex::REAL);
-        assert_eq!(RateIndex::new(12).unwrap().stepped(1), RateIndex::new(12).unwrap());
-        assert_eq!(RateIndex::new(-12).unwrap().stepped(-3), RateIndex::new(-12).unwrap());
-        assert_eq!(RateIndex::new(2).unwrap().stepped(-3), RateIndex::new(-2).unwrap());
+        assert_eq!(
+            RateIndex::new(12).unwrap().stepped(1),
+            RateIndex::new(12).unwrap()
+        );
+        assert_eq!(
+            RateIndex::new(-12).unwrap().stepped(-3),
+            RateIndex::new(-12).unwrap()
+        );
+        assert_eq!(
+            RateIndex::new(2).unwrap().stepped(-3),
+            RateIndex::new(-2).unwrap()
+        );
     }
 
     #[test]
@@ -564,7 +642,10 @@ mod tests {
         assert_eq!(count, 24);
         // dead-center drag resolves to +REAL; slightly-left to −REAL
         assert_eq!(RateIndex::from_slider_pos(0.0), RateIndex::REAL);
-        assert_eq!(RateIndex::from_slider_pos(-0.02), RateIndex::new(-1).unwrap());
+        assert_eq!(
+            RateIndex::from_slider_pos(-0.02),
+            RateIndex::new(-1).unwrap()
+        );
         // extremes clamp
         assert_eq!(RateIndex::from_slider_pos(9.0), RateIndex::new(12).unwrap());
     }
@@ -576,8 +657,24 @@ mod tests {
         let dt = datetime_from_t(0.0);
         assert_eq!(
             dt,
-            DateTime { year: 2000, month: 1, day: 1, hour: 12, minute: 0, second: 0 }
+            DateTime {
+                year: 2000,
+                month: 1,
+                day: 1,
+                hour: 12,
+                minute: 0,
+                second: 0
+            }
         );
+    }
+
+    #[test]
+    fn unix_epoch_jd_constant_is_consistent() {
+        // Pins the noon-vs-midnight trap from the WP1 change log:
+        // J2000 is JD 2451545.0 (noon); Unix epoch is JD 2440587.5 (midnight).
+        let seconds_from_jd = (J2000_JD_TDB - UNIX_EPOCH_JD) * DAY_S;
+        assert_eq!(seconds_from_jd, 946_728_000.0);
+        assert_eq!(seconds_from_jd, SECONDS_J2000_MINUS_UNIX);
     }
 
     #[test]
@@ -586,24 +683,46 @@ mod tests {
         let dt = datetime_from_t(t);
         assert_eq!(
             dt,
-            DateTime { year: 2026, month: 1, day: 1, hour: 12, minute: 0, second: 0 }
+            DateTime {
+                year: 2026,
+                month: 1,
+                day: 1,
+                hour: 12,
+                minute: 0,
+                second: 0
+            }
         );
     }
 
     #[test]
     fn range_literals_match_calendar_functions() {
         let min = t_from_datetime(&DateTime {
-            year: 1800, month: 1, day: 1, hour: 0, minute: 0, second: 0,
+            year: 1800,
+            month: 1,
+            day: 1,
+            hour: 0,
+            minute: 0,
+            second: 0,
         })
         .unwrap();
         assert_eq!(min, T_MIN_S);
         let max = t_from_datetime(&DateTime {
-            year: 2300, month: 12, day: 31, hour: 23, minute: 59, second: 59,
+            year: 2300,
+            month: 12,
+            day: 31,
+            hour: 23,
+            minute: 59,
+            second: 59,
         })
         .unwrap();
         assert_eq!(max, T_MAX_S);
         let conf = t_from_datetime(&DateTime {
-            year: 2051, month: 1, day: 1, hour: 0, minute: 0, second: 0,
+            year: 2051,
+            month: 1,
+            day: 1,
+            hour: 0,
+            minute: 0,
+            second: 0,
         })
         .unwrap();
         assert_eq!(conf, T_HIGH_CONFIDENCE_MAX_S + 1.0 - 1.0); // exact boundary
@@ -628,21 +747,74 @@ mod tests {
             (2300, 12, 31, 23, 59, 59),
         ];
         for (y, mo, d, h, mi, s) in cases {
-            let dt = DateTime { year: y, month: mo, day: d, hour: h, minute: mi, second: s };
+            let dt = DateTime {
+                year: y,
+                month: mo,
+                day: d,
+                hour: h,
+                minute: mi,
+                second: s,
+            };
             let t = t_from_datetime(&dt).unwrap();
-            assert_eq!(datetime_from_t(t), dt, "round-trip failed for {y}-{mo:02}-{d:02}");
+            assert_eq!(
+                datetime_from_t(t),
+                dt,
+                "round-trip failed for {y}-{mo:02}-{d:02}"
+            );
         }
     }
 
     #[test]
     fn invalid_dates_are_rejected() {
         let bad = [
-            DateTime { year: 1900, month: 2, day: 29, hour: 0, minute: 0, second: 0 },
-            DateTime { year: 2026, month: 13, day: 1, hour: 0, minute: 0, second: 0 },
-            DateTime { year: 2026, month: 4, day: 31, hour: 0, minute: 0, second: 0 },
-            DateTime { year: 2026, month: 0, day: 1, hour: 0, minute: 0, second: 0 },
-            DateTime { year: 2026, month: 1, day: 1, hour: 24, minute: 0, second: 0 },
-            DateTime { year: 2026, month: 1, day: 1, hour: 0, minute: 60, second: 0 },
+            DateTime {
+                year: 1900,
+                month: 2,
+                day: 29,
+                hour: 0,
+                minute: 0,
+                second: 0,
+            },
+            DateTime {
+                year: 2026,
+                month: 13,
+                day: 1,
+                hour: 0,
+                minute: 0,
+                second: 0,
+            },
+            DateTime {
+                year: 2026,
+                month: 4,
+                day: 31,
+                hour: 0,
+                minute: 0,
+                second: 0,
+            },
+            DateTime {
+                year: 2026,
+                month: 0,
+                day: 1,
+                hour: 0,
+                minute: 0,
+                second: 0,
+            },
+            DateTime {
+                year: 2026,
+                month: 1,
+                day: 1,
+                hour: 24,
+                minute: 0,
+                second: 0,
+            },
+            DateTime {
+                year: 2026,
+                month: 1,
+                day: 1,
+                hour: 0,
+                minute: 60,
+                second: 0,
+            },
         ];
         for dt in bad {
             assert!(t_from_datetime(&dt).is_err(), "{dt:?} should be invalid");
@@ -663,7 +835,14 @@ mod tests {
 
     #[test]
     fn eyes_date_label() {
-        let dt = DateTime { year: 2026, month: 7, day: 11, hour: 21, minute: 16, second: 36 };
+        let dt = DateTime {
+            year: 2026,
+            month: 7,
+            day: 11,
+            hour: 21,
+            minute: 16,
+            second: 36,
+        };
         assert_eq!(format_date_eyes(&dt), "JUL 11, 2026");
     }
 
@@ -672,7 +851,10 @@ mod tests {
         // Unix 0 = 1970-01-01T00:00:00 UTC → TDB is ~69.184 s later
         let t = t_from_unix_utc(0.0);
         let dt = datetime_from_t(t);
-        assert_eq!((dt.year, dt.month, dt.day, dt.hour, dt.minute), (1970, 1, 1, 0, 1));
+        assert_eq!(
+            (dt.year, dt.month, dt.day, dt.hour, dt.minute),
+            (1970, 1, 1, 0, 1)
+        );
         assert_eq!(dt.second, 9); // 69.184 s → 00:01:09 TDB
     }
 
@@ -761,8 +943,8 @@ mod tests {
     #[test]
     fn clamps_at_range_edges_report_once_and_pin() {
         let mut c = fixed_clock();
+        // 2026 → past 2300 in under 3 wall-seconds.
         c.set_rate(RateIndex::MAX); // +100 yr/s
-        // 2026 → past 2300 in under 3 wall-seconds
         let r1 = c.tick(5.0, NOW);
         assert_eq!(r1.clamped, Some(RangeEdge::AtMax));
         assert_eq!(c.t(), T_MAX_S);
@@ -792,11 +974,25 @@ mod tests {
         assert_eq!(c.t(), T_MAX_S);
         assert_eq!(c.set_t(0.0), None);
 
-        let ok = DateTime { year: 1986, month: 2, day: 9, hour: 0, minute: 0, second: 0 };
+        let ok = DateTime {
+            year: 1986,
+            month: 2,
+            day: 9,
+            hour: 0,
+            minute: 0,
+            second: 0,
+        };
         assert_eq!(c.set_datetime(&ok).unwrap(), None);
         assert_eq!(c.datetime(), ok);
 
-        let invalid = DateTime { year: 1900, month: 2, day: 29, hour: 0, minute: 0, second: 0 };
+        let invalid = DateTime {
+            year: 1900,
+            month: 2,
+            day: 29,
+            hour: 0,
+            minute: 0,
+            second: 0,
+        };
         assert!(c.set_datetime(&invalid).is_err());
         assert_eq!(c.datetime(), ok, "invalid input must not move the clock");
     }

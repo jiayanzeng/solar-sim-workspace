@@ -53,9 +53,17 @@ const NEWTON_MAX_ITERS: usize = 60;
 const BISECT_MAX_ITERS: usize = 200;
 
 fn check_elements(el: &Elements, mu: f64) -> Result<(), KeplerError> {
-    let finite = [el.a_km, el.e, el.i_deg, el.raan_deg, el.argp_deg, el.m0_deg, mu]
-        .iter()
-        .all(|v| v.is_finite());
+    let finite = [
+        el.a_km,
+        el.e,
+        el.i_deg,
+        el.raan_deg,
+        el.argp_deg,
+        el.m0_deg,
+        mu,
+    ]
+    .iter()
+    .all(|v| v.is_finite());
     if !finite {
         return Err(KeplerError::NonFinite);
     }
@@ -80,7 +88,7 @@ fn check_elements(el: &Elements, mu: f64) -> Result<(), KeplerError> {
 /// so `E − M` is always small — callers get a numerically tame anomaly.
 pub fn solve_elliptic(m_rad: f64, e: f64) -> Result<f64, KeplerError> {
     if !m_rad.is_finite() || !(0.0..1.0).contains(&e) {
-        return Err(if e >= 1.0 || e < 0.0 {
+        return Err(if e.is_finite() && !(0.0..1.0).contains(&e) {
             KeplerError::UnsupportedEccentricity
         } else {
             KeplerError::NonFinite
@@ -98,7 +106,11 @@ pub fn solve_elliptic(m_rad: f64, e: f64) -> Result<f64, KeplerError> {
 
     // Newton from the classic starter (E = M for moderate e; ±π for high e
     // where the M-starter can stall near M ≈ 0 ± e).
-    let mut x = if e < 0.8 { m } else { PI.copysign(if m == 0.0 { 1.0 } else { m }) };
+    let mut x = if e < 0.8 {
+        m
+    } else {
+        PI.copysign(if m == 0.0 { 1.0 } else { m })
+    };
     let tol = 1.0e-14 * (1.0 + m.abs());
     for _ in 0..NEWTON_MAX_ITERS {
         let fx = f(x);
@@ -266,7 +278,12 @@ pub fn state_from_elements(
         let (sh, ch) = (h.sinh(), h.cosh());
         let beta = (e * e - 1.0).sqrt();
         let r = a * (1.0 - e * ch); // = |a|(e·cosh H − 1) > 0 since a < 0
-        (a * (ch - e), -a * beta * sh, -na2 * sh / r, na2 * beta * ch / r)
+        (
+            a * (ch - e),
+            -a * beta * sh,
+            -na2 * sh / r,
+            na2 * beta * ch / r,
+        )
     };
 
     let (p, q) = pqw_basis(el);
@@ -297,8 +314,8 @@ pub fn elements_at(orbit: &Orbit, t_s: f64) -> Elements {
         argp_deg_per_cy,
     }) = orbit.secular
     {
-        let cy = (t_s - t_from_jd_tdb(orbit.epoch_jd_tdb))
-            / (DAYS_PER_JULIAN_CENTURY * SECONDS_PER_DAY);
+        let cy =
+            (t_s - t_from_jd_tdb(orbit.epoch_jd_tdb)) / (DAYS_PER_JULIAN_CENTURY * SECONDS_PER_DAY);
         el.a_km += a_km_per_cy * cy;
         el.e = (el.e + e_per_cy * cy).max(0.0);
         el.i_deg += i_deg_per_cy * cy;
@@ -350,13 +367,10 @@ mod tests {
                 let m = -TAU + (k as f64) * (2.0 * TAU / 720.0); // [−2π, 2π]
                 let big_e = solve_elliptic(m, e).unwrap();
                 let resid = big_e - e * big_e.sin() - m;
-                assert!(
-                    resid.abs() < 1e-12,
-                    "e={e} M={m}: residual {resid:e}"
-                );
+                assert!(resid.abs() < 1e-12, "e={e} M={m}: residual {resid:e}");
             }
             // huge M (±100 yr/s territory): residual vs the same unwrapped M
-            for &m in &[1.0e6_f64, -3.7e7, 6.5e5 + 0.318] {
+            for &m in &[1.0e6_f64, -3.7e7, 6.5e5 + 318.0 / 1_000.0] {
                 let big_e = solve_elliptic(m, e).unwrap();
                 let resid = big_e - e * big_e.sin() - m;
                 assert!(resid.abs() < 1e-7, "e={e} M={m}: residual {resid:e}");
@@ -386,29 +400,53 @@ mod tests {
 
     #[test]
     fn solver_guards() {
-        assert_eq!(solve_elliptic(1.0, 1.0), Err(KeplerError::UnsupportedEccentricity));
-        assert_eq!(solve_elliptic(1.0, -0.1), Err(KeplerError::UnsupportedEccentricity));
+        assert_eq!(
+            solve_elliptic(1.0, 1.0),
+            Err(KeplerError::UnsupportedEccentricity)
+        );
+        assert_eq!(
+            solve_elliptic(1.0, -0.1),
+            Err(KeplerError::UnsupportedEccentricity)
+        );
         assert_eq!(solve_elliptic(f64::NAN, 0.5), Err(KeplerError::NonFinite));
-        assert_eq!(solve_hyperbolic(1.0, 1.0), Err(KeplerError::UnsupportedEccentricity));
-        assert_eq!(solve_hyperbolic(f64::INFINITY, 2.0), Err(KeplerError::NonFinite));
+        assert_eq!(
+            solve_hyperbolic(1.0, 1.0),
+            Err(KeplerError::UnsupportedEccentricity)
+        );
+        assert_eq!(
+            solve_hyperbolic(f64::INFINITY, 2.0),
+            Err(KeplerError::NonFinite)
+        );
     }
 
     #[test]
     fn state_guards() {
         let good = Elements {
-            a_km: 1.5e8, e: 0.1, i_deg: 1.0, raan_deg: 2.0, argp_deg: 3.0, m0_deg: 4.0,
+            a_km: 1.5e8,
+            e: 0.1,
+            i_deg: 1.0,
+            raan_deg: 2.0,
+            argp_deg: 3.0,
+            m0_deg: 4.0,
         };
         let o = orbit(good);
         assert!(state_at(&o, MU_SUN, 0.0).is_ok());
         assert_eq!(state_at(&o, -1.0, 0.0), Err(KeplerError::BadMu));
         assert_eq!(state_at(&o, MU_SUN, f64::NAN), Err(KeplerError::NonFinite));
 
-        let mismatch = Elements { a_km: -1.5e8, ..good };
+        let mismatch = Elements {
+            a_km: -1.5e8,
+            ..good
+        };
         assert_eq!(
             state_at(&orbit(mismatch), MU_SUN, 0.0),
             Err(KeplerError::AxisEccentricityMismatch)
         );
-        let parabolic = Elements { e: 1.0, a_km: -1.5e8, ..good };
+        let parabolic = Elements {
+            e: 1.0,
+            a_km: -1.5e8,
+            ..good
+        };
         assert_eq!(
             state_at(&orbit(parabolic), MU_SUN, 0.0),
             Err(KeplerError::UnsupportedEccentricity)
@@ -420,7 +458,12 @@ mod tests {
     #[test]
     fn circular_orbit_sanity() {
         let el = Elements {
-            a_km: 1.0e5, e: 0.0, i_deg: 0.0, raan_deg: 0.0, argp_deg: 0.0, m0_deg: 0.0,
+            a_km: 1.0e5,
+            e: 0.0,
+            i_deg: 0.0,
+            raan_deg: 0.0,
+            argp_deg: 0.0,
+            m0_deg: 0.0,
         };
         let o = orbit(el);
         let mu = 3.986e5; // Earth-ish
@@ -439,13 +482,21 @@ mod tests {
         let cases = [
             // Halley-like ellipse
             Elements {
-                a_km: 2.667e9, e: 0.967, i_deg: 162.26, raan_deg: 58.42,
-                argp_deg: 111.33, m0_deg: 0.0,
+                a_km: 2.667e9,
+                e: 0.967,
+                i_deg: 162.26,
+                raan_deg: 58.42,
+                argp_deg: 111.33,
+                m0_deg: 0.0,
             },
             // 3I/ATLAS-like hyperbola
             Elements {
-                a_km: -3.99e7, e: 6.1, i_deg: 175.1, raan_deg: 322.0,
-                argp_deg: 128.0, m0_deg: 0.0,
+                a_km: -3.99e7,
+                e: 6.1,
+                i_deg: 175.1,
+                raan_deg: 322.0,
+                argp_deg: 128.0,
+                m0_deg: 0.0,
             },
         ];
         for el in cases {
@@ -460,12 +511,14 @@ mod tests {
                 let energy = 0.5 * s.speed_km_s().powi(2) - MU_SUN / r;
                 assert!(
                     (energy / energy_expected - 1.0).abs() < 1e-10,
-                    "energy drift at k={k} for e={}", el.e
+                    "energy drift at k={k} for e={}",
+                    el.e
                 );
                 let h = norm(cross(s.position_km, s.velocity_km_s));
                 assert!(
                     (h / h_expected - 1.0).abs() < 1e-10,
-                    "angular momentum drift at k={k} for e={}", el.e
+                    "angular momentum drift at k={k} for e={}",
+                    el.e
                 );
             }
         }
@@ -474,8 +527,12 @@ mod tests {
     #[test]
     fn elliptic_period_closure() {
         let el = Elements {
-            a_km: 1.495_979e8, e: 0.0167, i_deg: 0.003, raan_deg: 175.0,
-            argp_deg: 288.0, m0_deg: 357.5,
+            a_km: 1.495_979e8,
+            e: 0.0167,
+            i_deg: 0.003,
+            raan_deg: 175.0,
+            argp_deg: 288.0,
+            m0_deg: 357.5,
         };
         let o = orbit(el);
         let t0 = t_from_jd_tdb(o.epoch_jd_tdb);
@@ -483,7 +540,10 @@ mod tests {
         let s0 = state_at(&o, MU_SUN, t0).unwrap();
         let s1 = state_at(&o, MU_SUN, t0 + period).unwrap();
         for i in 0..3 {
-            assert!((s0.position_km[i] - s1.position_km[i]).abs() < 1e-3, "km closure");
+            assert!(
+                (s0.position_km[i] - s1.position_km[i]).abs() < 1e-3,
+                "km closure"
+            );
             assert!((s0.velocity_km_s[i] - s1.velocity_km_s[i]).abs() < 1e-9);
         }
     }
@@ -531,12 +591,20 @@ mod tests {
 
         let cases = [
             Elements {
-                a_km: 2.667e9, e: 0.967, i_deg: 162.26, raan_deg: 58.42,
-                argp_deg: 111.33, m0_deg: -1.0, // just before perihelion
+                a_km: 2.667e9,
+                e: 0.967,
+                i_deg: 162.26,
+                raan_deg: 58.42,
+                argp_deg: 111.33,
+                m0_deg: -1.0, // just before perihelion
             },
             Elements {
-                a_km: -3.99e7, e: 6.1, i_deg: 175.1, raan_deg: 322.0,
-                argp_deg: 128.0, m0_deg: -25.0, // inbound leg
+                a_km: -3.99e7,
+                e: 6.1,
+                i_deg: 175.1,
+                raan_deg: 322.0,
+                argp_deg: 128.0,
+                m0_deg: -25.0, // inbound leg
             },
         ];
         for el in cases {
@@ -550,7 +618,8 @@ mod tests {
             let dr = norm(add(closed.position_km, scale(integrated.position_km, -1.0)));
             assert!(
                 dr / closed.radius_km() < 1e-6,
-                "e={}: RK4 vs closed-form diverge by {dr} km", el.e
+                "e={}: RK4 vs closed-form diverge by {dr} km",
+                el.e
             );
         }
     }
@@ -560,8 +629,12 @@ mod tests {
     #[test]
     fn velocity_is_position_derivative_even_with_override() {
         let mut o = orbit(Elements {
-            a_km: 1.495_979e8, e: 0.0167, i_deg: 3.0, raan_deg: 175.0,
-            argp_deg: 288.0, m0_deg: 42.0,
+            a_km: 1.495_979e8,
+            e: 0.0167,
+            i_deg: 3.0,
+            raan_deg: 175.0,
+            argp_deg: 288.0,
+            m0_deg: 42.0,
         });
         o.mean_motion_deg_per_day = Some(0.9856); // fitted, ≠ √(μ/a³) exactly
         let t = t_from_jd_tdb(o.epoch_jd_tdb) + 1.0e7;
@@ -573,7 +646,8 @@ mod tests {
             let fd = (sp.position_km[i] - sm.position_km[i]) / (2.0 * h);
             assert!(
                 (fd - s.velocity_km_s[i]).abs() < 1e-6,
-                "axis {i}: fd={fd} v={}", s.velocity_km_s[i]
+                "axis {i}: fd={fd} v={}",
+                s.velocity_km_s[i]
             );
         }
         // and the override actually drives the period
@@ -588,24 +662,49 @@ mod tests {
     #[test]
     fn retrograde_fixtures_triton_and_phoebe() {
         let cases = [
-            ("triton", Elements {
-                a_km: 3.548e5, e: 1.6e-5, i_deg: 157.3, raan_deg: 178.1,
-                argp_deg: 0.0, m0_deg: 60.0,
-            }, MU_NEPTUNE),
-            ("phoebe", Elements {
-                a_km: 1.2947e7, e: 0.156, i_deg: 175.2, raan_deg: 241.6,
-                argp_deg: 342.5, m0_deg: 120.0,
-            }, 3.7931e7), // Saturn
+            (
+                "triton",
+                Elements {
+                    a_km: 3.548e5,
+                    e: 1.6e-5,
+                    i_deg: 157.3,
+                    raan_deg: 178.1,
+                    argp_deg: 0.0,
+                    m0_deg: 60.0,
+                },
+                MU_NEPTUNE,
+            ),
+            (
+                "phoebe",
+                Elements {
+                    a_km: 1.2947e7,
+                    e: 0.156,
+                    i_deg: 175.2,
+                    raan_deg: 241.6,
+                    argp_deg: 342.5,
+                    m0_deg: 120.0,
+                },
+                3.7931e7,
+            ), // Saturn
         ];
         for (name, el, mu) in cases {
             let o = orbit(el);
             let s = state_at(&o, mu, t_from_jd_tdb(o.epoch_jd_tdb) + 1.0e5).unwrap();
             let h = cross(s.position_km, s.velocity_km_s);
-            assert!(h[2] < 0.0, "{name}: retrograde must give h_z < 0, got {}", h[2]);
+            assert!(
+                h[2] < 0.0,
+                "{name}: retrograde must give h_z < 0, got {}",
+                h[2]
+            );
         }
         // control: a prograde Io-like orbit has h_z > 0
         let io = orbit(Elements {
-            a_km: 4.218e5, e: 0.004, i_deg: 2.2, raan_deg: 43.0, argp_deg: 84.0, m0_deg: 200.0,
+            a_km: 4.218e5,
+            e: 0.004,
+            i_deg: 2.2,
+            raan_deg: 43.0,
+            argp_deg: 84.0,
+            m0_deg: 200.0,
         });
         let s = state_at(&io, 1.26687e8, 0.0).unwrap();
         assert!(cross(s.position_km, s.velocity_km_s)[2] > 0.0);
@@ -616,15 +715,20 @@ mod tests {
     #[test]
     fn nereid_fixture_high_eccentricity_ellipse() {
         let el = Elements {
-            a_km: 5.5134e6, e: 0.7507, i_deg: 7.09, raan_deg: 326.0,
-            argp_deg: 290.3, m0_deg: 0.0, // start at perihelion
+            a_km: 5.5134e6,
+            e: 0.7507,
+            i_deg: 7.09,
+            raan_deg: 326.0,
+            argp_deg: 290.3,
+            m0_deg: 0.0, // start at perihelion
         };
         let o = orbit(el);
         let t0 = t_from_jd_tdb(o.epoch_jd_tdb);
         let period = o.period_s(MU_NEPTUNE).unwrap();
         assert!(
             (period / SECONDS_PER_DAY - 360.13).abs() < 1.5,
-            "Nereid period ≈ 360 d, got {}", period / SECONDS_PER_DAY
+            "Nereid period ≈ 360 d, got {}",
+            period / SECONDS_PER_DAY
         );
 
         // perihelion at M = 0, aphelion at M = π
@@ -654,8 +758,12 @@ mod tests {
     #[test]
     fn hyperbolic_perihelion_and_symmetry() {
         let el = Elements {
-            a_km: -3.99e7, e: 6.1, i_deg: 175.1, raan_deg: 322.0,
-            argp_deg: 128.0, m0_deg: 0.0,
+            a_km: -3.99e7,
+            e: 6.1,
+            i_deg: 175.1,
+            raan_deg: 322.0,
+            argp_deg: 128.0,
+            m0_deg: 0.0,
         };
         let o = orbit(el);
         let t0 = t_from_jd_tdb(o.epoch_jd_tdb);
@@ -666,7 +774,10 @@ mod tests {
             let before = state_at(&o, MU_SUN, t0 - dt).unwrap();
             let after = state_at(&o, MU_SUN, t0 + dt).unwrap();
             assert!((before.radius_km() - after.radius_km()).abs() / after.radius_km() < 1e-12);
-            assert!(after.radius_km() > s.radius_km(), "receding after perihelion");
+            assert!(
+                after.radius_km() > s.radius_km(),
+                "receding after perihelion"
+            );
         }
     }
 
@@ -675,8 +786,12 @@ mod tests {
     #[test]
     fn secular_rates_drift_elements_linearly() {
         let mut o = orbit(Elements {
-            a_km: 1.495_979e8, e: 0.0167, i_deg: 0.003, raan_deg: 175.0,
-            argp_deg: 288.0, m0_deg: 0.0,
+            a_km: 1.495_979e8,
+            e: 0.0167,
+            i_deg: 0.003,
+            raan_deg: 175.0,
+            argp_deg: 288.0,
+            m0_deg: 0.0,
         });
         o.secular = Some(SecularRates {
             a_km_per_cy: -10.0,
@@ -707,7 +822,10 @@ mod tests {
             s_a.position_km[1] - s_b.position_km[1],
             s_a.position_km[2] - s_b.position_km[2],
         ];
-        assert!(norm(dr) > 1.0e4, "secular drift must visibly move the position");
+        assert!(
+            norm(dr) > 1.0e4,
+            "secular drift must visibly move the position"
+        );
     }
 
     /// Kepler's third law consistency between the solver's n and the
@@ -715,13 +833,21 @@ mod tests {
     #[test]
     fn third_law_consistency_with_catalog_period() {
         let el = Elements {
-            a_km: 4.218e5, e: 0.004, i_deg: 0.05, raan_deg: 43.0, argp_deg: 84.0, m0_deg: 0.0,
+            a_km: 4.218e5,
+            e: 0.004,
+            i_deg: 0.05,
+            raan_deg: 43.0,
+            argp_deg: 84.0,
+            m0_deg: 0.0,
         };
         let o = orbit(el);
         let mu_jupiter = 1.266_865e8;
         let n = o.mean_motion_rad_per_s(mu_jupiter);
         let period = o.period_s(mu_jupiter).unwrap();
         assert!((n * period - TAU).abs() < 1e-12);
-        assert!((period / SECONDS_PER_DAY - 1.769).abs() < 0.01, "Io ≈ 1.77 d");
+        assert!(
+            (period / SECONDS_PER_DAY - 1.769).abs() < 0.01,
+            "Io ≈ 1.77 d"
+        );
     }
 }

@@ -31,7 +31,10 @@ fn gen_catalog(args: &[String]) -> Result<()> {
         match args[i].as_str() {
             "--out" => {
                 i += 1;
-                out = PathBuf::from(args.get(i).ok_or_else(|| anyhow::anyhow!("--out needs a path"))?);
+                out = PathBuf::from(
+                    args.get(i)
+                        .ok_or_else(|| anyhow::anyhow!("--out needs a path"))?,
+                );
             }
             "--epoch-jd" => {
                 i += 1;
@@ -43,7 +46,8 @@ fn gen_catalog(args: &[String]) -> Result<()> {
             "--fixtures" => {
                 i += 1;
                 fixtures = Some(PathBuf::from(
-                    args.get(i).ok_or_else(|| anyhow::anyhow!("--fixtures needs a dir"))?,
+                    args.get(i)
+                        .ok_or_else(|| anyhow::anyhow!("--fixtures needs a dir"))?,
                 ));
             }
             "--online" => online = true,
@@ -62,7 +66,10 @@ fn gen_catalog(args: &[String]) -> Result<()> {
         return Ok(());
     }
 
-    let opts = GenOptions { epoch_jd_tdb: epoch, allow_partial };
+    let opts = GenOptions {
+        epoch_jd_tdb: epoch,
+        allow_partial,
+    };
     let invocation = format!(
         "cargo run -p xtask{} -- gen-catalog{}{} --epoch-jd {epoch}",
         if online { " --features online" } else { "" },

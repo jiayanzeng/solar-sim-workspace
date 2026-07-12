@@ -28,16 +28,23 @@ pub struct SbdbOrbit {
 pub fn parse_response(json_body: &str) -> Result<SbdbOrbit> {
     let v: serde_json::Value =
         serde_json::from_str(json_body).context("SBDB response is not JSON")?;
-    let orbit = v.get("orbit").ok_or_else(|| anyhow!("SBDB JSON missing 'orbit'"))?;
+    let orbit = v
+        .get("orbit")
+        .ok_or_else(|| anyhow!("SBDB JSON missing 'orbit'"))?;
 
-    let epoch: f64 = num(orbit.get("epoch").ok_or_else(|| anyhow!("SBDB orbit missing 'epoch'"))?)?;
+    let epoch: f64 = num(orbit
+        .get("epoch")
+        .ok_or_else(|| anyhow!("SBDB orbit missing 'epoch'"))?)?;
 
     let elements = orbit
         .get("elements")
         .and_then(|e| e.as_array())
         .ok_or_else(|| anyhow!("SBDB orbit missing 'elements' array"))?;
 
-    let mut out = SbdbOrbit { epoch_jd_tdb: epoch, ..Default::default() };
+    let mut out = SbdbOrbit {
+        epoch_jd_tdb: epoch,
+        ..Default::default()
+    };
     let mut have = std::collections::HashSet::new();
     for el in elements {
         let name = el.get("name").and_then(|n| n.as_str()).unwrap_or("");
@@ -112,7 +119,10 @@ fn num(v: &serde_json::Value) -> Result<f64> {
         return Ok(f);
     }
     if let Some(s) = v.as_str() {
-        return s.trim().parse::<f64>().with_context(|| format!("bad number '{s}'"));
+        return s
+            .trim()
+            .parse::<f64>()
+            .with_context(|| format!("bad number '{s}'"));
     }
     Err(anyhow!("expected number, got {v}"))
 }

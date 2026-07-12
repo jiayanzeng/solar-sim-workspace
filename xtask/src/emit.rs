@@ -8,7 +8,11 @@ use std::path::Path;
 
 pub fn write_catalog(catalog: &Catalog, path: &Path, invocation: &str) -> Result<()> {
     if let Err(errs) = catalog.validate() {
-        let joined = errs.iter().map(|e| format!("  - {e}")).collect::<Vec<_>>().join("\n");
+        let joined = errs
+            .iter()
+            .map(|e| format!("  - {e}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         return Err(anyhow!("refusing to emit invalid catalog:\n{joined}"));
     }
     let body = catalog

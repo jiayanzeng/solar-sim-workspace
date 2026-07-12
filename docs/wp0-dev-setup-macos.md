@@ -54,8 +54,15 @@ Notes:
   rust-version = "1.75"
   ```
 
-  (Optional extra rigor, can be deferred: a CI job running
-  `cargo +1.75.0 check -p sim-core` to make the claim mechanical.)
+  The workspace's Rust 1.95-generated v4 `Cargo.lock` cannot be parsed by
+  Cargo 1.75. Verify the claim from a disposable standalone copy instead
+  (the CI invariants job does the same):
+
+  ```bash
+  msrv_dir="$(mktemp -d)"
+  cp -R crates/sim-core/. "$msrv_dir/"
+  cargo +1.75.0 check --manifest-path "$msrv_dir/Cargo.toml"
+  ```
 
 After this lands, mark Q1 closed in `TASKS.md` with the crates.io
 evidence.
@@ -81,15 +88,12 @@ and A4 makes it mechanical.
 
 ### A3. `crates/solar-sim` skeleton
 
-**Honesty note before you paste:** the Rust below is written against the
-Bevy component-style APIs that were stable through 0.16 (`Camera3d`,
-`Text`, required-components spawning). Bevy 0.19 postdates what I can
-verify offline, and 0.17–0.19 moved things (BSN, UI changes). Treat
-compile errors here as *expected*, and fix them against the 0.19
-migration guides / `docs.rs/bevy/0.19` — the *structure* (plugins, the
-`--smoke` flag, the debug-only overlay, the orbit-rig resource shape) is
-the deliverable, not the exact method names. This is a fine first task
-for a Claude Code session with `cargo doc` open.
+The shell below is verified against Bevy 0.19.0. In particular, Bevy 0.19
+uses `MessageReader` / `MessageWriter` for mouse input and `AppExit`; the
+older `EventReader` / `EventWriter` names do not compile. The structure
+(plugins, `--smoke`, the debug-only overlay, and the orbit-rig resource)
+is WP0 scaffolding; WP5 replaces the direct-input stub with `SimCommand`
+routing.
 
 `crates/solar-sim/Cargo.toml`:
 
@@ -191,8 +195,8 @@ fn setup(
 /// ONLY inside WP0's stub; WP5 replaces this with the SimCommand path.
 fn orbit_rig_stub(
     buttons: Res<ButtonInput<MouseButton>>,
-    mut motion: EventReader<bevy::input::mouse::MouseMotion>,
-    mut wheel: EventReader<bevy::input::mouse::MouseWheel>,
+    mut motion: MessageReader<bevy::input::mouse::MouseMotion>,
+    mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
     mut rig: ResMut<OrbitRig>,
     mut cam: Query<&mut Transform, With<Camera3d>>,
 ) {
@@ -218,7 +222,7 @@ fn orbit_rig_stub(
 fn smoke_exit(
     mut frames: Local<u32>,
     smoke: Res<SmokeFrames>,
-    mut exit: EventWriter<AppExit>,
+    mut exit: MessageWriter<AppExit>,
 ) {
     if let Some(n) = smoke.0 {
         *frames += 1;
@@ -281,10 +285,12 @@ env:
 
 jobs:
   lint:
-    runs-on: macos-14            # arm64, matches dev machine
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable   # reads rust-toolchain.toml
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
@@ -293,7 +299,7 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.95.0
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@nextest
       - run: cargo nextest run --workspace
@@ -304,7 +310,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.95.0
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@nextest
       - run: cargo nextest run --workspace
@@ -320,7 +326,12 @@ jobs:
     runs-on: ubuntu-latest       # cheap; pure `cargo tree` checks
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: dtolnay/rust-toolchain@1.75.0
+      - name: sim-core MSRV — verify outside the v4 workspace lockfile
+        run: |
+          cp -R crates/sim-core "$RUNNER_TEMP/sim-core-msrv"
+          cargo +1.75.0 check --manifest-path "$RUNNER_TEMP/sim-core-msrv/Cargo.toml"
       - name: core purity — sim-core must never depend on bevy
         run: |
           if cargo tree -p sim-core -e normal --prefix none | grep -qi '^bevy'; then
@@ -338,7 +349,8 @@ jobs:
           done
       - name: offline rule — CI never builds the online feature
         run: |
-          if grep -R --include='*.yml' -n -- '--features[ =]*online\|features:.*online' .github/workflows/; then
+          pattern='--features[ =]+on''line|features:.*on''line'
+          if grep -REn --include='*.yml' -- "$pattern" .github/workflows/; then
             echo '::error::a workflow enables the online feature'
             exit 1
           fi
@@ -394,13 +406,12 @@ Q5 is signed off:
 ### B1. Confirm the diagnosis (30 seconds, optional but satisfying)
 
 ```bash
-# Jupiter planet-center, single epoch at year 1800 — if the failure is the
-# limited planet-center span, the 'result' field will contain a time-span
-# error message instead of $$SOE:
-curl -s "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND='599'&OBJ_DATA='NO'&MAKE_EPHEM='YES'&EPHEM_TYPE='ELEMENTS'&CENTER='500@10'&REF_PLANE='ECLIPTIC'&REF_SYSTEM='J2000'&OUT_UNITS='KM-S'&TLIST_TYPE='JD'&TLIST='2378495.0'" | head -40
+# Jupiter planet-center at the generator's 2300 sample. Horizons should
+# report that Jupiter-center ephemerides stop in 2200, with no $$SOE:
+curl -s "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND='599'&OBJ_DATA='NO'&MAKE_EPHEM='YES'&EPHEM_TYPE='ELEMENTS'&CENTER='500@10'&REF_PLANE='ECLIPTIC'&REF_SYSTEM='J2000'&OUT_UNITS='KM-S'&TLIST_TYPE='JD'&TLIST='2561120.0'" | head -40
 
 # Same instant, Jupiter system barycenter — should return $$SOE records:
-curl -s "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND='5'&OBJ_DATA='NO'&MAKE_EPHEM='YES'&EPHEM_TYPE='ELEMENTS'&CENTER='500@10'&REF_PLANE='ECLIPTIC'&REF_SYSTEM='J2000'&OUT_UNITS='KM-S'&TLIST_TYPE='JD'&TLIST='2378495.0'" | head -40
+curl -s "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND='5'&OBJ_DATA='NO'&MAKE_EPHEM='YES'&EPHEM_TYPE='ELEMENTS'&CENTER='500@10'&REF_PLANE='ECLIPTIC'&REF_SYSTEM='J2000'&OUT_UNITS='KM-S'&TLIST_TYPE='JD'&TLIST='2561120.0'" | head -40
 ```
 
 ### B2. Land the Q5 changes (agent task after sign-off)
@@ -469,23 +480,25 @@ loosest (non-gravitational forces are ignored by design).
 ## Warm-up patch — kill the `dead_code` warning properly
 
 `time::UNIX_EPOCH_JD` is referenced only from a doc comment, hence the
-warning. House style says pin traps with tests, so instead of deleting
-it, make it load-bearing (in `crates/sim-core/src/time.rs`, tests
-module):
+warning. A use inside `#[cfg(test)]` alone does not fix normal library
+builds, so make the Julian-date relationship the production definition:
+
+```rust
+const SECONDS_J2000_MINUS_UNIX: f64 =
+    (J2000_JD_TDB - UNIX_EPOCH_JD) * DAY_S;
+```
+
+Then pin the noon-vs-midnight trap independently in the tests module:
 
 ```rust
 #[test]
 fn unix_epoch_jd_constant_is_consistent() {
     // Pins the noon-vs-midnight trap from the WP1 change log:
-    // J2000 is JD 2451545.0 (NOON); Unix epoch is JD 2440587.5 (midnight).
-    // The gap is exactly 10957.5 days = 946_728_000 s, and both sides are
-    // exactly representable, so exact equality is correct here.
-    assert_eq!(
-        (crate::catalog::J2000_JD_TDB - UNIX_EPOCH_JD) * 86_400.0,
-        SECONDS_J2000_MINUS_UNIX
-    );
+    // J2000 is JD 2451545.0 (noon); Unix epoch is JD 2440587.5 (midnight).
+    let seconds_from_jd = (J2000_JD_TDB - UNIX_EPOCH_JD) * DAY_S;
+    assert_eq!(seconds_from_jd, 946_728_000.0);
+    assert_eq!(seconds_from_jd, SECONDS_J2000_MINUS_UNIX);
 }
 ```
 
-(Adjust the two names to the actual local paths/idents in `time.rs`.)
-Baseline goes 71 → 72; record it in the TASKS.md change log.
+The baseline is now 72; record that evidence in the TASKS.md change log.

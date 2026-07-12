@@ -41,16 +41,21 @@ pub fn parse_response(json_body: &str) -> Result<Vec<(f64, RawElements)>> {
 
 /// Parse the `$$SOE … $$EOE` element table.
 pub fn parse_elements_text(text: &str) -> Result<Vec<(f64, RawElements)>> {
-    let soe = text.find("$$SOE").ok_or_else(|| anyhow!("no $$SOE in Horizons result"))?;
-    let eoe = text.find("$$EOE").ok_or_else(|| anyhow!("no $$EOE in Horizons result"))?;
+    let soe = text
+        .find("$$SOE")
+        .ok_or_else(|| anyhow!("no $$SOE in Horizons result"))?;
+    let eoe = text
+        .find("$$EOE")
+        .ok_or_else(|| anyhow!("no $$EOE in Horizons result"))?;
     let block = &text[soe + 5..eoe];
 
     // Records begin with "<JD> = A.D. ..."
     let header = Regex::new(r"(?m)^\s*(\d{7}\.\d+)\s*=\s*A\.D\.").unwrap();
     // Element pairs; longer keys listed first so alternation can't split them.
-    let pair =
-        Regex::new(r"\b(EC|QR|IN|OM|Tp|MA|TA|AD|PR|N|A|W)\s*=\s*([-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)")
-            .unwrap();
+    let pair = Regex::new(
+        r"\b(EC|QR|IN|OM|Tp|MA|TA|AD|PR|N|A|W)\s*=\s*([-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)",
+    )
+    .unwrap();
 
     let headers: Vec<(usize, f64)> = header
         .captures_iter(block)
@@ -75,7 +80,9 @@ pub fn parse_elements_text(text: &str) -> Result<Vec<(f64, RawElements)>> {
         let mut w = None;
         let mut ma = None;
         for c in pair.captures_iter(seg) {
-            let val: f64 = c[2].parse().with_context(|| format!("bad number in '{}'", &c[0]))?;
+            let val: f64 = c[2]
+                .parse()
+                .with_context(|| format!("bad number in '{}'", &c[0]))?;
             match &c[1] {
                 "EC" => ec = Some(val),
                 "A" => a = Some(val),
