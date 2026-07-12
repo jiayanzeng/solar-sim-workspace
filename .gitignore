@@ -1,0 +1,52 @@
+# .gitignore — solar-sim workspace
+#
+# Deliberately NOT ignored (committed by design):
+#   Cargo.lock                  — WP0 pins Bevy 0.19.x exactly (ARCHITECTURE §8.1)
+#   assets/catalog*.ron         — generated + committed with provenance header (invariant 3)
+#   xtask/fixtures/**           — captured/synthetic API responses, incl. spotcheck truth data
+
+# ---- Rust / Cargo ----
+/target/
+**/*.rs.bk
+*.pdb
+
+# ---- macOS ----
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ---- Windows (CI checkouts, future dev machines) ----
+Thumbs.db
+Desktop.ini
+
+# ---- Editors / IDEs ----
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ---- Local environment / secrets (Steam App ID overrides, etc.) ----
+.env
+.env.*
+steam_appid.txt
+
+# ---- Profiling / debugging artifacts ----
+*.profraw
+*.profdata
+perf.data*
+flamegraph.svg
+tracing.folded
+trace-*.json
+
+# ---- Packaging / release scratch (WP16 outputs are built, never committed) ----
+/dist/
+*.dmg
+*.app/
+*.zip
+*.msi
+
+# ---- Local scratch catalogs (anything not the committed catalog/sample) ----
+/assets/catalog.local*.ron
+/assets/*.tmp.ron
