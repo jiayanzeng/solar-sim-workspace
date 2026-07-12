@@ -1,0 +1,14 @@
+[package]
+name = "solar-sim"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sim-core = { path = "../sim-core" }
+# "0.19" + committed Cargo.lock = pinned to an exact 0.19.x patch,
+# patch upgrades are a deliberate `cargo update -p bevy` (ARCHITECTURE §8.1).
+bevy = "0.19"
+
+[features]
+# Fast local iteration; NEVER enabled in CI or release builds.
+dev = ["bevy/dynamic_linking"]

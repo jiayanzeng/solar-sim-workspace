@@ -1,7 +1,14 @@
 [workspace]
 resolver = "2"
-members = ["crates/sim-core", "xtask"]
+members = ["crates/sim-core", "crates/solar-sim", "xtask"]
 
 # Rev B §7: `crates/solar-sim` (the Bevy 0.19 app) joins this workspace in WP0
 # once the engine pin lands. Nothing in this workspace may make sim-core depend
 # on Bevy — that rule becomes a CI check in WP0.
+# Bevy is unusably slow at opt-level 0. Standard Bevy practice:
+# light optimization for our code, full for dependencies.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
