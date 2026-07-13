@@ -1,13 +1,27 @@
-//! WP4 — Bevy application propagation and floating origin (ARCHITECTURE §8).
+//! WP4–WP5 — propagation, floating origin, and deterministic camera control.
 //!
 //! `sim-core` remains the f64 source of truth. This crate owns filesystem
 //! loading, parent-to-heliocentric composition, the one f64→f32 render rebase,
-//! and explicit frame-flow ordering. Temporary WP4 controls already travel
-//! through a command queue so WP5 can extend the seam without bypassing it.
+//! explicit frame-flow ordering, and WP5's single command-consumer boundary.
+//! Raw device events are isolated in `input_intent`; camera/control state is
+//! private to `control`, which also supplies the headless replay gate.
+
+mod control;
+mod input_intent;
+
+pub use control::{
+    replay_headless, CameraController, CommandRecording, HeadlessSimulation, ReplayParseError,
+    ReplayRunError, ReplayStream, SimCommand, StampedCommand,
+};
 
 #[cfg(debug_assertions)]
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
+use control::{
+    advance_camera_controller, consume_sim_command, framing_distance_units, SimCommandQueue,
+    SimulationFrame,
+};
+use input_intent::InputIntentPlugin;
 use sim_core::catalog::{Catalog, CatalogError, Category};
 use sim_core::kepler::{state_at, KeplerError, StateVector};
 use sim_core::time::{t_from_unix_utc, SimClock, StartMode};
@@ -19,7 +33,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 pub const DEFAULT_CATALOG_PATH: &str = "assets/catalog.ron";
 pub const KM_PER_RENDER_UNIT: f64 = 1_000.0;
 const DEFAULT_SMOKE_FRAMES: u32 = 60;
-const DEFAULT_CAMERA_DISTANCE_UNITS: f32 = 250_000.0;
+pub const DEFAULT_CAMERA_DISTANCE_UNITS: f64 = 250_000.0;
 
 #[derive(Debug, Clone)]
 pub struct RunOptions {
@@ -255,41 +269,7 @@ impl LoadedCatalog {
 struct CatalogFailure(String);
 
 #[derive(Resource)]
-pub struct SimulationClock(pub SimClock);
-
-#[derive(Resource, Debug, Clone, Copy)]
-pub struct CameraFocus {
-    pub body_index: usize,
-    pub position_km: [f64; 3],
-}
-
-#[derive(Resource)]
-struct OrbitRig {
-    yaw: f32,
-    pitch: f32,
-    distance: f32,
-}
-
-impl Default for OrbitRig {
-    fn default() -> Self {
-        Self {
-            yaw: 0.0,
-            pitch: 0.35,
-            distance: DEFAULT_CAMERA_DISTANCE_UNITS,
-        }
-    }
-}
-
-#[derive(Debug)]
-enum SimCommand {
-    Orbit { delta_x: f32, delta_y: f32 },
-    Dolly { delta: f32 },
-    FocusBody(String),
-    StepRate(i8),
-}
-
-#[derive(Resource, Default)]
-struct SimCommandQueue(Vec<SimCommand>);
+pub struct SimulationClock(SimClock);
 
 #[derive(Resource, Default)]
 struct PropagationFault(Option<String>);
@@ -322,6 +302,12 @@ pub struct BodyId(pub String);
 #[derive(Component)]
 struct CatalogErrorScreen;
 
+/// Render-space parent of the camera. Its local origin is the f64 moving
+/// focus after rebasing, so following a body requires no camera translation
+/// correction and remains emergent after a travel tween lands.
+#[derive(Component)]
+struct CameraFocusAnchor;
+
 #[cfg(debug_assertions)]
 #[derive(Component)]
 struct DiagText;
@@ -333,6 +319,7 @@ pub enum SimulationSet {
     Clock,
     Propagation,
     Origin,
+    Camera,
     Render,
 }
 
@@ -345,6 +332,7 @@ fn configure_frame_flow(app: &mut App) {
             SimulationSet::Clock,
             SimulationSet::Propagation,
             SimulationSet::Origin,
+            SimulationSet::Camera,
             SimulationSet::Render,
         )
             .chain(),
@@ -365,8 +353,18 @@ impl Plugin for OriginPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            update_focus_and_rebase.in_set(SimulationSet::Origin),
+            (advance_camera_focus, update_focus_and_rebase)
+                .chain()
+                .in_set(SimulationSet::Origin),
         );
+    }
+}
+
+pub struct CameraRigPlugin;
+
+impl Plugin for CameraRigPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, update_camera.in_set(SimulationSet::Camera));
     }
 }
 
@@ -382,7 +380,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
-            title: "solar-sim — WP4 propagation".into(),
+            title: "solar-sim — WP5 camera and replay".into(),
             ..default()
         }),
         ..default()
@@ -395,6 +393,8 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
         wall_now_t,
     )))
     .insert_resource(SimCommandQueue::default())
+    .insert_resource(CommandRecording::default())
+    .insert_resource(SimulationFrame::default())
     .insert_resource(PropagationFault::default())
     .insert_resource(SmokeFrames::new(options.smoke_frames));
 
@@ -413,41 +413,42 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
                 .or_else(|| loaded.index_of("sun"))
                 .map_or(0, |index| index);
             let distance = if requested_focus.is_some() {
-                close_camera_distance(loaded.catalog.bodies[focus_index].radius_km)
+                framing_distance_units(&loaded, focus_index)
             } else {
                 DEFAULT_CAMERA_DISTANCE_UNITS
             };
-            app.insert_resource(CameraFocus {
-                body_index: focus_index,
-                position_km: states.0[focus_index].position_km,
-            })
-            .insert_resource(OrbitRig {
+            app.insert_resource(CameraController::new(
+                focus_index,
+                states.0[focus_index].position_km,
                 distance,
-                ..default()
-            })
+            ))
             .insert_resource(loaded)
             .insert_resource(states);
         }
         Err(error) => {
             app.insert_resource(CatalogFailure(error.to_string()))
-                .insert_resource(OrbitRig::default());
+                .insert_resource(CameraController::unavailable());
         }
     }
 
-    app.add_plugins((PropagationPlugin, OriginPlugin))
-        .add_systems(
-            Startup,
-            (spawn_body_spheres, spawn_camera, spawn_catalog_error),
-        )
-        .add_systems(Update, collect_input_commands.in_set(SimulationSet::Input))
-        .add_systems(Update, apply_sim_commands.in_set(SimulationSet::Commands))
-        .add_systems(Update, tick_clock.in_set(SimulationSet::Clock))
-        .add_systems(
-            Update,
-            (update_camera, smoke_exit)
-                .chain()
-                .in_set(SimulationSet::Render),
-        );
+    app.add_plugins((
+        InputIntentPlugin,
+        PropagationPlugin,
+        OriginPlugin,
+        CameraRigPlugin,
+    ))
+    .add_systems(
+        Startup,
+        (spawn_body_spheres, spawn_camera, spawn_catalog_error),
+    )
+    .add_systems(Update, apply_sim_commands.in_set(SimulationSet::Commands))
+    .add_systems(Update, tick_clock.in_set(SimulationSet::Clock))
+    .add_systems(
+        Update,
+        (advance_simulation_frame, smoke_exit)
+            .chain()
+            .in_set(SimulationSet::Render),
+    );
 
     #[cfg(debug_assertions)]
     app.add_plugins(FrameTimeDiagnosticsPlugin::default())
@@ -465,79 +466,22 @@ fn wall_now_t() -> f64 {
     t_from_unix_utc(unix_s)
 }
 
-fn close_camera_distance(radius_km: f64) -> f32 {
-    ((radius_km / KM_PER_RENDER_UNIT) as f32 * 4.0).max(0.5)
-}
-
-fn collect_input_commands(
-    buttons: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mut motion: MessageReader<bevy::input::mouse::MouseMotion>,
-    mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
-    mut queue: ResMut<SimCommandQueue>,
-) {
-    if buttons.pressed(MouseButton::Right) {
-        for event in motion.read() {
-            queue.0.push(SimCommand::Orbit {
-                delta_x: event.delta.x,
-                delta_y: event.delta.y,
-            });
-        }
-    } else {
-        motion.clear();
-    }
-    for event in wheel.read() {
-        queue.0.push(SimCommand::Dolly { delta: event.y });
-    }
-    if keys.just_pressed(KeyCode::KeyO) {
-        queue.0.push(SimCommand::FocusBody("sun".into()));
-    }
-    if keys.just_pressed(KeyCode::KeyM) {
-        queue.0.push(SimCommand::FocusBody("mercury".into()));
-    }
-    if keys.just_pressed(KeyCode::KeyS) {
-        queue.0.push(SimCommand::FocusBody("sedna".into()));
-    }
-    if keys.just_pressed(KeyCode::BracketLeft) {
-        queue.0.push(SimCommand::StepRate(-1));
-    }
-    if keys.just_pressed(KeyCode::BracketRight) {
-        queue.0.push(SimCommand::StepRate(1));
-    }
-}
-
 fn apply_sim_commands(
     mut queue: ResMut<SimCommandQueue>,
-    mut rig: ResMut<OrbitRig>,
     mut clock: ResMut<SimulationClock>,
     loaded: Option<Res<LoadedCatalog>>,
-    states: Option<Res<BodyStates>>,
-    focus: Option<ResMut<CameraFocus>>,
+    camera: Option<ResMut<CameraController>>,
+    frame: Res<SimulationFrame>,
+    mut recording: ResMut<CommandRecording>,
 ) {
-    let mut focus = focus;
-    for command in queue.0.drain(..) {
-        match command {
-            SimCommand::Orbit { delta_x, delta_y } => {
-                rig.yaw -= delta_x * 0.005;
-                rig.pitch = (rig.pitch + delta_y * 0.005).clamp(-1.5, 1.5);
-            }
-            SimCommand::Dolly { delta } => {
-                rig.distance = (rig.distance * (1.0 - delta * 0.1)).clamp(0.5, 1.0e9);
-            }
-            SimCommand::FocusBody(id) => {
-                if let (Some(loaded), Some(states), Some(focus)) =
-                    (loaded.as_deref(), states.as_deref(), focus.as_deref_mut())
-                {
-                    if let Some(index) = loaded.index_of(&id) {
-                        focus.body_index = index;
-                        focus.position_km = states.0[index].position_km;
-                        rig.distance =
-                            close_camera_distance(loaded.catalog.bodies[index].radius_km);
-                    }
-                }
-            }
-            SimCommand::StepRate(delta) => clock.0.step_rate(delta),
-        }
+    let (Some(loaded), Some(mut camera)) = (loaded, camera) else {
+        queue.drain().for_each(drop);
+        return;
+    };
+    let commands: Vec<_> = queue.drain().collect();
+    for command in commands {
+        recording.record(frame.0, clock.0.t(), command.clone());
+        consume_sim_command(&command, &mut clock.0, &mut camera, &loaded);
     }
 }
 
@@ -566,6 +510,17 @@ fn propagate_bodies(
     }
 }
 
+fn advance_camera_focus(
+    time: Res<Time>,
+    states: Option<Res<BodyStates>>,
+    camera: Option<ResMut<CameraController>>,
+) {
+    let (Some(states), Some(mut camera)) = (states, camera) else {
+        return;
+    };
+    advance_camera_controller(&mut camera, &states, time.delta_secs_f64());
+}
+
 pub fn rebase_position(position_km: [f64; 3], focus_km: [f64; 3]) -> Vec3 {
     let relative = [
         (position_km[0] - focus_km[0]) / KM_PER_RENDER_UNIT,
@@ -578,19 +533,16 @@ pub fn rebase_position(position_km: [f64; 3], focus_km: [f64; 3]) -> Vec3 {
 
 fn update_focus_and_rebase(
     states: Option<Res<BodyStates>>,
-    focus: Option<ResMut<CameraFocus>>,
+    camera: Option<Res<CameraController>>,
     mut bodies: Query<(&BodyVisual, &mut Transform)>,
 ) {
-    let (Some(states), Some(mut focus)) = (states, focus) else {
+    let (Some(states), Some(camera)) = (states, camera) else {
         return;
     };
-    let Some(focus_state) = states.0.get(focus.body_index) else {
-        return;
-    };
-    focus.position_km = focus_state.position_km;
+    let focus_position_km = camera.focus_position_km();
     for (visual, mut transform) in &mut bodies {
         if let Some(state) = states.0.get(visual.index) {
-            transform.translation = rebase_position(state.position_km, focus.position_km);
+            transform.translation = rebase_position(state.position_km, focus_position_km);
         }
     }
 }
@@ -634,17 +586,31 @@ fn spawn_body_spheres(
     }
 }
 
-fn spawn_camera(mut commands: Commands, loaded: Option<Res<LoadedCatalog>>, rig: Res<OrbitRig>) {
+fn spawn_camera(
+    mut commands: Commands,
+    loaded: Option<Res<LoadedCatalog>>,
+    camera: Res<CameraController>,
+) {
     if loaded.is_none() {
         return;
     }
-    let translation = Vec3::new(rig.distance, rig.distance * 0.35, 0.0);
+    let translation = camera.render_translation();
+    let focus_anchor = commands
+        .spawn((
+            Name::new("Camera focus anchor"),
+            CameraFocusAnchor,
+            Transform::default(),
+            Visibility::default(),
+        ))
+        .id();
     commands.spawn((
         Camera3d::default(),
         Projection::Perspective(PerspectiveProjection {
+            near: 1.0e-6,
             far: 1.0e9,
             ..default()
         }),
+        ChildOf(focus_anchor),
         Transform::from_translation(translation).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 }
@@ -663,14 +629,18 @@ fn spawn_catalog_error(mut commands: Commands, failure: Option<Res<CatalogFailur
     ));
 }
 
-fn update_camera(rig: Res<OrbitRig>, mut camera: Query<&mut Transform, With<Camera3d>>) {
-    let (sin_yaw, cos_yaw) = rig.yaw.sin_cos();
-    let (sin_pitch, cos_pitch) = rig.pitch.sin_cos();
-    let translation = Vec3::new(cos_yaw * cos_pitch, sin_pitch, sin_yaw * cos_pitch) * rig.distance;
+fn update_camera(
+    controller: Res<CameraController>,
+    mut camera: Query<&mut Transform, With<Camera3d>>,
+) {
     for mut transform in &mut camera {
-        transform.translation = translation;
+        transform.translation = controller.render_translation();
         transform.look_at(Vec3::ZERO, Vec3::Y);
     }
+}
+
+fn advance_simulation_frame(mut frame: ResMut<SimulationFrame>) {
+    frame.0 += 1;
 }
 
 fn smoke_exit(mut smoke: ResMut<SmokeFrames>, mut exit: MessageWriter<AppExit>) {
@@ -850,6 +820,41 @@ mod tests {
         assert_eq!(mercury.2.scale, Vec3::splat(2.4397));
     }
 
+    #[test]
+    fn camera_is_parented_to_the_focus_anchor_with_extreme_zoom_clip_planes() {
+        let catalog = catalog();
+        let states = propagate_catalog(&catalog, t_from_jd_tdb(2_461_042.0)).unwrap();
+        let loaded = LoadedCatalog::new(catalog);
+        let sun = loaded.index_of("sun").unwrap();
+        let camera = CameraController::new(
+            sun,
+            states.0[sun].position_km,
+            DEFAULT_CAMERA_DISTANCE_UNITS,
+        );
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(loaded)
+            .insert_resource(camera)
+            .add_systems(Startup, spawn_camera);
+        app.update();
+
+        let mut query = app
+            .world_mut()
+            .query::<(&Camera3d, &ChildOf, &Projection)>();
+        let cameras: Vec<_> = query.iter(app.world()).collect();
+        assert_eq!(cameras.len(), 1);
+        let (_, child_of, projection) = cameras[0];
+        assert!(
+            app.world().get::<CameraFocusAnchor>(child_of.0).is_some(),
+            "camera parent is not the moving focus anchor"
+        );
+        let Projection::Perspective(perspective) = projection else {
+            panic!("WP5 camera must be perspective");
+        };
+        assert_eq!(perspective.near, 1.0e-6);
+        assert_eq!(perspective.far, 1.0e9);
+    }
+
     #[derive(Resource, Default)]
     struct FrameTrace(Vec<SimulationSet>);
 
@@ -868,6 +873,9 @@ mod tests {
     fn mark_origin(mut trace: ResMut<FrameTrace>) {
         trace.0.push(SimulationSet::Origin);
     }
+    fn mark_camera(mut trace: ResMut<FrameTrace>) {
+        trace.0.push(SimulationSet::Camera);
+    }
     fn mark_render(mut trace: ResMut<FrameTrace>) {
         trace.0.push(SimulationSet::Render);
     }
@@ -883,6 +891,7 @@ mod tests {
             .add_systems(Update, mark_clock.in_set(SimulationSet::Clock))
             .add_systems(Update, mark_propagation.in_set(SimulationSet::Propagation))
             .add_systems(Update, mark_origin.in_set(SimulationSet::Origin))
+            .add_systems(Update, mark_camera.in_set(SimulationSet::Camera))
             .add_systems(Update, mark_render.in_set(SimulationSet::Render));
         app.update();
         assert_eq!(
@@ -893,8 +902,40 @@ mod tests {
                 SimulationSet::Clock,
                 SimulationSet::Propagation,
                 SimulationSet::Origin,
+                SimulationSet::Camera,
                 SimulationSet::Render,
             ]
+        );
+    }
+
+    #[test]
+    fn raw_device_input_is_confined_to_the_intent_module() {
+        let raw_input_names = [
+            ["Button", "Input"].concat(),
+            ["Mouse", "Motion"].concat(),
+            ["Mouse", "Wheel"].concat(),
+        ];
+        let intent_source = include_str!("input_intent.rs");
+        for name in &raw_input_names {
+            assert!(intent_source.contains(name), "intent module lacks {name}");
+        }
+        for (path, source) in [
+            ("lib.rs", include_str!("lib.rs")),
+            ("control.rs", include_str!("control.rs")),
+            ("main.rs", include_str!("main.rs")),
+        ] {
+            for name in &raw_input_names {
+                assert!(
+                    !source.contains(name),
+                    "raw input type {name} escaped into {path}"
+                );
+            }
+        }
+        assert_eq!(
+            include_str!("control.rs")
+                .matches("USER_STATE_MUTATION_GATE")
+                .count(),
+            1
         );
     }
 }

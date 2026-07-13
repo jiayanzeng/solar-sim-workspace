@@ -36,7 +36,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 2 | `sim-core::kepler` — elliptic + hyperbolic, guards | **✅ done** |
 | 3 | `xtask gen-catalog` + committed 66-body `catalog.ron` + validation | **✅ done** |
 | 4 | Propagation + floating origin: 66 colored spheres at 2026 positions | **✅ done** |
-| 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | todo |
+| 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | **in-progress** |
 | 6 | Orbit lines (adaptive; hyperbolic arc), colors, fades | todo |
 | 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | todo |
 | 8 | Time bar: detented log slider, editable date/clock, LIVE chip | todo (binds to WP1 API) |
@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 89 passing** (52 `sim-core` · 7 `solar-sim` · 27 `xtask`
+**Test baseline: 97 passing** (52 `sim-core` · 15 `solar-sim` · 27 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -241,12 +241,12 @@ clamps), §12 (replay determinism).
 change focus.
 
 **Acceptance.**
-- [ ] Zero direct sim-state mutation outside the command consumer
+- [x] Zero direct sim-state mutation outside the command consumer
   (enforced by module visibility or a grep-able convention documented in
   the code).
-- [ ] Travel tween to a moving target (e.g. Io) lands and follows without
+- [x] Travel tween to a moving target (e.g. Io) lands and follows without
   a snap.
-- [ ] Zoom clamps hold at both ends.
+- [x] Zoom clamps hold at both ends.
 - [ ] Replay determinism test runs in CI on macOS and Windows and produces
   identical hashes across both.
 
@@ -709,6 +709,31 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-13** — WP5 implementation and local acceptance are complete;
+  the dashboard remains in-progress only until the pinned replay test has
+  passed a hosted macOS + Windows CI run. Added a sole raw-input intent
+  module and table-driven key map; private f64 camera/control state with one
+  grep-pinned `SimCommand` mutation gate; an orbit/focus parent rig with the
+  1.2× body-radius to 1.5× Sedna-aphelion dolly range; interruptible eased
+  travel that tracks the target's current propagated position and lands into
+  exact Follow; and lossless frame/TDB-time-stamped replay serialization.
+  The headless harness reuses the desktop command, clock, propagation, and
+  tween paths and pins the canonical cross-platform f64-state hash
+  `12568395442970282829` over 600 frames and more than 500 mixed commands;
+  render/f32 state is excluded. Eight new tests cover the input boundary and
+  key table, moving-Io convergence/follow plus interruption, both zoom clamps,
+  camera parenting/clip planes, corrupt replay/catalog rejection, timestamps,
+  and record → serialize → parse → replay equality. Evidence: `cargo test` and
+  nextest passed 97/97 with zero skips; fmt, clippy `-D warnings`, diff checks,
+  and warning-denied release library/binary builds passed. Clean 600-frame
+  release smokes measured 80.9 fps focused on Mercury and 83.7 fps on Sedna;
+  the known forced-exit winit teardown warning remains non-gating. No
+  dependency or generated-data changes.
+- **2026-07-13** — Started WP5 after reading ARCHITECTURE §§3, 8.2, 8.3,
+  and 12. The implementation keeps raw device input in one intent module,
+  routes every semantic action through the single `SimCommand` consumer,
+  and extends the f64 simulation path with an interruptible moving-target
+  camera tween plus a serialized headless replay/hash gate.
 - **2026-07-13** — WP4 done. Added the testable `solar-sim` library with
   validated real-catalog startup loading, a user-facing failure screen, f64
   heliocentric state storage, ordered parent/moon composition through
