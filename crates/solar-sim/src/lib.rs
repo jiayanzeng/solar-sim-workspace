@@ -1,4 +1,4 @@
-//! WP4–WP6 — propagation, camera control, and parent-relative orbit lines.
+//! WP4–WP7 — simulation rendering, camera control, and reusable HUD kit.
 //!
 //! `sim-core` remains the f64 source of truth. This crate owns filesystem
 //! loading, parent-to-heliocentric composition, the one f64→f32 render rebase,
@@ -10,6 +10,7 @@
 mod control;
 mod input_intent;
 mod orbit_lines;
+mod ui_kit;
 
 pub use control::{
     replay_headless, CameraController, CommandRecording, HeadlessSimulation, ReplayParseError,
@@ -19,6 +20,14 @@ pub use orbit_lines::{
     orbit_vertex_count, sample_orbit, OrbitLineBrightness, OrbitLinesPlugin, OrbitPath,
     HYPERBOLIC_HALF_SPAN_S, MAX_ORBIT_VERTICES, MIN_ORBIT_VERTICES,
 };
+pub use ui_kit::{
+    checkbox_row, chip, panel, section_header, slider, tab_bar, toast, top_bar, BreadcrumbText,
+    NavigationItem, NavigationStack, SearchPlaceholder, TopBarRoot, UiColorToken, UiColors,
+    UiKitPlugin, UiSpacing, UiTheme, UiTypeScale, WidgetKind, WidgetRoot, WidgetSpec,
+    WidgetVisualState, BREADCRUMB_SEPARATOR, INTER_FONT_ASSET, TOP_BAR_HEIGHT_PX,
+};
+#[cfg(debug_assertions)]
+pub use ui_kit::{WidgetGalleryCell, WidgetGalleryRoot};
 
 #[cfg(debug_assertions)]
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
@@ -37,6 +46,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 pub const DEFAULT_CATALOG_PATH: &str = "assets/catalog.ron";
+const DEFAULT_BEVY_ASSET_ROOT: &str = "../../assets";
 pub const KM_PER_RENDER_UNIT: f64 = 1_000.0;
 const DEFAULT_SMOKE_FRAMES: u32 = 60;
 pub const DEFAULT_CAMERA_DISTANCE_UNITS: f64 = 250_000.0;
@@ -384,13 +394,20 @@ pub fn run_from_env() {
 
 pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>) -> App {
     let mut app = App::new();
-    app.add_plugins(DefaultPlugins.set(WindowPlugin {
-        primary_window: Some(Window {
-            title: "solar-sim — WP6 orbit lines".into(),
-            ..default()
-        }),
-        ..default()
-    }));
+    app.add_plugins(
+        DefaultPlugins
+            .set(AssetPlugin {
+                file_path: DEFAULT_BEVY_ASSET_ROOT.to_string(),
+                ..default()
+            })
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "Solar Sim — WP7 UI kit".into(),
+                    ..default()
+                }),
+                ..default()
+            }),
+    );
     configure_frame_flow(&mut app);
 
     let wall_now_t = wall_now_t();
@@ -443,6 +460,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
         OriginPlugin,
         CameraRigPlugin,
         OrbitLinesPlugin,
+        UiKitPlugin,
     ))
     .add_systems(
         Startup,
@@ -680,8 +698,25 @@ fn smoke_exit(mut smoke: ResMut<SmokeFrames>, mut exit: MessageWriter<AppExit>) 
 }
 
 #[cfg(debug_assertions)]
-fn spawn_diag_overlay(mut commands: Commands) {
-    commands.spawn((Text::new("fps: --"), DiagText));
+fn spawn_diag_overlay(mut commands: Commands, theme: Res<UiTheme>, asset_server: Res<AssetServer>) {
+    commands.spawn((
+        Text::new("fps: --"),
+        TextFont {
+            font: asset_server.load(INTER_FONT_ASSET).into(),
+            font_size: theme.type_scale.caption_px.into(),
+            ..default()
+        },
+        TextColor(theme.colors.text_muted.color()),
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(theme.spacing.sm_px),
+            bottom: px(theme.spacing.sm_px),
+            ..default()
+        },
+        GlobalZIndex(110),
+        AccessibleLabel::new("Frame rate diagnostic"),
+        DiagText,
+    ));
 }
 
 #[cfg(debug_assertions)]

@@ -38,7 +38,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 4 | Propagation + floating origin: 66 colored spheres at 2026 positions | **✅ done** |
 | 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | **✅ done** |
 | 6 | Orbit lines (adaptive; hyperbolic arc), colors, fades | **✅ done** |
-| 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | todo |
+| 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | **✅ done** |
 | 8 | Time bar: detented log slider, editable date/clock, LIVE chip | todo (binds to WP1 API) |
 | 9 | Labels/reticles, tiered declutter, contextual moon visibility, picking | todo |
 | 10 | Left panel: Info tab, collection pages, View Options | todo |
@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 108 passing** (52 `sim-core` · 26 `solar-sim` · 27 `xtask`
+**Test baseline: 114 passing** (52 `sim-core` · 32 `solar-sim` · 27 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -326,11 +326,11 @@ accessibility labels, and the first real HUD surface (top bar + breadcrumb).
 (WP11), time bar (WP8).
 
 **Acceptance.**
-- [ ] Widget gallery shows every widget in default/hover/active/disabled
+- [x] Widget gallery shows every widget in default/hover/active/disabled
   states with the theme applied.
-- [ ] Every widget carries an AccessKit label (verified via the gallery).
-- [ ] Breadcrumb reflects a scripted navigation-stack push/pop sequence.
-- [ ] Font license file vendored beside the font with source noted.
+- [x] Every widget carries an AccessKit label (verified via the gallery).
+- [x] Breadcrumb reflects a scripted navigation-stack push/pop sequence.
+- [x] Font license file vendored beside the font with source noted.
 
 **Tests required.** Theme-token snapshot test (colors/spacing constants
 don't drift silently); breadcrumb model unit test (push/pop/truncate).
@@ -709,6 +709,26 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-13** — WP7 done. Added the call-site-stable `ui_kit` façade and
+  `UiKitPlugin`: snapshotted dark theme tokens, wide-tracked Inter typography,
+  seven code-defined BSN scene functions, a navigation-stack-bound top bar and
+  breadcrumb, and an `EditableText` search placeholder whose behavior remains
+  with WP12. Debug builds spawn a scrollable 28-cell gallery covering all seven
+  widgets in default/hover/active/disabled states. Its real resolved scene test
+  verifies a non-empty `AccessibleLabel` and generated `AccessibilityNode` on
+  every widget root. Inter 4.1, the upstream SIL OFL 1.1 text, source URL, and
+  SHA-256 audit metadata are vendored together under `assets/fonts`; the Bevy
+  asset root is explicitly aligned with the workspace assets directory. A
+  2560×1440 exact-app capture verified the themed gallery and HUD, and the final
+  80-frame native smoke gate measured 120.1 fps. Evidence: `cargo test` 114/114,
+  `cargo clippy --workspace --all-targets -- -D warnings`, release all-targets
+  check, formatting/diff checks, and `xtask gen-catalog --dry-run` all pass.
+- **2026-07-13** — Started WP7 after a green 108-test workspace baseline and
+  reading ARCHITECTURE §§8.4, 9, and 9.1. The implementation stays on Bevy
+  0.19's code-defined BSN scene path with a call-site-stable `ui_kit` façade,
+  AccessKit labels, an SIL-OFL font plus audit metadata, the top bar and
+  breadcrumb model, and a debug-only all-state widget gallery. WP8/WP10–WP12
+  behavior remains out of scope.
 - **2026-07-13** — WP6 done. Added `OrbitLinesPlugin` with 65 retained orbit
   paths whose f64 vertices remain parent-relative while each line entity is
   independently rebased around the camera focus. Ellipses use 256–768 samples
