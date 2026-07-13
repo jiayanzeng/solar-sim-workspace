@@ -43,7 +43,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 9 | Labels/reticles, tiered declutter, contextual moon visibility, picking | **✅ done** |
 | 10 | Left panel: Info tab, collection pages, View Options | **✅ done** |
 | 11 | Layers quick panel, right rail, Icons layer, UI-off mode | **✅ done** |
-| 12 | Search (alias-aware) + Menu browse with live counts | todo |
+| 12 | Search (alias-aware) + Menu browse with live counts | **✅ done** |
 | 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | todo |
 | 14 | Settings screen + render-recovery policies | todo |
 | 15 | Texture pass (2K KTX2) + visual polish + golden screenshots | todo |
@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 149 passing** (53 `sim-core` · 65 `solar-sim` · 28 `xtask`
+**Test baseline: 156 passing** (53 `sim-core` · 72 `solar-sim` · 28 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -499,12 +499,12 @@ fuzzy layer MUST preserve exact matching as a subset).
   derived from the catalog, expandable full lists; every entry navigates.
 
 **Acceptance.**
-- [ ] "3I/ATLAS" and "C/2025 N1" both resolve uniquely to the same body;
+- [x] "3I/ATLAS" and "C/2025 N1" both resolve uniquely to the same body;
   "hale" surfaces Hale–Bopp in the dropdown.
-- [ ] For every body, typing its exact name puts it at rank 1 (property
+- [x] For every body, typing its exact name puts it at rank 1 (property
   test over all 66 × {name, designation, aliases}).
-- [ ] Menu counts equal catalog category counts (1/8/9/8/32/8) at load.
-- [ ] Keyboard-only flow works: focus search, type, Enter travels.
+- [x] Menu counts equal catalog category counts (1/8/9/8/32/8) at load.
+- [x] Keyboard-only flow works: focus search, type, Enter travels.
 
 **Tests required.** Ranking property test over the full search-key set;
 fuzzy-never-shadows-exact test; count derivation test.
@@ -710,6 +710,31 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-14** — WP12 done. Added a deterministic catalog search layer that
+  seeds exact matches through `Catalog::find`, then ranks name/designation
+  prefixes, aliases, subsequences, and bounded edit-distance candidates while
+  retaining one best hit per body. The top-bar `EditableText` now provides an
+  accessible eight-result instant dropdown, Enter and click travel through
+  `SimCommand`, and Esc restores the pre-edit value. Added an accessible
+  full-screen Menu with the exact three category columns, explicit curated
+  shortlists, catalog-derived 1/8/9/8/32/8 live counts, scrolling complete
+  lists, and travel actions for all 66 entries. Seven regressions cover every
+  exact name/designation/alias key, 3I/ATLAS identity preservation, Hale–Bopp
+  prefix and typo fuzzing, deterministic ranking, count/list derivation,
+  curated-to-complete menu rendering, edit restoration, and a real focused
+  keyboard Enter event, raising the workspace from 149 to 156 tests. Evidence:
+  `cargo test`, `cargo fmt --all -- --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`,
+  `xtask gen-catalog --dry-run`, and `git diff --check` pass; the final native
+  120-frame full-system smoke measured 118.8 fps after warmup. No dependency,
+  generated catalog, read-only file, or catalog composition changed.
+- **2026-07-14** — Started WP12 from the clean, green 149-test WP11
+  checkout after reading ARCHITECTURE §§4.1 and 9.1. Search will wrap the
+  exact `Catalog::find` contract, then deterministically rank prefix, alias,
+  and fuzzy candidates without changing catalog data. Search and browse
+  activation will enqueue the existing travel command; menu counts and
+  expandable lists will be derived from the loaded 66-body catalog. Evidence:
+  pre-change `cargo test` passes all 149 tests.
 - **2026-07-14** — WP11 done. Added a central nine-layer `LayerState` reducer
   with stable replay ids/hash and an explicit WP14 persistence snapshot; every
   layer, fullscreen, settings, and rail-zoom action crosses `SimCommand`.

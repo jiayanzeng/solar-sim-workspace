@@ -1,8 +1,8 @@
 //! WP7 top bar and breadcrumb binding — Rev C §9.1.
 //!
-//! Search is deliberately a labelled placeholder here. WP12 owns focus,
-//! query, and result behavior; this package only establishes the stable HUD
-//! surface and its typography.
+//! WP12 binds behavior onto the labelled search and Menu controls established
+//! here. Keeping their component markers in `ui_kit` preserves WP7's stable
+//! top-bar scene signature while search internals remain independently owned.
 
 use super::{NavigationStack, UiTheme, INTER_FONT_ASSET};
 use crate::layers::HudSurface;
@@ -22,6 +22,15 @@ pub struct BreadcrumbText;
 
 #[derive(Component, Debug, Clone, Copy, Default, FromTemplate)]
 pub struct SearchPlaceholder;
+
+#[derive(Component, Debug, Clone, Copy, Default, FromTemplate)]
+pub struct SearchInput;
+
+#[derive(Component, Debug, Clone, Copy, Default, FromTemplate)]
+pub struct SearchHint;
+
+#[derive(Component, Debug, Clone, Copy, Default, FromTemplate)]
+pub struct MenuBrowseButton;
 
 pub fn top_bar(theme: UiTheme, breadcrumb: String) -> impl Scene {
     let tracking = theme.type_scale.uppercase_tracking_px;
@@ -77,8 +86,39 @@ pub fn top_bar(theme: UiTheme, breadcrumb: String) -> impl Scene {
                     TextColor({theme.colors.text_muted.color()})
                 )]
             ),
+            menu_button(theme),
             search_placeholder(theme),
         ]
+    }
+}
+
+fn menu_button(theme: UiTheme) -> impl Scene {
+    let tracking = theme.type_scale.uppercase_tracking_px;
+    bsn! {
+        Node {
+            width: px(74),
+            height: px(36),
+            border: UiRect::all(px(theme.spacing.hairline_px)),
+            border_radius: BorderRadius::all(px(theme.spacing.radius_px)),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+        }
+        bevy::ui_widgets::Button
+        MenuBrowseButton
+        AccessibleLabel("Open body browse menu")
+        TabIndex(0)
+        BackgroundColor({theme.colors.panel.color()})
+        BorderColor::all(theme.colors.separator.color())
+        Children [(
+            Text("MENU")
+            TextFont {
+                font: FontSourceTemplate::Handle(INTER_FONT_ASSET),
+                font_size: px(theme.type_scale.caption_px),
+            }
+            TextColor({theme.colors.text_primary.color()})
+            template_value(LetterSpacing::Px(tracking))
+            Pickable::IGNORE
+        )]
     }
 }
 
@@ -108,7 +148,7 @@ fn logo(theme: UiTheme) -> impl Scene {
 fn search_placeholder(theme: UiTheme) -> impl Scene {
     bsn! {
         Node {
-            width: px(240),
+            width: px(280),
             height: px(36),
             padding: UiRect::horizontal(px(theme.spacing.md_px)),
             border: UiRect::all(px(theme.spacing.hairline_px)),
@@ -121,17 +161,24 @@ fn search_placeholder(theme: UiTheme) -> impl Scene {
         Children [
             (
                 Text("Search bodies…")
+                SearchHint
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: px(theme.spacing.md_px),
+                }
                 TextFont {
                     font: FontSourceTemplate::Handle(INTER_FONT_ASSET),
                     font_size: px(theme.type_scale.body_px),
                 }
                 TextColor({theme.colors.text_muted.color()})
+                Pickable::IGNORE
             ),
             (
                 template_value(EditableText::new(""))
+                SearchInput
                 AccessibleLabel("Search bodies")
-                TabIndex(0)
-                Node { flex_grow: 1.0 }
+                TabIndex(1)
+                Node { width: percent(100) }
                 TextFont {
                     font: FontSourceTemplate::Handle(INTER_FONT_ASSET),
                     font_size: px(theme.type_scale.body_px),

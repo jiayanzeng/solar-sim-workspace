@@ -13,7 +13,10 @@ mod widgets;
 
 #[cfg(debug_assertions)]
 pub use gallery::{WidgetGalleryCell, WidgetGalleryRoot};
-pub use hud::{top_bar, BreadcrumbText, SearchPlaceholder, TopBarRoot, TOP_BAR_HEIGHT_PX};
+pub use hud::{
+    top_bar, BreadcrumbText, MenuBrowseButton, SearchHint, SearchInput, SearchPlaceholder,
+    TopBarRoot, TOP_BAR_HEIGHT_PX,
+};
 pub use navigation::{NavigationItem, NavigationStack, BREADCRUMB_SEPARATOR};
 pub use theme::{UiColorToken, UiColors, UiSpacing, UiTheme, UiTypeScale};
 pub use widgets::{

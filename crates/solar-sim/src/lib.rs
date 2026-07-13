@@ -1,4 +1,4 @@
-//! WP4–WP11 — simulation rendering, camera control, reusable HUD, and layers.
+//! WP4–WP12 — simulation rendering, camera control, reusable HUD, and discovery.
 //!
 //! `sim-core` remains the f64 source of truth. This crate owns filesystem
 //! loading, parent-to-heliocentric composition, the one f64→f32 render rebase,
@@ -13,6 +13,7 @@ mod labels;
 mod layers;
 mod left_panel;
 mod orbit_lines;
+mod search;
 mod time_bar;
 mod ui_kit;
 
@@ -38,6 +39,10 @@ pub use orbit_lines::{
     orbit_vertex_count, sample_orbit, OrbitLineBrightness, OrbitLinesPlugin, OrbitPath,
     HYPERBOLIC_HALF_SPAN_S, MAX_ORBIT_VERTICES, MIN_ORBIT_VERTICES,
 };
+pub use search::{
+    search_catalog, BrowseColumn, BrowseColumnKind, BrowseCounts, BrowseEntry, BrowseMenuRoot,
+    BrowseModel, SearchDropdownRoot, SearchHit, SearchMatchKind, SearchPlugin,
+};
 pub use time_bar::{
     commit_time_edit, live_chip_active, rate_for_slider_value, slider_value_for_rate,
     toasts_for_tick_report, TimeBarPlugin, TimeBarRoot, TimeEditField, TimeEditOutcome,
@@ -45,9 +50,10 @@ pub use time_bar::{
 };
 pub use ui_kit::{
     checkbox_row, chip, panel, section_header, slider, tab_bar, toast, top_bar, BreadcrumbText,
-    NavigationItem, NavigationStack, SearchPlaceholder, TopBarRoot, UiColorToken, UiColors,
-    UiKitPlugin, UiSpacing, UiTheme, UiTypeScale, WidgetKind, WidgetRoot, WidgetSpec,
-    WidgetVisualState, BREADCRUMB_SEPARATOR, INTER_FONT_ASSET, TOP_BAR_HEIGHT_PX,
+    MenuBrowseButton, NavigationItem, NavigationStack, SearchHint, SearchInput, SearchPlaceholder,
+    TopBarRoot, UiColorToken, UiColors, UiKitPlugin, UiSpacing, UiTheme, UiTypeScale, WidgetKind,
+    WidgetRoot, WidgetSpec, WidgetVisualState, BREADCRUMB_SEPARATOR, INTER_FONT_ASSET,
+    TOP_BAR_HEIGHT_PX,
 };
 #[cfg(debug_assertions)]
 pub use ui_kit::{WidgetGalleryCell, WidgetGalleryRoot};
@@ -429,7 +435,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
             })
             .set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: "Solar Sim — WP11 Layers".into(),
+                    title: "Solar Sim — WP12 Search".into(),
                     ..default()
                 }),
                 ..default()
@@ -489,6 +495,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
         CameraRigPlugin,
         OrbitLinesPlugin,
         UiKitPlugin,
+        SearchPlugin,
         LayersPlugin,
         TimeBarPlugin,
         LabelsPlugin,
