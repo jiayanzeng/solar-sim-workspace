@@ -31,7 +31,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 
 | WP | Deliverable | Status |
 |---|---|---|
-| 0 | Workspace, Bevy 0.19 pin, CI, window+camera+diagnostics, core-purity rule | **in-progress** (local macOS gates green; hosted macOS/Windows CI run pending; human guide: `docs/wp0-dev-setup-macos.md`) |
+| 0 | Workspace, Bevy 0.19 pin, CI, window+camera+diagnostics, core-purity rule | **✅ done** |
 | 1 | `sim-core::time` — full ladder, start epoch, LIVE, range | **✅ done** |
 | 2 | `sim-core::kepler` — elliptic + hyperbolic, guards | **✅ done** |
 | 3 | `xtask gen-catalog` + committed 66-body `catalog.ron` + validation | **in-progress** (pipeline ✅; online capture blocked on Q5; curated review brief ready) |
@@ -130,7 +130,7 @@ Human walkthrough for every step below: `docs/wp0-dev-setup-macos.md`.
   macOS + Windows build jobs, **core-purity rule** (fail if `sim-core`'s
   dependency tree contains any `bevy*` crate), offline rule (no `online`
   feature — and therefore no `ureq` — in default/CI builds).
-- [ ] Acceptance: app opens on macOS; Windows job compiles and links in
+- [x] Acceptance: app opens on macOS; Windows job compiles and links in
   CI; CI green. Full "window opens on real Windows hardware"
   verification is tracked as a deferred checkbox (no Windows machine on
   hand): — [ ] Windows launch verified (hardware/VM), due before WP16.
@@ -691,6 +691,16 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-13** — WP0 done. GitHub Actions `ci` run #3 for commit
+  `5540cdd` completed successfully: `lint`, `test-macos`,
+  `build-windows`, and `invariants` all passed. The accompanying local
+  rerun had 72/72 workspace tests green, and the catalog dry-run plus
+  fixture regeneration completed successfully. The four hosted-run
+  annotations are the non-gating Node.js 20 deprecation emitted by
+  `actions/checkout@v4`, not Rust/clippy warnings; upgrading to the
+  current `actions/checkout@v7` is follow-up maintenance and does not
+  reopen WP0. Real-Windows hardware launch remains explicitly deferred
+  to WP16.
 - **2026-07-13** — WP0 local close-out gates completed; hosted CI remains.
   Corrected the Bevy 0.19 shell to `MessageReader` / `MessageWriter`, made
   the J2000−Unix derivation load-bearing with its promised regression test,
