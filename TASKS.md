@@ -35,7 +35,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 1 | `sim-core::time` — full ladder, start epoch, LIVE, range | **✅ done** |
 | 2 | `sim-core::kepler` — elliptic + hyperbolic, guards | **✅ done** |
 | 3 | `xtask gen-catalog` + committed 66-body `catalog.ron` + validation | **✅ done** |
-| 4 | Propagation + floating origin: 66 colored spheres at 2026 positions | todo (unblocked by WP0) |
+| 4 | Propagation + floating origin: 66 colored spheres at 2026 positions | **✅ done** |
 | 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | todo |
 | 6 | Orbit lines (adaptive; hyperbolic arc), colors, fades | todo |
 | 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | todo |
@@ -51,10 +51,10 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 82 passing** (52 `sim-core` · 27 `xtask` lib · 2 smoke ·
-1 spot-check gate, active). Any change that lowers this number without
-an accompanying change-log justification is a regression. The number may
-only go up.
+**Test baseline: 89 passing** (52 `sim-core` · 7 `solar-sim` · 27 `xtask`
+lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
+this number without an accompanying change-log justification is a regression.
+The number may only go up.
 
 ---
 
@@ -77,13 +77,22 @@ both branches; retrograde (Triton i=157°, Phoebe i=175°) and Nereid
 (e=0.75) fixtures; guard tests.
 
 ### WP3 (core) — schema + generator ✅
-`crates/sim-core/src/catalog.rs` (16 tests), `xtask/*` (26 lib + 2 smoke).
+`crates/sim-core/src/catalog.rs` (16 tests), `xtask/*` (27 lib + 2 smoke).
 Schema v1 with collect-all validation + lints; 66-body curated manifest
 with count/order/GM tests; Horizons + SBDB parsers; fitted secular/mean-
 motion normalization; `--dry-run` / `--fixtures --allow-partial` /
 feature-gated `--online`; provenance-headed emission; offline smoke
 produces `assets/catalog.sample.ron` (6 bodies) that reloads through the
 app loader. Spec: `docs/wp3-gen-catalog-spec.md`.
+
+### WP4 — propagation + floating origin ✅
+`crates/solar-sim/src/lib.rs` loads and validates the committed catalog,
+holds all 66 heliocentric states in f64, composes moons in one ordered forward
+pass, and performs the only f64→f32 conversion in the 1,000 km/unit origin
+rebase. True-radius colored sphere entities, an emissive Sun, +REAL
+`SimClock`, command-routed scaffolding, user-facing catalog errors, and the
+explicit input → commands → clock → propagation → origin → render schedule
+are active.
 
 ---
 
@@ -125,9 +134,9 @@ app loader. Spec: `docs/wp3-gen-catalog-spec.md`.
   1 km / 10 km / 25,000 km / 30,000,000 km category budgets, which the
   human explicitly approved on 2026-07-13.
 
-## WP0 — remaining to close
+## WP0 — acceptance complete
 
-Human walkthrough for every step below: `docs/wp0-dev-setup-macos.md`.
+Human walkthrough completed from `docs/wp0-dev-setup-macos.md`.
 
 - [x] `rust-toolchain.toml` pinning **1.95.0** — Bevy 0.19.0's declared
   MSRV per crates.io (Q1, closed). Keep `sim-core`'s own
@@ -141,9 +150,10 @@ Human walkthrough for every step below: `docs/wp0-dev-setup-macos.md`.
   dependency tree contains any `bevy*` crate), offline rule (no `online`
   feature — and therefore no `ureq` — in default/CI builds).
 - [x] Acceptance: app opens on macOS; Windows job compiles and links in
-  CI; CI green. Full "window opens on real Windows hardware"
-  verification is tracked as a deferred checkbox (no Windows machine on
-  hand): — [ ] Windows launch verified (hardware/VM), due before WP16.
+  CI; CI green.
+
+Deferred pre-WP16 release gate (not part of WP0 acceptance):
+- [ ] Windows launch verified on real hardware or a VM.
 
 ---
 
@@ -186,15 +196,15 @@ helpers), §8.2 (frame flow), §8.3 (precision, 1 unit = 1,000 km).
 exaggeration (WP10), bloom/starfield (WP13).
 
 **Acceptance.**
-- [ ] With the real `catalog.ron`, heliocentric longitudes of the 8
+- [x] With the real `catalog.ron`, heliocentric longitudes of the 8
   planets at the 2026 epoch match Horizons to eyeball accuracy (or, once
   the spot-check data exists, the WP4-side positions match `sim-core`'s
   spot-checked output bit-for-bit).
-- [ ] No visible jitter at closest zoom focused on Mercury; none focused
+- [x] No visible jitter at closest zoom focused on Mercury; none focused
   on Sedna (the two precision extremes).
-- [ ] All 66 bodies render; frame flow order is input → commands → clock
+- [x] All 66 bodies render; frame flow order is input → commands → clock
   → propagation → origin → render (verified by system ordering, not luck).
-- [ ] Perf budget holds with all 66 bodies.
+- [x] Perf budget holds with all 66 bodies.
 
 **Tests required.** A propagation unit test comparing the Bevy-side
 composed state of at least one moon (e.g. Io) against a pure `sim-core`
@@ -681,7 +691,7 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Next up (dependency order)
 
-1. **WP4 → WP5 → WP6**, then **WP7/WP8** (ui_kit, then the time bar
+1. **WP5 → WP6**, then **WP7/WP8** (ui_kit, then the time bar
    binding WP1's API), then WP9–WP15 per briefs, WP16–17 release
    engineering.
 
@@ -699,6 +709,28 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-13** — WP4 done. Added the testable `solar-sim` library with
+  validated real-catalog startup loading, a user-facing failure screen, f64
+  heliocentric state storage, ordered parent/moon composition through
+  `kepler::state_at`, 1,000 km/unit camera-focus rebasing, 66 colored
+  true-radius spheres, emissive Sun placeholder, +REAL clock driving, and a
+  command-queued frame flow pinned as input → commands → clock → propagation
+  → origin → render. Seven new tests prove all eight planets match direct
+  `sim-core` output bit-for-bit, Io composition is bit-identical, Mercury and
+  Sedna focus points rebase exactly, relative positions survive focus changes,
+  corrupt input produces an error screen without panic, all 66 spheres spawn,
+  and system sets execute in contract order. Evidence: `cargo test` 89 passed;
+  nextest 89 passed with zero skips; fmt and clippy clean; warning-denied
+  release lib + binary builds passed; dev-feature smoke passed at 117.5 fps;
+  missing-catalog GUI smoke exited 0; warmed 600-frame release runs measured
+  60.2 fps focused on Mercury and 115.5 fps focused on Sedna. The known
+  Bevy/winit forced-exit teardown warning remains non-gating. No dependencies
+  were added.
+- **2026-07-13** — Normalized the completed WP0/WP3 status: WP0 is now
+  explicitly labeled acceptance-complete, while the real-Windows launch is
+  isolated as a deferred pre-WP16 release gate rather than an open WP0 item.
+  Started WP4 after reading ARCHITECTURE §§3, 4.3, 8.2, 8.3 and the nested
+  `sim-core` contract; dashboard status is now in-progress.
 - **2026-07-13** — Finalized `docs/wp0-dev-setup-macos.md` as the completed
   WP0/WP3 setup and regeneration record. Marked every section complete,
   removed stale pre-commit language, aligned the diagnostics-import example

@@ -1,0 +1,900 @@
+//! WP4 — Bevy application propagation and floating origin (ARCHITECTURE §8).
+//!
+//! `sim-core` remains the f64 source of truth. This crate owns filesystem
+//! loading, parent-to-heliocentric composition, the one f64→f32 render rebase,
+//! and explicit frame-flow ordering. Temporary WP4 controls already travel
+//! through a command queue so WP5 can extend the seam without bypassing it.
+
+#[cfg(debug_assertions)]
+use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
+use bevy::prelude::*;
+use sim_core::catalog::{Catalog, CatalogError, Category};
+use sim_core::kepler::{state_at, KeplerError, StateVector};
+use sim_core::time::{t_from_unix_utc, SimClock, StartMode};
+use std::collections::HashMap;
+use std::fmt;
+use std::path::{Path, PathBuf};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+pub const DEFAULT_CATALOG_PATH: &str = "assets/catalog.ron";
+pub const KM_PER_RENDER_UNIT: f64 = 1_000.0;
+const DEFAULT_SMOKE_FRAMES: u32 = 60;
+const DEFAULT_CAMERA_DISTANCE_UNITS: f32 = 250_000.0;
+
+#[derive(Debug, Clone)]
+pub struct RunOptions {
+    pub catalog_path: PathBuf,
+    pub smoke_frames: Option<u32>,
+    pub initial_focus_id: Option<String>,
+}
+
+impl Default for RunOptions {
+    fn default() -> Self {
+        Self {
+            catalog_path: PathBuf::from(DEFAULT_CATALOG_PATH),
+            smoke_frames: None,
+            initial_focus_id: None,
+        }
+    }
+}
+
+impl RunOptions {
+    pub fn from_args(args: &[String]) -> Self {
+        let mut options = Self::default();
+        let mut i = 1;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--smoke" => {
+                    let smoke_frames =
+                        match args.get(i + 1).and_then(|value| value.parse::<u32>().ok()) {
+                            Some(frames) => frames,
+                            None => DEFAULT_SMOKE_FRAMES,
+                        };
+                    options.smoke_frames = Some(smoke_frames);
+                    if args
+                        .get(i + 1)
+                        .is_some_and(|value| value.parse::<u32>().is_ok())
+                    {
+                        i += 1;
+                    }
+                }
+                "--focus" => {
+                    if let Some(value) = args.get(i + 1) {
+                        options.initial_focus_id = Some(value.clone());
+                        i += 1;
+                    }
+                }
+                "--catalog" => {
+                    if let Some(value) = args.get(i + 1) {
+                        options.catalog_path = PathBuf::from(value);
+                        i += 1;
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        options
+    }
+}
+
+#[derive(Debug)]
+pub enum CatalogLoadError {
+    Read { path: PathBuf, message: String },
+    Parse(String),
+    Validation(Vec<CatalogError>),
+    Propagation(PropagationError),
+}
+
+impl fmt::Display for CatalogLoadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CatalogLoadError::Read { path, message } => {
+                write!(f, "could not read '{}': {message}", path.display())
+            }
+            CatalogLoadError::Parse(message) => write!(f, "catalog syntax error: {message}"),
+            CatalogLoadError::Validation(errors) => {
+                write!(f, "catalog validation failed")?;
+                for error in errors {
+                    write!(f, "\n- {error}")?;
+                }
+                Ok(())
+            }
+            CatalogLoadError::Propagation(error) => {
+                write!(f, "catalog could not produce initial states: {error}")
+            }
+        }
+    }
+}
+
+pub fn load_catalog_text(text: &str) -> Result<Catalog, CatalogLoadError> {
+    let catalog =
+        Catalog::from_ron_str(text).map_err(|error| CatalogLoadError::Parse(error.to_string()))?;
+    catalog.validate().map_err(CatalogLoadError::Validation)?;
+    Ok(catalog)
+}
+
+pub fn load_catalog_from_path(path: &Path) -> Result<Catalog, CatalogLoadError> {
+    let text = std::fs::read_to_string(path).map_err(|error| CatalogLoadError::Read {
+        path: path.to_path_buf(),
+        message: error.to_string(),
+    })?;
+    load_catalog_text(&text)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PropagationError {
+    MissingParent { body: String },
+    ParentNotBeforeChild { body: String, parent: String },
+    MissingParentGm { body: String, parent: String },
+    MissingOrbit { body: String },
+    Kepler { body: String, source: KeplerError },
+}
+
+impl fmt::Display for PropagationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PropagationError::MissingParent { body } => {
+                write!(f, "'{body}' has no parent")
+            }
+            PropagationError::ParentNotBeforeChild { body, parent } => {
+                write!(f, "parent '{parent}' does not precede child '{body}'")
+            }
+            PropagationError::MissingParentGm { body, parent } => {
+                write!(f, "parent '{parent}' has no GM for '{body}'")
+            }
+            PropagationError::MissingOrbit { body } => write!(f, "'{body}' has no orbit"),
+            PropagationError::Kepler { body, source } => {
+                write!(f, "could not propagate '{body}': {source}")
+            }
+        }
+    }
+}
+
+#[derive(Resource, Debug, Clone)]
+pub struct BodyStates(pub Vec<StateVector>);
+
+pub fn propagate_catalog(catalog: &Catalog, t_s: f64) -> Result<BodyStates, PropagationError> {
+    let mut states = BodyStates(vec![StateVector::default(); catalog.bodies.len()]);
+    propagate_into(catalog, t_s, &mut states)?;
+    Ok(states)
+}
+
+fn propagate_into(
+    catalog: &Catalog,
+    t_s: f64,
+    states: &mut BodyStates,
+) -> Result<(), PropagationError> {
+    states
+        .0
+        .resize(catalog.bodies.len(), StateVector::default());
+    let indices: HashMap<&str, usize> = catalog
+        .bodies
+        .iter()
+        .enumerate()
+        .map(|(index, body)| (body.id.as_str(), index))
+        .collect();
+
+    for (body_index, body) in catalog.bodies.iter().enumerate() {
+        if body.category == Category::Star {
+            states.0[body_index] = StateVector::default();
+            continue;
+        }
+
+        let parent_id = body
+            .parent
+            .as_deref()
+            .ok_or_else(|| PropagationError::MissingParent {
+                body: body.id.clone(),
+            })?;
+        let parent_index =
+            indices
+                .get(parent_id)
+                .copied()
+                .ok_or_else(|| PropagationError::MissingParent {
+                    body: body.id.clone(),
+                })?;
+        if parent_index >= body_index {
+            return Err(PropagationError::ParentNotBeforeChild {
+                body: body.id.clone(),
+                parent: parent_id.to_string(),
+            });
+        }
+        let mu = catalog.bodies[parent_index].gm_km3_s2.ok_or_else(|| {
+            PropagationError::MissingParentGm {
+                body: body.id.clone(),
+                parent: parent_id.to_string(),
+            }
+        })?;
+        let orbit = body
+            .orbit
+            .as_ref()
+            .ok_or_else(|| PropagationError::MissingOrbit {
+                body: body.id.clone(),
+            })?;
+        let relative = state_at(orbit, mu, t_s).map_err(|source| PropagationError::Kepler {
+            body: body.id.clone(),
+            source,
+        })?;
+        let parent = states.0[parent_index];
+        states.0[body_index] = StateVector {
+            position_km: add_f64(parent.position_km, relative.position_km),
+            velocity_km_s: add_f64(parent.velocity_km_s, relative.velocity_km_s),
+        };
+    }
+    Ok(())
+}
+
+fn add_f64(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
+#[derive(Resource)]
+pub struct LoadedCatalog {
+    pub catalog: Catalog,
+    indices: HashMap<String, usize>,
+}
+
+impl LoadedCatalog {
+    fn new(catalog: Catalog) -> Self {
+        let indices = catalog
+            .bodies
+            .iter()
+            .enumerate()
+            .map(|(index, body)| (body.id.clone(), index))
+            .collect();
+        Self { catalog, indices }
+    }
+
+    fn index_of(&self, id: &str) -> Option<usize> {
+        self.indices.get(id).copied()
+    }
+}
+
+#[derive(Resource)]
+struct CatalogFailure(String);
+
+#[derive(Resource)]
+pub struct SimulationClock(pub SimClock);
+
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct CameraFocus {
+    pub body_index: usize,
+    pub position_km: [f64; 3],
+}
+
+#[derive(Resource)]
+struct OrbitRig {
+    yaw: f32,
+    pitch: f32,
+    distance: f32,
+}
+
+impl Default for OrbitRig {
+    fn default() -> Self {
+        Self {
+            yaw: 0.0,
+            pitch: 0.35,
+            distance: DEFAULT_CAMERA_DISTANCE_UNITS,
+        }
+    }
+}
+
+#[derive(Debug)]
+enum SimCommand {
+    Orbit { delta_x: f32, delta_y: f32 },
+    Dolly { delta: f32 },
+    FocusBody(String),
+    StepRate(i8),
+}
+
+#[derive(Resource, Default)]
+struct SimCommandQueue(Vec<SimCommand>);
+
+#[derive(Resource, Default)]
+struct PropagationFault(Option<String>);
+
+#[derive(Resource)]
+struct SmokeFrames {
+    target: Option<u32>,
+    seen: u32,
+    started: Option<Instant>,
+}
+
+impl SmokeFrames {
+    fn new(target: Option<u32>) -> Self {
+        Self {
+            target,
+            seen: 0,
+            started: None,
+        }
+    }
+}
+
+#[derive(Component)]
+pub struct BodyVisual {
+    pub index: usize,
+}
+
+#[derive(Component)]
+pub struct BodyId(pub String);
+
+#[derive(Component)]
+struct CatalogErrorScreen;
+
+#[cfg(debug_assertions)]
+#[derive(Component)]
+struct DiagText;
+
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SimulationSet {
+    Input,
+    Commands,
+    Clock,
+    Propagation,
+    Origin,
+    Render,
+}
+
+fn configure_frame_flow(app: &mut App) {
+    app.configure_sets(
+        Update,
+        (
+            SimulationSet::Input,
+            SimulationSet::Commands,
+            SimulationSet::Clock,
+            SimulationSet::Propagation,
+            SimulationSet::Origin,
+            SimulationSet::Render,
+        )
+            .chain(),
+    );
+}
+
+pub struct PropagationPlugin;
+
+impl Plugin for PropagationPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, propagate_bodies.in_set(SimulationSet::Propagation));
+    }
+}
+
+pub struct OriginPlugin;
+
+impl Plugin for OriginPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(
+            Update,
+            update_focus_and_rebase.in_set(SimulationSet::Origin),
+        );
+    }
+}
+
+pub fn run_from_env() {
+    let args: Vec<String> = std::env::args().collect();
+    let options = RunOptions::from_args(&args);
+    let catalog = load_catalog_from_path(&options.catalog_path);
+    let mut app = build_app(options, catalog);
+    app.run();
+}
+
+pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>) -> App {
+    let mut app = App::new();
+    app.add_plugins(DefaultPlugins.set(WindowPlugin {
+        primary_window: Some(Window {
+            title: "solar-sim — WP4 propagation".into(),
+            ..default()
+        }),
+        ..default()
+    }));
+    configure_frame_flow(&mut app);
+
+    let wall_now_t = wall_now_t();
+    app.insert_resource(SimulationClock(SimClock::new(
+        StartMode::default(),
+        wall_now_t,
+    )))
+    .insert_resource(SimCommandQueue::default())
+    .insert_resource(PropagationFault::default())
+    .insert_resource(SmokeFrames::new(options.smoke_frames));
+
+    match catalog.and_then(|catalog| {
+        let t_s = SimClock::new(StartMode::default(), wall_now_t).t();
+        let states = propagate_catalog(&catalog, t_s).map_err(CatalogLoadError::Propagation)?;
+        Ok((catalog, states))
+    }) {
+        Ok((catalog, states)) => {
+            let loaded = LoadedCatalog::new(catalog);
+            let requested_focus = options
+                .initial_focus_id
+                .as_deref()
+                .and_then(|id| loaded.index_of(id));
+            let focus_index = requested_focus
+                .or_else(|| loaded.index_of("sun"))
+                .map_or(0, |index| index);
+            let distance = if requested_focus.is_some() {
+                close_camera_distance(loaded.catalog.bodies[focus_index].radius_km)
+            } else {
+                DEFAULT_CAMERA_DISTANCE_UNITS
+            };
+            app.insert_resource(CameraFocus {
+                body_index: focus_index,
+                position_km: states.0[focus_index].position_km,
+            })
+            .insert_resource(OrbitRig {
+                distance,
+                ..default()
+            })
+            .insert_resource(loaded)
+            .insert_resource(states);
+        }
+        Err(error) => {
+            app.insert_resource(CatalogFailure(error.to_string()))
+                .insert_resource(OrbitRig::default());
+        }
+    }
+
+    app.add_plugins((PropagationPlugin, OriginPlugin))
+        .add_systems(
+            Startup,
+            (spawn_body_spheres, spawn_camera, spawn_catalog_error),
+        )
+        .add_systems(Update, collect_input_commands.in_set(SimulationSet::Input))
+        .add_systems(Update, apply_sim_commands.in_set(SimulationSet::Commands))
+        .add_systems(Update, tick_clock.in_set(SimulationSet::Clock))
+        .add_systems(
+            Update,
+            (update_camera, smoke_exit)
+                .chain()
+                .in_set(SimulationSet::Render),
+        );
+
+    #[cfg(debug_assertions)]
+    app.add_plugins(FrameTimeDiagnosticsPlugin::default())
+        .add_systems(Startup, spawn_diag_overlay)
+        .add_systems(Update, update_diag_overlay);
+
+    app
+}
+
+fn wall_now_t() -> f64 {
+    let unix_s = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_secs_f64(),
+        Err(error) => -error.duration().as_secs_f64(),
+    };
+    t_from_unix_utc(unix_s)
+}
+
+fn close_camera_distance(radius_km: f64) -> f32 {
+    ((radius_km / KM_PER_RENDER_UNIT) as f32 * 4.0).max(0.5)
+}
+
+fn collect_input_commands(
+    buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut motion: MessageReader<bevy::input::mouse::MouseMotion>,
+    mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
+    mut queue: ResMut<SimCommandQueue>,
+) {
+    if buttons.pressed(MouseButton::Right) {
+        for event in motion.read() {
+            queue.0.push(SimCommand::Orbit {
+                delta_x: event.delta.x,
+                delta_y: event.delta.y,
+            });
+        }
+    } else {
+        motion.clear();
+    }
+    for event in wheel.read() {
+        queue.0.push(SimCommand::Dolly { delta: event.y });
+    }
+    if keys.just_pressed(KeyCode::KeyO) {
+        queue.0.push(SimCommand::FocusBody("sun".into()));
+    }
+    if keys.just_pressed(KeyCode::KeyM) {
+        queue.0.push(SimCommand::FocusBody("mercury".into()));
+    }
+    if keys.just_pressed(KeyCode::KeyS) {
+        queue.0.push(SimCommand::FocusBody("sedna".into()));
+    }
+    if keys.just_pressed(KeyCode::BracketLeft) {
+        queue.0.push(SimCommand::StepRate(-1));
+    }
+    if keys.just_pressed(KeyCode::BracketRight) {
+        queue.0.push(SimCommand::StepRate(1));
+    }
+}
+
+fn apply_sim_commands(
+    mut queue: ResMut<SimCommandQueue>,
+    mut rig: ResMut<OrbitRig>,
+    mut clock: ResMut<SimulationClock>,
+    loaded: Option<Res<LoadedCatalog>>,
+    states: Option<Res<BodyStates>>,
+    focus: Option<ResMut<CameraFocus>>,
+) {
+    let mut focus = focus;
+    for command in queue.0.drain(..) {
+        match command {
+            SimCommand::Orbit { delta_x, delta_y } => {
+                rig.yaw -= delta_x * 0.005;
+                rig.pitch = (rig.pitch + delta_y * 0.005).clamp(-1.5, 1.5);
+            }
+            SimCommand::Dolly { delta } => {
+                rig.distance = (rig.distance * (1.0 - delta * 0.1)).clamp(0.5, 1.0e9);
+            }
+            SimCommand::FocusBody(id) => {
+                if let (Some(loaded), Some(states), Some(focus)) =
+                    (loaded.as_deref(), states.as_deref(), focus.as_deref_mut())
+                {
+                    if let Some(index) = loaded.index_of(&id) {
+                        focus.body_index = index;
+                        focus.position_km = states.0[index].position_km;
+                        rig.distance =
+                            close_camera_distance(loaded.catalog.bodies[index].radius_km);
+                    }
+                }
+            }
+            SimCommand::StepRate(delta) => clock.0.step_rate(delta),
+        }
+    }
+}
+
+fn tick_clock(time: Res<Time>, mut clock: ResMut<SimulationClock>) {
+    clock.0.tick(time.delta_secs_f64(), wall_now_t());
+}
+
+fn propagate_bodies(
+    loaded: Option<Res<LoadedCatalog>>,
+    clock: Res<SimulationClock>,
+    states: Option<ResMut<BodyStates>>,
+    mut fault: ResMut<PropagationFault>,
+) {
+    let (Some(loaded), Some(mut states)) = (loaded, states) else {
+        return;
+    };
+    match propagate_into(&loaded.catalog, clock.0.t(), &mut states) {
+        Ok(()) => fault.0 = None,
+        Err(error) => {
+            let message = error.to_string();
+            if fault.0.as_deref() != Some(message.as_str()) {
+                error!("{message}");
+            }
+            fault.0 = Some(message);
+        }
+    }
+}
+
+pub fn rebase_position(position_km: [f64; 3], focus_km: [f64; 3]) -> Vec3 {
+    let relative = [
+        (position_km[0] - focus_km[0]) / KM_PER_RENDER_UNIT,
+        (position_km[1] - focus_km[1]) / KM_PER_RENDER_UNIT,
+        (position_km[2] - focus_km[2]) / KM_PER_RENDER_UNIT,
+    ];
+    // Ecliptic x-y is Bevy's ground x-z plane; ecliptic z is Bevy up.
+    Vec3::new(relative[0] as f32, relative[2] as f32, relative[1] as f32)
+}
+
+fn update_focus_and_rebase(
+    states: Option<Res<BodyStates>>,
+    focus: Option<ResMut<CameraFocus>>,
+    mut bodies: Query<(&BodyVisual, &mut Transform)>,
+) {
+    let (Some(states), Some(mut focus)) = (states, focus) else {
+        return;
+    };
+    let Some(focus_state) = states.0.get(focus.body_index) else {
+        return;
+    };
+    focus.position_km = focus_state.position_km;
+    for (visual, mut transform) in &mut bodies {
+        if let Some(state) = states.0.get(visual.index) {
+            transform.translation = rebase_position(state.position_km, focus.position_km);
+        }
+    }
+}
+
+fn spawn_body_spheres(
+    mut commands: Commands,
+    loaded: Option<Res<LoadedCatalog>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let Some(loaded) = loaded else {
+        return;
+    };
+    let unit_sphere = meshes.add(Sphere::new(1.0));
+    for (index, body) in loaded.catalog.bodies.iter().enumerate() {
+        let (r, g, b) = body.color_srgb;
+        let color = Color::srgb(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0);
+        let emissive = if body.category == Category::Star {
+            LinearRgba::rgb(
+                r as f32 / 255.0 * 4.0,
+                g as f32 / 255.0 * 4.0,
+                b as f32 / 255.0 * 4.0,
+            )
+        } else {
+            LinearRgba::BLACK
+        };
+        let scale = (body.radius_km / KM_PER_RENDER_UNIT) as f32;
+        commands.spawn((
+            Name::new(body.name.clone()),
+            BodyId(body.id.clone()),
+            BodyVisual { index },
+            Mesh3d(unit_sphere.clone()),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: color,
+                emissive,
+                unlit: true,
+                ..default()
+            })),
+            Transform::from_scale(Vec3::splat(scale)),
+        ));
+    }
+}
+
+fn spawn_camera(mut commands: Commands, loaded: Option<Res<LoadedCatalog>>, rig: Res<OrbitRig>) {
+    if loaded.is_none() {
+        return;
+    }
+    let translation = Vec3::new(rig.distance, rig.distance * 0.35, 0.0);
+    commands.spawn((
+        Camera3d::default(),
+        Projection::Perspective(PerspectiveProjection {
+            far: 1.0e9,
+            ..default()
+        }),
+        Transform::from_translation(translation).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+}
+
+fn spawn_catalog_error(mut commands: Commands, failure: Option<Res<CatalogFailure>>) {
+    let Some(failure) = failure else {
+        return;
+    };
+    commands.spawn(Camera2d);
+    commands.spawn((
+        CatalogErrorScreen,
+        Text::new(format!(
+            "SOLAR-SIM COULD NOT LOAD THE BODY CATALOG\n\n{}\n\nThe simulation was not started.",
+            failure.0
+        )),
+    ));
+}
+
+fn update_camera(rig: Res<OrbitRig>, mut camera: Query<&mut Transform, With<Camera3d>>) {
+    let (sin_yaw, cos_yaw) = rig.yaw.sin_cos();
+    let (sin_pitch, cos_pitch) = rig.pitch.sin_cos();
+    let translation = Vec3::new(cos_yaw * cos_pitch, sin_pitch, sin_yaw * cos_pitch) * rig.distance;
+    for mut transform in &mut camera {
+        transform.translation = translation;
+        transform.look_at(Vec3::ZERO, Vec3::Y);
+    }
+}
+
+fn smoke_exit(mut smoke: ResMut<SmokeFrames>, mut exit: MessageWriter<AppExit>) {
+    let Some(target) = smoke.target else {
+        return;
+    };
+    smoke.seen += 1;
+    let warmup_frames = (target / 5).min(60);
+    if smoke.started.is_none() && smoke.seen >= warmup_frames {
+        smoke.started = Some(Instant::now());
+    }
+    if smoke.seen >= target {
+        let started = match smoke.started {
+            Some(started) => started,
+            None => Instant::now(),
+        };
+        let elapsed = started.elapsed().as_secs_f64().max(f64::EPSILON);
+        let measured_frames = smoke.seen.saturating_sub(warmup_frames).max(1);
+        let fps = measured_frames as f64 / elapsed;
+        info!(
+            "smoke: rendered {} frames; measured {} after {} warmup frames in {:.3}s ({:.1} fps)",
+            smoke.seen, measured_frames, warmup_frames, elapsed, fps
+        );
+        println!(
+            "smoke: rendered {} frames; measured {} after {} warmup frames in {:.3}s ({:.1} fps)",
+            smoke.seen, measured_frames, warmup_frames, elapsed, fps
+        );
+        exit.write(AppExit::Success);
+    }
+}
+
+#[cfg(debug_assertions)]
+fn spawn_diag_overlay(mut commands: Commands) {
+    commands.spawn((Text::new("fps: --"), DiagText));
+}
+
+#[cfg(debug_assertions)]
+fn update_diag_overlay(
+    diagnostics: Res<DiagnosticsStore>,
+    mut text: Query<&mut Text, With<DiagText>>,
+) {
+    if let Some(fps) = diagnostics
+        .get(&FrameTimeDiagnosticsPlugin::FPS)
+        .and_then(|diagnostic| diagnostic.smoothed())
+    {
+        for mut text in &mut text {
+            **text = format!("fps: {fps:.0}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sim_core::time::t_from_jd_tdb;
+
+    const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
+
+    fn catalog() -> Catalog {
+        load_catalog_text(REAL_CATALOG).expect("committed catalog must load")
+    }
+
+    #[test]
+    fn composed_io_state_matches_direct_core_reference_to_last_bit() {
+        let catalog = catalog();
+        let index = catalog.id_index();
+        let t_s = t_from_jd_tdb(2_461_042.0);
+        let states = propagate_catalog(&catalog, t_s).unwrap();
+        let sun = *index.get("sun").unwrap();
+        let jupiter = *index.get("jupiter").unwrap();
+        let io = *index.get("io").unwrap();
+
+        let jupiter_relative = state_at(
+            catalog.bodies[jupiter].orbit.as_ref().unwrap(),
+            catalog.bodies[sun].gm_km3_s2.unwrap(),
+            t_s,
+        )
+        .unwrap();
+        let io_relative = state_at(
+            catalog.bodies[io].orbit.as_ref().unwrap(),
+            catalog.bodies[jupiter].gm_km3_s2.unwrap(),
+            t_s,
+        )
+        .unwrap();
+        let expected = StateVector {
+            position_km: add_f64(jupiter_relative.position_km, io_relative.position_km),
+            velocity_km_s: add_f64(jupiter_relative.velocity_km_s, io_relative.velocity_km_s),
+        };
+        assert_eq!(states.0[io], expected);
+    }
+
+    #[test]
+    fn planet_states_match_direct_core_output_bit_for_bit_at_catalog_epoch() {
+        let catalog = catalog();
+        let index = catalog.id_index();
+        let t_s = t_from_jd_tdb(2_461_042.0);
+        let states = propagate_catalog(&catalog, t_s).unwrap();
+        let sun = &catalog.bodies[*index.get("sun").unwrap()];
+        for id in [
+            "mercury", "venus", "earth", "mars", "jupiter", "saturn", "uranus", "neptune",
+        ] {
+            let body_index = *index.get(id).unwrap();
+            let direct = state_at(
+                catalog.bodies[body_index].orbit.as_ref().unwrap(),
+                sun.gm_km3_s2.unwrap(),
+                t_s,
+            )
+            .unwrap();
+            assert_eq!(states.0[body_index], direct, "{id}");
+        }
+    }
+
+    #[test]
+    fn focus_change_preserves_relative_positions_at_sedna_scale() {
+        let a = [1.4e11, -8.0e10, 2.0e9];
+        let b = [a[0] + 1_234.0, a[1] - 5_678.0, a[2] + 9_012.0];
+        let relative_from_a = rebase_position(b, a) - rebase_position(a, a);
+        let relative_from_b = rebase_position(b, b) - rebase_position(a, b);
+        let error = (relative_from_a - relative_from_b).abs().max_element();
+        assert!(
+            error <= f32::EPSILON * relative_from_a.length().max(1.0),
+            "relative render-space position changed by {error}"
+        );
+    }
+
+    #[test]
+    fn mercury_and_sedna_focus_points_rebase_to_exact_origin() {
+        let catalog = catalog();
+        let index = catalog.id_index();
+        let states = propagate_catalog(&catalog, t_from_jd_tdb(2_461_042.0)).unwrap();
+        for id in ["mercury", "sedna"] {
+            let position = states.0[*index.get(id).unwrap()].position_km;
+            assert_eq!(rebase_position(position, position), Vec3::ZERO, "{id}");
+
+            let mut one_km_away = position;
+            one_km_away[0] += 1.0;
+            let rebased = rebase_position(one_km_away, position);
+            assert!((rebased.x - 0.001).abs() <= 2.0e-8, "{id}: {rebased:?}");
+        }
+    }
+
+    #[test]
+    fn corrupt_catalog_is_rejected_without_panicking_and_has_error_screen() {
+        let result = std::panic::catch_unwind(|| load_catalog_text("not valid RON"));
+        assert!(result.is_ok(), "loader panicked on corrupt input");
+        assert!(result.unwrap().is_err());
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(CatalogFailure("deliberate corrupt fixture".into()))
+            .add_systems(Startup, spawn_catalog_error);
+        app.update();
+        let mut query = app.world_mut().query::<(&CatalogErrorScreen, &Text)>();
+        let screens: Vec<_> = query.iter(app.world()).collect();
+        assert_eq!(screens.len(), 1);
+        assert!(screens[0].1.contains("deliberate corrupt fixture"));
+    }
+
+    #[test]
+    fn real_catalog_spawns_all_66_true_radius_spheres() {
+        let catalog = catalog();
+        let loaded = LoadedCatalog::new(catalog);
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<Assets<Mesh>>()
+            .init_resource::<Assets<StandardMaterial>>()
+            .insert_resource(loaded)
+            .add_systems(Startup, spawn_body_spheres);
+        app.update();
+
+        let mut query = app
+            .world_mut()
+            .query::<(&BodyVisual, &BodyId, &Transform)>();
+        let bodies: Vec<_> = query.iter(app.world()).collect();
+        assert_eq!(bodies.len(), 66);
+        let mercury = bodies.iter().find(|(_, id, _)| id.0 == "mercury").unwrap();
+        assert_eq!(mercury.2.scale, Vec3::splat(2.4397));
+    }
+
+    #[derive(Resource, Default)]
+    struct FrameTrace(Vec<SimulationSet>);
+
+    fn mark_input(mut trace: ResMut<FrameTrace>) {
+        trace.0.push(SimulationSet::Input);
+    }
+    fn mark_commands(mut trace: ResMut<FrameTrace>) {
+        trace.0.push(SimulationSet::Commands);
+    }
+    fn mark_clock(mut trace: ResMut<FrameTrace>) {
+        trace.0.push(SimulationSet::Clock);
+    }
+    fn mark_propagation(mut trace: ResMut<FrameTrace>) {
+        trace.0.push(SimulationSet::Propagation);
+    }
+    fn mark_origin(mut trace: ResMut<FrameTrace>) {
+        trace.0.push(SimulationSet::Origin);
+    }
+    fn mark_render(mut trace: ResMut<FrameTrace>) {
+        trace.0.push(SimulationSet::Render);
+    }
+
+    #[test]
+    fn frame_sets_run_in_declared_order() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<FrameTrace>();
+        configure_frame_flow(&mut app);
+        app.add_systems(Update, mark_input.in_set(SimulationSet::Input))
+            .add_systems(Update, mark_commands.in_set(SimulationSet::Commands))
+            .add_systems(Update, mark_clock.in_set(SimulationSet::Clock))
+            .add_systems(Update, mark_propagation.in_set(SimulationSet::Propagation))
+            .add_systems(Update, mark_origin.in_set(SimulationSet::Origin))
+            .add_systems(Update, mark_render.in_set(SimulationSet::Render));
+        app.update();
+        assert_eq!(
+            app.world().resource::<FrameTrace>().0,
+            vec![
+                SimulationSet::Input,
+                SimulationSet::Commands,
+                SimulationSet::Clock,
+                SimulationSet::Propagation,
+                SimulationSet::Origin,
+                SimulationSet::Render,
+            ]
+        );
+    }
+}
