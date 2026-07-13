@@ -699,6 +699,13 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-13** — Finalized `docs/wp0-dev-setup-macos.md` as the completed
+  WP0/WP3 setup and regeneration record. Marked every section complete,
+  removed stale pre-commit language, aligned the diagnostics-import example
+  with the warning-clean source, and replaced the historical 72-test note
+  with the current 82-test baseline. The real-Windows launch remains the
+  explicitly deferred pre-WP16 release gate, not unfinished WP0/WP3 work.
+  Evidence: `cargo test` 82 passed; fmt, clippy, and diff checks passed.
 - **2026-07-13** — WP3 done. Commit `1ea4d1f` (`feat: Q7 and WP3`) is on
   `origin/main` with `assets/catalog.ron`, all 68 captured JPL responses,
   the two active spot-check files, the approved DE440 GM set, and its tests

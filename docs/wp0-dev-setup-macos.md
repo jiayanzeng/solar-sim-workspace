@@ -8,18 +8,22 @@ Windows machine, and finishes with the WP3 online-capture procedure
 
 Intended location in the repo: `docs/wp0-dev-setup-macos.md`.
 
-**Completion status — re-audited 2026-07-13:** Part A is complete for the
-defined macOS + hosted-CI scope. The only residual is the explicitly deferred
-real-Windows-hardware launch before WP16. Part B's Q5 route work, 66-body/68-
-payload capture, active 10-body spot-check, curated-value review, and generated
-artifacts are also complete. Commit `1ea4d1f` is on `origin/main`; WP3 is
-closed in `TASKS.md`.
+**Status — COMPLETE (re-audited 2026-07-13).** Every task assigned to this
+guide is complete: Part A's macOS + hosted-CI WP0 scope, Part B's Q5 route
+work, the 66-body/68-payload capture, the active 10-body spot-check, the full
+curated-value review, and all generated artifacts. Commit `1ea4d1f` contains
+the WP3 artifacts on `origin/main`; commit `52fe145` closes WP3 in `TASKS.md`.
+
+The real-Windows-hardware/VM launch remains explicitly deferred until before
+WP16. It is a future release gate recorded in `TASKS.md`, not an unfinished
+requirement of this WP0/WP3 guide. The commands below are retained as a
+reproducible setup and regeneration record, not as an open checklist.
 
 ---
 
 ## Part A — WP0
 
-### A0. One-time machine prerequisites
+### A0. One-time machine prerequisites — complete
 
 ```bash
 # 1. Xcode Command Line Tools (linker, Metal toolchain)
@@ -35,12 +39,12 @@ cargo install cargo-nextest --locked
 Nothing else is required on macOS: Bevy 0.19 uses Metal via wgpu, no SDK
 downloads, no Vulkan runtime.
 
-### A1. `rust-toolchain.toml` (closes TASKS Q1)
+### A1. `rust-toolchain.toml` (closes TASKS Q1) — complete
 
 Evidence gathered 2026-07-12 from the crates.io API: **bevy 0.19.0
 declares `rust_version = "1.95.0"`** (as do 0.19.0-rc.1 through rc.3).
 ARCHITECTURE §8.1 says to pin the *minimum* stable that Bevy 0.19
-supports, so at the repo root create:
+supports. The committed repository file is:
 
 ```toml
 # rust-toolchain.toml
@@ -50,10 +54,8 @@ components = ["rustfmt", "clippy"]
 ```
 
 Notes:
-- Your shell prompt shows 1.96.0 installed; rustup will fetch and use
-  1.95.0 automatically for this workspace the first time you build. Both
-  satisfy Bevy's MSRV — the pin exists so every machine and CI runner
-  agrees.
+- rustup selects 1.95.0 for this workspace even if a newer toolchain is also
+  installed. The pin exists so every machine and CI runner agrees.
 - `sim-core` keeps its conservative MSRV claim. Add to
   `crates/sim-core/Cargo.toml` under `[package]`:
 
@@ -71,10 +73,9 @@ Notes:
   cargo +1.75.0 check --manifest-path "$msrv_dir/Cargo.toml"
   ```
 
-After this lands, mark Q1 closed in `TASKS.md` with the crates.io
-evidence.
+This landed and Q1 is closed in `TASKS.md` with the crates.io evidence.
 
-### A2. Workspace `Cargo.toml` updates
+### A2. Workspace `Cargo.toml` updates — complete
 
 ```toml
 [workspace]
@@ -93,7 +94,7 @@ opt-level = 3
 Keep the existing comment about the sim-core/Bevy firewall; it stays true
 and A4 makes it mechanical.
 
-### A3. `crates/solar-sim` skeleton
+### A3. `crates/solar-sim` skeleton — complete
 
 The shell below is verified against Bevy 0.19.0. In particular, Bevy 0.19
 uses `MessageReader` / `MessageWriter` for mouse input and `AppExit`; the
@@ -127,6 +128,7 @@ dev = ["bevy/dynamic_linking"]
 //! WP0 — application shell (ARCHITECTURE §8): window, orbit-camera stub,
 //! dev-only diagnostics overlay, and a `--smoke` mode for CI launch checks.
 
+#[cfg(debug_assertions)]
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 
@@ -264,7 +266,7 @@ fn update_diag_overlay(
 }
 ```
 
-Bring-up:
+Reproduction/bring-up commands:
 
 ```bash
 cargo run -p solar-sim --features dev     # window + emissive sphere + fps
@@ -276,7 +278,7 @@ git add crates/solar-sim Cargo.lock && git commit
 `Cargo.lock` MUST be committed from this point on — it *is* the exact
 Bevy pin.
 
-### A4. CI — `.github/workflows/ci.yml`
+### A4. CI — `.github/workflows/ci.yml` — complete
 
 Covers: fmt, clippy (deny warnings), nextest, macOS + Windows builds, the
 core-purity rule, and the offline rule.
@@ -368,10 +370,10 @@ Two remarks:
   agent ever adds a Bevy dep to `sim-core`, CI (not review) catches it.
 - The Windows smoke launch is `continue-on-error` on purpose: WARP
   software rendering on GitHub runners is usually fine for wgpu but is
-  not guaranteed. Watch it for a few runs; if it's reliably green, delete
-  `continue-on-error` and it becomes your "window opens on Windows" gate.
+  not guaranteed. Promoting it to a hard gate after sustained reliability is
+  optional future CI hardening, not an unfinished WP0 requirement.
 
-### A5. Windows acceptance without a Windows machine
+### A5. Windows acceptance without a Windows machine — accepted for WP0
 
 What CI gives you, in increasing strength:
 
@@ -420,10 +422,10 @@ hardware remains deferred exactly as recorded in `TASKS.md`.
 Q5 was approved on 2026-07-13: Mercury–Mars retain geometric planet-center
 targets, while Jupiter–Neptune use system barycenters over the 1800–2300
 fit span. The architecture, fitting constraints, and SBDB normalization
-rules are now explicit; the remaining steps below apply and verify that
-decision.
+rules are now explicit. The steps below record how that completed decision was
+implemented and verified.
 
-### B1. Confirm the diagnosis (30 seconds, optional but satisfying)
+### B1. Diagnosis confirmed (optional reproduction)
 
 ```bash
 # Jupiter planet-center at the generator's 2300 sample. Horizons should
@@ -472,8 +474,9 @@ wrote `assets/catalog.ron`, and captured 68 payloads. Its only newly exposed
 edge case was unrelated `null` SBDB fields in the live 3I/ATLAS response;
 the parser now ignores unconsumed fields before numeric conversion and has
 a regression test. Missing or ambiguous lookup results remain hard errors
-rather than silent fallbacks. The `git add` / `git commit` lines above are
-still an explicit maintainer action.
+rather than silent fallbacks. The maintainer completed the artifact commit in
+`1ea4d1f`; the `git add` / `git commit` lines above remain only as a
+regeneration recipe.
 
 ### B4. Spot-check vectors — complete; gate active
 
@@ -503,7 +506,7 @@ show `horizons_position_spot_check` passing as an active assertion.
 
 ---
 
-## Warm-up patch — kill the `dead_code` warning properly
+## Warm-up patch — `dead_code` warning fixed
 
 `time::UNIX_EPOCH_JD` is referenced only from a doc comment, hence the
 warning. A use inside `#[cfg(test)]` alone does not fix normal library
@@ -527,4 +530,6 @@ fn unix_epoch_jd_constant_is_consistent() {
 }
 ```
 
-The baseline is now 72; record that evidence in the TASKS.md change log.
+This patch is present in `crates/sim-core/src/time.rs`, its independent test is
+green, and the current workspace baseline is 82 passing tests. The evidence is
+recorded in the `TASKS.md` change log.
