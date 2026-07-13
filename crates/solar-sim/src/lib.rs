@@ -1,4 +1,4 @@
-//! WP4–WP7 — simulation rendering, camera control, and reusable HUD kit.
+//! WP4–WP8 — simulation rendering, camera control, and reusable HUD kit.
 //!
 //! `sim-core` remains the f64 source of truth. This crate owns filesystem
 //! loading, parent-to-heliocentric composition, the one f64→f32 render rebase,
@@ -10,6 +10,7 @@
 mod control;
 mod input_intent;
 mod orbit_lines;
+mod time_bar;
 mod ui_kit;
 
 pub use control::{
@@ -19,6 +20,11 @@ pub use control::{
 pub use orbit_lines::{
     orbit_vertex_count, sample_orbit, OrbitLineBrightness, OrbitLinesPlugin, OrbitPath,
     HYPERBOLIC_HALF_SPAN_S, MAX_ORBIT_VERTICES, MIN_ORBIT_VERTICES,
+};
+pub use time_bar::{
+    commit_time_edit, live_chip_active, rate_for_slider_value, slider_value_for_rate,
+    toasts_for_tick_report, TimeBarPlugin, TimeBarRoot, TimeEditField, TimeEditOutcome,
+    TimeToastKind, TIME_BAR_HEIGHT_PX,
 };
 pub use ui_kit::{
     checkbox_row, chip, panel, section_header, slider, tab_bar, toast, top_bar, BreadcrumbText,
@@ -39,7 +45,7 @@ use control::{
 use input_intent::InputIntentPlugin;
 use sim_core::catalog::{Catalog, CatalogError, Category};
 use sim_core::kepler::{state_at, KeplerError, StateVector};
-use sim_core::time::{t_from_unix_utc, SimClock, StartMode};
+use sim_core::time::{t_from_unix_utc, SimClock, StartMode, TickReport};
 use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -287,6 +293,9 @@ struct CatalogFailure(String);
 #[derive(Resource)]
 pub struct SimulationClock(SimClock);
 
+#[derive(Message, Debug, Clone, Copy)]
+struct ClockTickReport(TickReport);
+
 #[derive(Resource, Default)]
 struct PropagationFault(Option<String>);
 
@@ -402,7 +411,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
             })
             .set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: "Solar Sim — WP7 UI kit".into(),
+                    title: "Solar Sim — WP8 Time bar".into(),
                     ..default()
                 }),
                 ..default()
@@ -419,7 +428,8 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
     .insert_resource(CommandRecording::default())
     .insert_resource(SimulationFrame::default())
     .insert_resource(PropagationFault::default())
-    .insert_resource(SmokeFrames::new(options.smoke_frames));
+    .insert_resource(SmokeFrames::new(options.smoke_frames))
+    .add_message::<ClockTickReport>();
 
     match catalog.and_then(|catalog| {
         let t_s = SimClock::new(StartMode::default(), wall_now_t).t();
@@ -461,6 +471,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
         CameraRigPlugin,
         OrbitLinesPlugin,
         UiKitPlugin,
+        TimeBarPlugin,
     ))
     .add_systems(
         Startup,
@@ -498,6 +509,7 @@ fn apply_sim_commands(
     camera: Option<ResMut<CameraController>>,
     frame: Res<SimulationFrame>,
     mut recording: ResMut<CommandRecording>,
+    mut reports: MessageWriter<ClockTickReport>,
 ) {
     let (Some(loaded), Some(mut camera)) = (loaded, camera) else {
         queue.drain().for_each(drop);
@@ -506,12 +518,24 @@ fn apply_sim_commands(
     let commands: Vec<_> = queue.drain().collect();
     for command in commands {
         recording.record(frame.0, clock.0.t(), command.clone());
-        consume_sim_command(&command, &mut clock.0, &mut camera, &loaded);
+        let report = consume_sim_command(&command, &mut clock.0, &mut camera, &loaded);
+        write_tick_report(report, &mut reports);
     }
 }
 
-fn tick_clock(time: Res<Time>, mut clock: ResMut<SimulationClock>) {
-    clock.0.tick(time.delta_secs_f64(), wall_now_t());
+fn tick_clock(
+    time: Res<Time>,
+    mut clock: ResMut<SimulationClock>,
+    mut reports: MessageWriter<ClockTickReport>,
+) {
+    let report = clock.0.tick(time.delta_secs_f64(), wall_now_t());
+    write_tick_report(report, &mut reports);
+}
+
+fn write_tick_report(report: TickReport, reports: &mut MessageWriter<ClockTickReport>) {
+    if report != TickReport::default() {
+        reports.write(ClockTickReport(report));
+    }
 }
 
 fn propagate_bodies(
@@ -709,8 +733,8 @@ fn spawn_diag_overlay(mut commands: Commands, theme: Res<UiTheme>, asset_server:
         TextColor(theme.colors.text_muted.color()),
         Node {
             position_type: PositionType::Absolute,
-            left: px(theme.spacing.sm_px),
-            bottom: px(theme.spacing.sm_px),
+            right: px(theme.spacing.sm_px),
+            bottom: px(TIME_BAR_HEIGHT_PX + theme.spacing.sm_px),
             ..default()
         },
         GlobalZIndex(110),

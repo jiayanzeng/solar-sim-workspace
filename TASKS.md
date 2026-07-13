@@ -39,7 +39,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | **✅ done** |
 | 6 | Orbit lines (adaptive; hyperbolic arc), colors, fades | **✅ done** |
 | 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | **✅ done** |
-| 8 | Time bar: detented log slider, editable date/clock, LIVE chip | todo (binds to WP1 API) |
+| 8 | Time bar: detented log slider, editable date/clock, LIVE chip | **✅ done** |
 | 9 | Labels/reticles, tiered declutter, contextual moon visibility, picking | todo |
 | 10 | Left panel: Info tab, collection pages, View Options | todo |
 | 11 | Layers quick panel, right rail, Icons layer, UI-off mode | todo |
@@ -362,12 +362,12 @@ LIVE chip, and toasts consuming `TickReport` transitions.
   levels.
 
 **Acceptance.**
-- [ ] Dragging across every detent and releasing reproduces the exact
+- [x] Dragging across every detent and releasing reproduces the exact
   RateIndex ladder (round-trip through the slider mapping).
-- [ ] Typing an invalid date/time reverts and does not move the clock.
-- [ ] LIVE chip state matches `is_live` in all four regimes (paused,
+- [x] Typing an invalid date/time reverts and does not move the clock.
+- [x] LIVE chip state matches `is_live` in all four regimes (paused,
   wrong rate, snapping, live).
-- [ ] Each toast appears exactly once per transition (scrub into the 1800
+- [x] Each toast appears exactly once per transition (scrub into the 1800
   clamp, reverse, re-enter: two clamp toasts total).
 
 **Tests required.** Slider-detent round-trip against `RateIndex::detents`;
@@ -709,6 +709,28 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-13** — WP8 done. Added `TimeBarPlugin` with Eyes-format date and
+  clock `EditableText` fields, strict WP1 parser commits with bit-identical
+  invalid-edit reversion, play/pause, the 24 signed `RateIndex` detents plus
+  the separate paused center, and a semantic LIVE pill driven directly by
+  `SimClock::is_live`. Slider changes, typed time, and LIVE snapping now cross
+  the existing `SimCommand` queue; `SetTime` and `SnapToLive` also round-trip
+  through the deterministic replay format. Transition-only `TickReport`s from
+  both commands and ticks are bridged to auto-expiring `ui_kit` toasts without
+  re-deriving clock levels. Five regressions cover every slider detent, invalid
+  date/time edits, all four LIVE regimes, synthetic toast transition counts,
+  and replay/clamp reporting, raising the workspace from 114 to 119 tests. An
+  exact-app capture verified the assembled bar and the corrected diagnostic
+  placement; the final 90-frame native smoke rendered at 115.2 fps after its
+  warmup. Evidence: `cargo test`, `cargo fmt --all -- --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`, all-target checks,
+  `git diff --check`, and `xtask gen-catalog --dry-run` pass; no dependencies
+  or generated catalog assets changed.
+- **2026-07-13** — Started WP8 from the green 114-test WP7 checkout after
+  reading ARCHITECTURE §§4.2, 7, and 9.5–9.6. The time bar will bind WP1's
+  `SimClock`, `RateIndex`, strict parsers, LIVE predicate, and transition-only
+  `TickReport` directly through the existing `SimCommand` mutation boundary;
+  no time math, level re-derivation, dependencies, or WP9+ behavior is added.
 - **2026-07-13** — WP7 done. Added the call-site-stable `ui_kit` façade and
   `UiKitPlugin`: snapshotted dark theme tokens, wide-tracked Inter typography,
   seven code-defined BSN scene functions, a navigation-stack-bound top bar and

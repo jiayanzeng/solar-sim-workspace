@@ -1,4 +1,4 @@
-//! WP5 — deterministic command consumption, camera travel, and replay.
+//! WP5/WP8 — deterministic command consumption, camera travel, time, and replay.
 //!
 //! This module is the user-state mutation boundary. `CameraController` keeps
 //! its fields private, and `consume_sim_command` is the only function that
@@ -11,7 +11,7 @@ use crate::{
 };
 use bevy::prelude::{Resource, Vec3};
 use sim_core::catalog::{Catalog, CatalogError};
-use sim_core::time::{RateIndex, SimClock, StartMode};
+use sim_core::time::{RateIndex, SimClock, StartMode, TickReport};
 use std::fmt;
 
 const TRAVEL_DURATION_S: f64 = 1.25;
@@ -27,11 +27,13 @@ pub enum SimCommand {
     TravelToBody(String),
     Orbit { delta_yaw: f64, delta_pitch: f64 },
     Dolly { delta: f64 },
+    SetTime(f64),
     SetRate(RateIndex),
     StepRate(i8),
     Play,
     Pause,
     TogglePlay,
+    SnapToLive,
 }
 
 #[derive(Resource, Default)]
@@ -150,11 +152,12 @@ pub(crate) fn consume_sim_command(
     clock: &mut SimClock,
     camera: &mut CameraController,
     loaded: &LoadedCatalog,
-) {
+) -> TickReport {
+    let mut report = TickReport::default();
     match command {
         SimCommand::SelectBody(id) | SimCommand::TravelToBody(id) => {
             let Some(target_index) = loaded.index_of(id) else {
-                return;
+                return report;
             };
             camera.selected_body_index = target_index;
             camera.travel = Some(TravelTween {
@@ -182,12 +185,19 @@ pub(crate) fn consume_sim_command(
                 travel.target_distance_units = camera.distance_units;
             }
         }
+        SimCommand::SetTime(t_s) => {
+            if t_s.is_finite() {
+                report.clamped = clock.set_t(*t_s);
+            }
+        }
         SimCommand::SetRate(rate) => clock.set_rate(*rate),
         SimCommand::StepRate(delta) => clock.step_rate(*delta),
         SimCommand::Play => clock.play(),
         SimCommand::Pause => clock.pause(),
         SimCommand::TogglePlay => clock.toggle_play(),
+        SimCommand::SnapToLive => clock.snap_to_live(),
     }
+    report
 }
 
 /// Evolves Follow/travel from explicit f64 state. A completed tween writes the
@@ -591,11 +601,13 @@ fn serialize_entry(entry: &StampedCommand) -> String {
         SimCommand::Dolly { delta } => {
             format!("{prefix}|dolly|{:016x}", delta.to_bits())
         }
+        SimCommand::SetTime(t_s) => format!("{prefix}|set-time|{:016x}", t_s.to_bits()),
         SimCommand::SetRate(rate) => format!("{prefix}|set-rate|{}", rate.get()),
         SimCommand::StepRate(delta) => format!("{prefix}|step-rate|{delta}"),
         SimCommand::Play => format!("{prefix}|play"),
         SimCommand::Pause => format!("{prefix}|pause"),
         SimCommand::TogglePlay => format!("{prefix}|toggle-play"),
+        SimCommand::SnapToLive => format!("{prefix}|snap-live"),
     }
 }
 
@@ -616,6 +628,13 @@ fn parse_entry(line: &str) -> Result<StampedCommand, String> {
         "dolly" if fields.len() == 4 => SimCommand::Dolly {
             delta: parse_f64_bits(fields[3], "dolly")?,
         },
+        "set-time" if fields.len() == 4 => {
+            let t_s = parse_f64_bits(fields[3], "time")?;
+            if !t_s.is_finite() {
+                return Err("time is not finite".into());
+            }
+            SimCommand::SetTime(t_s)
+        }
         "set-rate" if fields.len() == 4 => {
             let raw = fields[3].parse::<i8>().map_err(|_| "rate is not an i8")?;
             let rate = RateIndex::new(raw).ok_or("rate is outside -12..=-1 or 1..=12")?;
@@ -629,6 +648,7 @@ fn parse_entry(line: &str) -> Result<StampedCommand, String> {
         "play" if fields.len() == 3 => SimCommand::Play,
         "pause" if fields.len() == 3 => SimCommand::Pause,
         "toggle-play" if fields.len() == 3 => SimCommand::TogglePlay,
+        "snap-live" if fields.len() == 3 => SimCommand::SnapToLive,
         command => return Err(format!("unknown or malformed command '{command}'")),
     };
     Ok(StampedCommand {
@@ -706,7 +726,7 @@ impl Fnv1a {
 mod tests {
     use super::*;
     use crate::load_catalog_text;
-    use sim_core::time::t_from_jd_tdb;
+    use sim_core::time::{t_from_jd_tdb, T_MIN_S};
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
     const FRAME_DT_S: f64 = 1.0 / 60.0;
@@ -852,13 +872,15 @@ mod tests {
         let text = concat!(
             "solar-sim-replay-v1\n",
             "bad|timestamp|play\n",
-            "2|7ff0000000000000|dolly|0000000000000000\n"
+            "2|7ff0000000000000|dolly|0000000000000000\n",
+            "3|0000000000000000|set-time|7ff0000000000000\n"
         );
         let result = std::panic::catch_unwind(|| ReplayStream::from_text(text));
         assert!(result.is_ok());
         let message = result.unwrap().unwrap_err().to_string();
         assert!(message.contains("line 2"));
         assert!(message.contains("line 3"));
+        assert!(message.contains("line 4"));
 
         let mut invalid_catalog = catalog();
         invalid_catalog.bodies.clear();
@@ -869,6 +891,45 @@ mod tests {
             Err(other) => panic!("unexpected headless error: {other}"),
             Ok(_) => panic!("invalid catalog entered headless replay"),
         }
+    }
+
+    #[test]
+    fn time_commands_round_trip_and_typed_clamps_emit_the_core_report() {
+        let loaded = LoadedCatalog::new(catalog());
+        let sun = loaded.index_of("sun").unwrap();
+        let mut clock = SimClock::new(StartMode::default(), 0.0);
+        let states = crate::propagate_catalog(&loaded.catalog, clock.t()).unwrap();
+        let mut camera = CameraController::new(
+            sun,
+            states.0[sun].position_km,
+            DEFAULT_CAMERA_DISTANCE_UNITS,
+        );
+
+        let target = T_MIN_S - 1.0;
+        let report = consume_sim_command(
+            &SimCommand::SetTime(target),
+            &mut clock,
+            &mut camera,
+            &loaded,
+        );
+        assert_eq!(report.clamped, Some(sim_core::time::RangeEdge::AtMin));
+        assert_eq!(clock.t(), T_MIN_S);
+
+        let stream = ReplayStream {
+            entries: vec![
+                StampedCommand {
+                    frame: 7,
+                    sim_time_s: 123.5,
+                    command: SimCommand::SetTime(target),
+                },
+                StampedCommand {
+                    frame: 8,
+                    sim_time_s: T_MIN_S,
+                    command: SimCommand::SnapToLive,
+                },
+            ],
+        };
+        assert_eq!(ReplayStream::from_text(&stream.to_text()).unwrap(), stream);
     }
 
     fn mixed_commands(frame: u64) -> Vec<SimCommand> {

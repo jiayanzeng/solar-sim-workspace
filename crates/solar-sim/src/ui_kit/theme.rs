@@ -38,6 +38,7 @@ pub struct UiColors {
     pub panel_elevated: UiColorToken,
     pub separator: UiColorToken,
     pub accent: UiColorToken,
+    pub status_live: UiColorToken,
     pub text_primary: UiColorToken,
     pub text_muted: UiColorToken,
     pub text_disabled: UiColorToken,
@@ -81,6 +82,7 @@ impl UiTheme {
             panel_elevated: UiColorToken::rgba(20, 29, 41, 250),
             separator: UiColorToken::rgba(63, 78, 96, 180),
             accent: UiColorToken::rgb(76, 211, 255),
+            status_live: UiColorToken::rgb(86, 211, 139),
             text_primary: UiColorToken::rgb(231, 240, 249),
             text_muted: UiColorToken::rgb(132, 149, 168),
             text_disabled: UiColorToken::rgb(77, 90, 105),
@@ -109,7 +111,7 @@ impl UiTheme {
         format!(
             concat!(
                 "background={};top_bar={};panel={};panel_elevated={};",
-                "separator={};accent={};text_primary={};text_muted={};",
+                "separator={};accent={};status_live={};text_primary={};text_muted={};",
                 "text_disabled={};scrim={};spacing={:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1};",
                 "type={:.1},{:.1},{:.1},{:.1},{:.1};tracking={:.1}"
             ),
@@ -119,6 +121,7 @@ impl UiTheme {
             self.colors.panel_elevated.snapshot(),
             self.colors.separator.snapshot(),
             self.colors.accent.snapshot(),
+            self.colors.status_live.snapshot(),
             self.colors.text_primary.snapshot(),
             self.colors.text_muted.snapshot(),
             self.colors.text_disabled.snapshot(),
@@ -157,6 +160,7 @@ mod tests {
             concat!(
                 "background=#070A0FFF;top_bar=#0A0F17F6;panel=#0E151FF4;",
                 "panel_elevated=#141D29FA;separator=#3F4E60B4;accent=#4CD3FFFF;",
+                "status_live=#56D38BFF;",
                 "text_primary=#E7F0F9FF;text_muted=#8495A8FF;",
                 "text_disabled=#4D5A69FF;scrim=#03060ADA;",
                 "spacing=1.0,6.0,4.0,8.0,12.0,16.0,24.0;",
