@@ -34,7 +34,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 0 | Workspace, Bevy 0.19 pin, CI, window+camera+diagnostics, core-purity rule | **✅ done** |
 | 1 | `sim-core::time` — full ladder, start epoch, LIVE, range | **✅ done** |
 | 2 | `sim-core::kepler` — elliptic + hyperbolic, guards | **✅ done** |
-| 3 | `xtask gen-catalog` + committed 66-body `catalog.ron` + validation | **in-progress** (all implementation, capture, curated review, and active spot-check gates ✅; generated/captured artifacts await commit) |
+| 3 | `xtask gen-catalog` + committed 66-body `catalog.ron` + validation | **✅ done** |
 | 4 | Propagation + floating origin: 66 colored spheres at 2026 positions | todo (unblocked by WP0) |
 | 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | todo |
 | 6 | Orbit lines (adaptive; hyperbolic arc), colors, fades | todo |
@@ -87,9 +87,9 @@ app loader. Spec: `docs/wp3-gen-catalog-spec.md`.
 
 ---
 
-## WP3 — remaining to close (acceptance not yet met)
+## WP3 — acceptance complete
 
-- [ ] **Online capture run** (needs JPL network access; run
+- [x] **Online capture run** (needs JPL network access; run
   `cargo run -p xtask --features online -- gen-catalog --online --out
   assets/catalog.ron`). Commit the emitted file *and* the captured API
   responses for reproducibility. Q5 is closed and its approved route split
@@ -97,8 +97,9 @@ app loader. Spec: `docs/wp3-gen-catalog-spec.md`.
   Jupiter–Neptune target system barycenters.
   The 2026-07-13 live run succeeded for all 66 bodies and produced
   `assets/catalog.ron` plus 68 raw captures (65 body responses and three
-  TNO lookup responses). The generated and captured artifacts are present
-  in the worktree but remain unchecked until the requested commit lands.
+  TNO lookup responses). Commit `1ea4d1f` records the generated catalog,
+  all 68 captured responses, and the active spot-check catalog/vectors;
+  `origin/main` contains that commit.
 - [x] **TNO moon resolution**: Horizons lookup-API resolution for
   Dysnomia / Hiʻiaka / Namaka COMMANDs and Eris/Haumea center designators
   (`xtask/src/lookup.rs`; strict API-version and unique-match checks).
@@ -680,9 +681,7 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Next up (dependency order)
 
-1. **WP3** close-out: commit the generated catalog, captured responses, and
-   active spot-check data.
-2. **WP4 → WP5 → WP6**, then **WP7/WP8** (ui_kit, then the time bar
+1. **WP4 → WP5 → WP6**, then **WP7/WP8** (ui_kit, then the time bar
    binding WP1's API), then WP9–WP15 per briefs, WP16–17 release
    engineering.
 
@@ -700,6 +699,11 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-13** — WP3 done. Commit `1ea4d1f` (`feat: Q7 and WP3`) is on
+  `origin/main` with `assets/catalog.ron`, all 68 captured JPL responses,
+  the two active spot-check files, the approved DE440 GM set, and its tests
+  and documentation. The post-commit worktree was clean. This satisfies the
+  final online-capture/artifact-commit acceptance item; WP3 is now ✅ done.
 - **2026-07-13** — Human approved Q7's complete JPL DE440 Sun/planet GM
   table. Applied eight replacements (Venus was already exact), added emitted
   DE440 provenance, cleared the final `TODO(review)`, added a nine-body

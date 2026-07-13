@@ -11,10 +11,9 @@ Intended location in the repo: `docs/wp0-dev-setup-macos.md`.
 **Completion status — re-audited 2026-07-13:** Part A is complete for the
 defined macOS + hosted-CI scope. The only residual is the explicitly deferred
 real-Windows-hardware launch before WP16. Part B's Q5 route work, 66-body/68-
-payload capture, and active 10-body spot-check are also complete; the current
-spot-check changes remain part of the WP3 worktree until the maintainer commits
-that package. WP3's separate Sun/planet GM review is now human-approved and
-implemented; the artifact commit is its only remaining close-out action.
+payload capture, active 10-body spot-check, curated-value review, and generated
+artifacts are also complete. Commit `1ea4d1f` is on `origin/main`; WP3 is
+closed in `TASKS.md`.
 
 ---
 
