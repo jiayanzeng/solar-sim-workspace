@@ -40,7 +40,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 6 | Orbit lines (adaptive; hyperbolic arc), colors, fades | **✅ done** |
 | 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | **✅ done** |
 | 8 | Time bar: detented log slider, editable date/clock, LIVE chip | **✅ done** |
-| 9 | Labels/reticles, tiered declutter, contextual moon visibility, picking | todo |
+| 9 | Labels/reticles, tiered declutter, contextual moon visibility, picking | **✅ done** |
 | 10 | Left panel: Info tab, collection pages, View Options | todo |
 | 11 | Layers quick panel, right rail, Icons layer, UI-off mode | todo |
 | 12 | Search (alias-aware) + Menu browse with live counts | todo |
@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 114 passing** (52 `sim-core` · 32 `solar-sim` · 27 `xtask`
+**Test baseline: 127 passing** (52 `sim-core` · 45 `solar-sim` · 27 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -397,13 +397,13 @@ plain UI nodes by design).
   ray-vs-inflated-bounding-sphere; selection emits the travel command.
 
 **Acceptance.**
-- [ ] Full-system default view: zero overlapping labels; all 8 planets
+- [x] Full-system default view: zero overlapping labels; all 8 planets
   labeled.
-- [ ] Focused on Jupiter: its major moons labeled; Saturn's moons not
+- [x] Focused on Jupiter: its major moons labeled; Saturn's moons not
   (until Saturn is focused/near).
-- [ ] Clicking a label and clicking a sphere both select and travel;
+- [x] Clicking a label and clicking a sphere both select and travel;
   selection always keeps its label.
-- [ ] Declutter is stable frame-to-frame (no label flicker while the
+- [x] Declutter is stable frame-to-frame (no label flicker while the
   camera is still).
 
 **Tests required.** Declutter unit test on synthetic screen rects
@@ -709,6 +709,34 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-13** — WP9 done. Added 66 accessible projected label buttons,
+  wide-tracked uppercase Sun/planet labels, mixed-case circular-reticle labels
+  for the other 57 bodies, deterministic priority/catalog-index declutter,
+  stable alternative slots for the selected body, planets, and focused-system
+  moons, and an outermost-moon-apoapsis context gate. The full-system default
+  framing is now derived from the outermost planet, while planet travel reuses
+  the established four-radius framing rule over the complete modeled moon
+  system; an exact-app visual probe showed all eight planets without overlap
+  and Jupiter plus Io, Europa, Ganymede, Callisto, Amalthea, and Himalia with no
+  Saturn moon labels. Label activation and a transparent viewport pick surface
+  both enqueue the existing travel command; the latter resolves the nearest
+  analytic ray/sphere hit with a 10-pixel minimum pick radius. Eight regressions
+  cover priority/determinism, clustered planet and focused-moon layouts,
+  contextual gating, hit/miss/tangent/inflation math, shared label travel,
+  AccessKit/reticle counts, and data-derived framing, raising the workspace
+  from 119 to 127 tests. The portable replay hash changed only because the
+  intentional Jupiter travel target now frames its moon system; record/replay
+  equality remains asserted, so its golden was updated to
+  `11614332433107791956`. Evidence: `cargo test`, `cargo fmt --all -- --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`, `git diff --check`,
+  and `xtask gen-catalog --dry-run` pass. Final native smokes rendered the
+  180-frame full-system scene at 119.8 fps and the 120-frame Jupiter scene at
+  118.9 fps after warmup; no dependency or generated catalog asset changed.
+- **2026-07-13** — Started WP9 from the green 119-test WP8 checkout after
+  reading ARCHITECTURE §§8.4 and 10.3 plus the invariant/frame-flow contracts.
+  Labels will remain plain projected Bevy UI nodes; deterministic priority and
+  contextual moon gating will be render-side only, while label and sphere
+  picks enqueue the existing travel command without mutating selection state.
 - **2026-07-13** — WP8 done. Added `TimeBarPlugin` with Eyes-format date and
   clock `EditableText` fields, strict WP1 parser commits with bit-identical
   invalid-edit reversion, play/pause, the 24 signed `RateIndex` detents plus

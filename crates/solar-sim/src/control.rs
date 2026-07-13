@@ -1,4 +1,4 @@
-//! WP5/WP8 — deterministic command consumption, camera travel, time, and replay.
+//! WP5/WP8/WP9 — deterministic command consumption, camera travel, time, and replay.
 //!
 //! This module is the user-state mutation boundary. `CameraController` keeps
 //! its fields private, and `consume_sim_command` is the only function that
@@ -10,7 +10,7 @@ use crate::{
     KM_PER_RENDER_UNIT,
 };
 use bevy::prelude::{Resource, Vec3};
-use sim_core::catalog::{Catalog, CatalogError};
+use sim_core::catalog::{Catalog, CatalogError, Category};
 use sim_core::time::{RateIndex, SimClock, StartMode, TickReport};
 use std::fmt;
 
@@ -243,10 +243,38 @@ pub(crate) fn advance_camera_controller(
 }
 
 pub(crate) fn framing_distance_units(loaded: &LoadedCatalog, body_index: usize) -> f64 {
-    let radius_km = loaded.catalog.bodies[body_index].radius_km;
-    let desired = 4.0 * radius_km / KM_PER_RENDER_UNIT;
+    let body = &loaded.catalog.bodies[body_index];
+    let framing_radius_km = loaded
+        .catalog
+        .bodies
+        .iter()
+        .filter(|candidate| {
+            candidate.category == Category::Moon
+                && candidate.parent.as_deref() == Some(body.id.as_str())
+        })
+        .filter_map(|moon| moon.orbit.as_ref())
+        .map(|orbit| orbit.elements.a_km.abs() * (1.0 + orbit.elements.e))
+        .fold(body.radius_km, f64::max);
+    // The established four-radius body framing also gives a focused planetary
+    // system enough room for every modeled moon, including the major moons
+    // that WP9 must label immediately after travel.
+    let desired = 4.0 * framing_radius_km / KM_PER_RENDER_UNIT;
     let (minimum, maximum) = zoom_limits(loaded, body_index);
     desired.clamp(minimum, maximum)
+}
+
+pub(crate) fn full_system_framing_distance_units(loaded: &LoadedCatalog) -> f64 {
+    loaded
+        .catalog
+        .bodies
+        .iter()
+        .filter(|body| body.category == Category::Planet)
+        .filter_map(|body| body.orbit.as_ref())
+        .map(|orbit| orbit.elements.a_km.abs() * (1.0 + orbit.elements.e))
+        .reduce(f64::max)
+        .map_or(DEFAULT_CAMERA_DISTANCE_UNITS, |outermost_planet_km| {
+            4.0 * outermost_planet_km / KM_PER_RENDER_UNIT
+        })
 }
 
 pub(crate) fn zoom_limits(loaded: &LoadedCatalog, body_index: usize) -> (f64, f64) {
@@ -730,10 +758,46 @@ mod tests {
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
     const FRAME_DT_S: f64 = 1.0 / 60.0;
-    const PORTABLE_REPLAY_HASH: u64 = 12_568_395_442_970_282_829;
+    const PORTABLE_REPLAY_HASH: u64 = 11_614_332_433_107_791_956;
 
     fn catalog() -> Catalog {
         load_catalog_text(REAL_CATALOG).expect("committed catalog must load")
+    }
+
+    #[test]
+    fn framing_includes_planetary_moon_systems_and_the_eight_planet_view() {
+        let loaded = LoadedCatalog::new(catalog());
+        let jupiter = loaded.index_of("jupiter").unwrap();
+        let jupiter_id = loaded.catalog.bodies[jupiter].id.as_str();
+        let outermost_jovian_moon_km = loaded
+            .catalog
+            .bodies
+            .iter()
+            .filter(|body| {
+                body.category == Category::Moon && body.parent.as_deref() == Some(jupiter_id)
+            })
+            .filter_map(|body| body.orbit.as_ref())
+            .map(|orbit| orbit.elements.a_km.abs() * (1.0 + orbit.elements.e))
+            .reduce(f64::max)
+            .unwrap();
+        assert_eq!(
+            framing_distance_units(&loaded, jupiter),
+            4.0 * outermost_jovian_moon_km / KM_PER_RENDER_UNIT
+        );
+
+        let outermost_planet_km = loaded
+            .catalog
+            .bodies
+            .iter()
+            .filter(|body| body.category == Category::Planet)
+            .filter_map(|body| body.orbit.as_ref())
+            .map(|orbit| orbit.elements.a_km.abs() * (1.0 + orbit.elements.e))
+            .reduce(f64::max)
+            .unwrap();
+        assert_eq!(
+            full_system_framing_distance_units(&loaded),
+            4.0 * outermost_planet_km / KM_PER_RENDER_UNIT
+        );
     }
 
     #[test]

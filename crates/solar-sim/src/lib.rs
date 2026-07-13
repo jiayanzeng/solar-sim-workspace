@@ -1,4 +1,4 @@
-//! WP4–WP8 — simulation rendering, camera control, and reusable HUD kit.
+//! WP4–WP9 — simulation rendering, camera control, reusable HUD, labels, and picking.
 //!
 //! `sim-core` remains the f64 source of truth. This crate owns filesystem
 //! loading, parent-to-heliocentric composition, the one f64→f32 render rebase,
@@ -9,6 +9,7 @@
 
 mod control;
 mod input_intent;
+mod labels;
 mod orbit_lines;
 mod time_bar;
 mod ui_kit;
@@ -16,6 +17,10 @@ mod ui_kit;
 pub use control::{
     replay_headless, CameraController, CommandRecording, HeadlessSimulation, ReplayParseError,
     ReplayRunError, ReplayStream, SimCommand, StampedCommand,
+};
+pub use labels::{
+    declutter_labels, moon_label_is_contextually_visible, ray_sphere_hit_distance, BodyLabel,
+    DeclutterCandidate, LabelPriority, LabelsPlugin, ScreenRect, SelectionPlugin,
 };
 pub use orbit_lines::{
     orbit_vertex_count, sample_orbit, OrbitLineBrightness, OrbitLinesPlugin, OrbitPath,
@@ -39,8 +44,8 @@ pub use ui_kit::{WidgetGalleryCell, WidgetGalleryRoot};
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 use control::{
-    advance_camera_controller, consume_sim_command, framing_distance_units, SimCommandQueue,
-    SimulationFrame,
+    advance_camera_controller, consume_sim_command, framing_distance_units,
+    full_system_framing_distance_units, SimCommandQueue, SimulationFrame,
 };
 use input_intent::InputIntentPlugin;
 use sim_core::catalog::{Catalog, CatalogError, Category};
@@ -411,7 +416,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
             })
             .set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: "Solar Sim — WP8 Time bar".into(),
+                    title: "Solar Sim — WP9 Labels and picking".into(),
                     ..default()
                 }),
                 ..default()
@@ -448,7 +453,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
             let distance = if requested_focus.is_some() {
                 framing_distance_units(&loaded, focus_index)
             } else {
-                DEFAULT_CAMERA_DISTANCE_UNITS
+                full_system_framing_distance_units(&loaded)
             };
             app.insert_resource(CameraController::new(
                 focus_index,
@@ -472,6 +477,8 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
         OrbitLinesPlugin,
         UiKitPlugin,
         TimeBarPlugin,
+        LabelsPlugin,
+        SelectionPlugin,
     ))
     .add_systems(
         Startup,
