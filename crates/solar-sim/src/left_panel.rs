@@ -5,6 +5,7 @@
 //! render transforms, while travel continues through `SimCommand`.
 
 use crate::control::{CameraController, SimCommand, SimCommandQueue};
+use crate::layers::{HudSurface, LayerState};
 use crate::ui_kit::{
     section_header, NavigationStack, UiTheme, WidgetSpec, WidgetVisualState, INTER_FONT_ASSET,
     TOP_BAR_HEIGHT_PX,
@@ -603,6 +604,7 @@ fn spawn_panel_root(commands: &mut Commands, theme: UiTheme, collapsed: bool) ->
         .spawn((
             Name::new("Contextual body panel"),
             LeftPanelRoot,
+            HudSurface,
             AccessibleLabel::new("Contextual body information and view options"),
             Node {
                 position_type: PositionType::Absolute,
@@ -1337,11 +1339,15 @@ fn activate_panel_action(
 
 fn apply_view_options(
     settings: Res<ViewOptionsState>,
+    layers: Option<Res<LayerState>>,
     camera: Option<Res<CameraController>>,
     loaded: Option<Res<LoadedCatalog>>,
     mut bodies: Query<(&BodyVisual, &mut Transform, Option<&mut Visibility>)>,
 ) {
-    if !settings.is_changed() && camera.as_ref().is_none_or(|camera| !camera.is_changed()) {
+    if !settings.is_changed()
+        && layers.as_ref().is_none_or(|layers| !layers.is_changed())
+        && camera.as_ref().is_none_or(|camera| !camera.is_changed())
+    {
         return;
     }
     let Some(loaded) = loaded else {
@@ -1355,9 +1361,12 @@ fn apply_view_options(
                 settings.body_size(),
             ));
             if let Some(mut visibility) = visibility {
-                *visibility = if selected == Some(visual.index)
-                    || body_passes_moon_visibility(body, &settings)
-                {
+                let category_visible = layers
+                    .as_ref()
+                    .is_none_or(|layers| layers.body_category_visible(body.category));
+                let moon_visible =
+                    selected == Some(visual.index) || body_passes_moon_visibility(body, &settings);
+                *visibility = if category_visible && moon_visible {
                     Visibility::Visible
                 } else {
                     Visibility::Hidden
@@ -1560,6 +1569,69 @@ mod tests {
         assert_eq!(
             app.world().entity(himalia_entity).get::<Visibility>(),
             Some(&Visibility::Visible)
+        );
+    }
+
+    #[test]
+    fn category_layers_hide_only_their_body_spheres_within_one_update() {
+        let catalog = catalog();
+        let earth = catalog
+            .bodies
+            .iter()
+            .position(|body| body.id == "earth")
+            .unwrap();
+        let io = catalog
+            .bodies
+            .iter()
+            .position(|body| body.id == "io")
+            .unwrap();
+        let mut layers = LayerState::default();
+        layers.set_visible(crate::LayerId::Planets, false);
+
+        let mut app = App::new();
+        app.insert_resource(LoadedCatalog::new(catalog))
+            .insert_resource(ViewOptionsState::default())
+            .insert_resource(layers)
+            .add_systems(Update, apply_view_options);
+        let earth_entity = app
+            .world_mut()
+            .spawn((
+                BodyVisual { index: earth },
+                Transform::default(),
+                Visibility::Visible,
+            ))
+            .id();
+        let io_entity = app
+            .world_mut()
+            .spawn((
+                BodyVisual { index: io },
+                Transform::default(),
+                Visibility::Visible,
+            ))
+            .id();
+        app.update();
+        assert_eq!(
+            app.world().entity(earth_entity).get::<Visibility>(),
+            Some(&Visibility::Hidden)
+        );
+        assert_eq!(
+            app.world().entity(io_entity).get::<Visibility>(),
+            Some(&Visibility::Visible)
+        );
+
+        {
+            let mut layers = app.world_mut().resource_mut::<LayerState>();
+            layers.set_visible(crate::LayerId::Planets, true);
+            layers.set_visible(crate::LayerId::Moons, false);
+        }
+        app.update();
+        assert_eq!(
+            app.world().entity(earth_entity).get::<Visibility>(),
+            Some(&Visibility::Visible)
+        );
+        assert_eq!(
+            app.world().entity(io_entity).get::<Visibility>(),
+            Some(&Visibility::Hidden)
         );
     }
 

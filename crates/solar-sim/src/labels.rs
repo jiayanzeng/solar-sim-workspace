@@ -6,12 +6,14 @@
 //! into the existing `SimCommand` mutation boundary.
 
 use crate::control::{CameraController, SimCommand, SimCommandQueue};
+use crate::layers::{LayerId, LayerState};
 use crate::left_panel::{body_passes_moon_visibility, ViewOptionsState};
 use crate::ui_kit::{UiTheme, INTER_FONT_ASSET, TOP_BAR_HEIGHT_PX};
 use crate::{rebase_position, BodyStates, LoadedCatalog, KM_PER_RENDER_UNIT, TIME_BAR_HEIGHT_PX};
 use bevy::{
-    camera::CameraUpdateSystems, input_focus::tab_navigation::TabIndex, prelude::*,
-    text::LetterSpacing, transform::TransformSystems, ui::UiSystems, ui_widgets::Activate,
+    camera::CameraUpdateSystems, ecs::system::SystemParam, input_focus::tab_navigation::TabIndex,
+    prelude::*, text::LetterSpacing, transform::TransformSystems, ui::UiSystems,
+    ui_widgets::Activate,
 };
 use sim_core::catalog::Category;
 use std::collections::HashMap;
@@ -33,13 +35,16 @@ pub struct BodyLabel {
 
 #[derive(Component, Debug, Clone, Copy)]
 struct LabelVisual {
-    width_px: f32,
+    primary: bool,
+    text_width_px: f32,
     height_px: f32,
-    offset_px: Vec2,
 }
 
 #[derive(Component, Debug, Clone, Copy)]
 struct BodyReticle;
+
+#[derive(Component, Debug, Clone, Copy)]
+struct BodyLabelText;
 
 #[derive(Component, Debug, Clone, Copy)]
 struct ViewportPickSurface;
@@ -208,7 +213,8 @@ impl Plugin for LabelsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_labels).add_systems(
             PostUpdate,
-            project_and_declutter_labels
+            (sync_label_layer_children, project_and_declutter_labels)
+                .chain()
                 .after(TransformSystems::Propagate)
                 .after(CameraUpdateSystems)
                 .before(UiSystems::Prepare),
@@ -256,7 +262,7 @@ fn spawn_labels(
                     position_type: PositionType::Absolute,
                     left: px(-10_000),
                     top: px(-10_000),
-                    width: px(visual.width_px),
+                    width: px(visual.size(true, true).x),
                     height: px(visual.height_px),
                     display: Display::None,
                     align_items: AlignItems::Center,
@@ -289,6 +295,7 @@ fn spawn_labels(
 
         commands.spawn((
             Text::new(text),
+            BodyLabelText,
             TextFont {
                 font: font.clone().into(),
                 font_size: if primary {
@@ -320,32 +327,102 @@ fn label_visual(text: &str, primary: bool, theme: UiTheme) -> LabelVisual {
         let text_width = glyph_count
             * (theme.type_scale.label_px * 0.68 + theme.type_scale.uppercase_tracking_px);
         LabelVisual {
-            width_px: text_width.max(28.0),
+            primary,
+            text_width_px: text_width.max(28.0),
             height_px: PRIMARY_LABEL_HEIGHT_PX,
-            offset_px: Vec2::new(LABEL_ANCHOR_GAP_PX, -PRIMARY_LABEL_HEIGHT_PX * 0.5),
         }
     } else {
         let text_width = glyph_count * theme.type_scale.caption_px * 0.62;
         LabelVisual {
-            width_px: RETICLE_SIZE_PX + RETICLE_GAP_PX + text_width.max(18.0),
+            primary,
+            text_width_px: text_width.max(18.0),
             height_px: SECONDARY_LABEL_HEIGHT_PX,
-            offset_px: Vec2::new(-RETICLE_SIZE_PX * 0.5, -SECONDARY_LABEL_HEIGHT_PX * 0.5),
         }
+    }
+}
+
+impl LabelVisual {
+    fn size(self, labels_visible: bool, icons_visible: bool) -> Vec2 {
+        let width = if self.primary {
+            labels_visible.then_some(self.text_width_px)
+        } else {
+            match (labels_visible, icons_visible) {
+                (true, true) => Some(RETICLE_SIZE_PX + RETICLE_GAP_PX + self.text_width_px),
+                (true, false) => Some(self.text_width_px),
+                (false, true) => Some(RETICLE_SIZE_PX),
+                (false, false) => None,
+            }
+        }
+        .unwrap_or(0.0);
+        Vec2::new(width, self.height_px)
+    }
+
+    fn offset(self, labels_visible: bool, icons_visible: bool) -> Vec2 {
+        if self.primary {
+            Vec2::new(LABEL_ANCHOR_GAP_PX, -self.height_px * 0.5)
+        } else if icons_visible {
+            Vec2::new(-RETICLE_SIZE_PX * 0.5, -self.height_px * 0.5)
+        } else if labels_visible {
+            Vec2::new(LABEL_ANCHOR_GAP_PX, -self.height_px * 0.5)
+        } else {
+            Vec2::ZERO
+        }
+    }
+}
+
+#[derive(SystemParam)]
+struct LabelRenderResources<'w> {
+    loaded: Option<Res<'w, LoadedCatalog>>,
+    states: Option<Res<'w, BodyStates>>,
+    controller: Option<Res<'w, CameraController>>,
+    extents: Option<Res<'w, MoonSystemExtents>>,
+    view_options: Option<Res<'w, ViewOptionsState>>,
+    layers: Option<Res<'w, LayerState>>,
+}
+
+fn sync_label_layer_children(
+    layers: Option<Res<LayerState>>,
+    mut texts: Query<&mut Node, (With<BodyLabelText>, Without<BodyReticle>)>,
+    mut reticles: Query<&mut Node, (With<BodyReticle>, Without<BodyLabelText>)>,
+) {
+    let ui_visible = layers
+        .as_ref()
+        .is_none_or(|layers| layers.is_visible(LayerId::UserInterface));
+    let labels_visible = ui_visible
+        && layers
+            .as_ref()
+            .is_none_or(|layers| layers.is_visible(LayerId::Labels));
+    let icons_visible = ui_visible
+        && layers
+            .as_ref()
+            .is_none_or(|layers| layers.is_visible(LayerId::Icons));
+    for mut node in &mut texts {
+        node.display = if labels_visible {
+            Display::Flex
+        } else {
+            Display::None
+        };
+    }
+    for mut node in &mut reticles {
+        node.display = if icons_visible {
+            Display::Flex
+        } else {
+            Display::None
+        };
     }
 }
 
 fn project_and_declutter_labels(
     camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    loaded: Option<Res<LoadedCatalog>>,
-    states: Option<Res<BodyStates>>,
-    controller: Option<Res<CameraController>>,
-    extents: Option<Res<MoonSystemExtents>>,
-    view_options: Option<Res<ViewOptionsState>>,
+    resources: LabelRenderResources,
     mut labels: Query<(&BodyLabel, &LabelVisual, &mut Node)>,
 ) {
-    let (Some(loaded), Some(states), Some(controller), Some(extents)) =
-        (loaded, states, controller, extents)
-    else {
+    let (Some(loaded), Some(states), Some(controller), Some(extents)) = (
+        resources.loaded,
+        resources.states,
+        resources.controller,
+        resources.extents,
+    ) else {
         hide_all_labels(&mut labels);
         return;
     };
@@ -369,6 +446,20 @@ fn project_and_declutter_labels(
     let focus_system = focus_system_index(&loaded, controller.focus_body_index());
     let camera_position_km = controller.camera_position_km();
     let focus_position_km = controller.focus_position_km();
+    let ui_visible = resources
+        .layers
+        .as_ref()
+        .is_none_or(|layers| layers.is_visible(LayerId::UserInterface));
+    let labels_visible = ui_visible
+        && resources
+            .layers
+            .as_ref()
+            .is_none_or(|layers| layers.is_visible(LayerId::Labels));
+    let icons_visible = ui_visible
+        && resources
+            .layers
+            .as_ref()
+            .is_none_or(|layers| layers.is_visible(LayerId::Icons));
     let visibility_context = LabelVisibilityContext {
         selected,
         focus_system,
@@ -376,7 +467,7 @@ fn project_and_declutter_labels(
         states: &states,
         extents: &extents,
         camera_position_km,
-        view_options: view_options.as_deref(),
+        view_options: resources.view_options.as_deref(),
     };
     let mut candidates = Vec::with_capacity(loaded.catalog.bodies.len());
 
@@ -385,6 +476,9 @@ fn project_and_declutter_labels(
             continue;
         };
         if !body_is_contextually_visible(label.index, &visibility_context) {
+            continue;
+        }
+        if (!icons_visible || visual.primary) && !labels_visible {
             continue;
         }
         let Some(state) = states.0.get(label.index) else {
@@ -402,8 +496,8 @@ fn project_and_declutter_labels(
             continue;
         }
         let rect = ScreenRect::from_min_size(
-            projected + visual.offset_px,
-            Vec2::new(visual.width_px, visual.height_px),
+            projected + visual.offset(labels_visible, icons_visible),
+            visual.size(labels_visible, icons_visible),
         );
         let priority = label_priority(body.category, label.index, selected, focus_system, &loaded);
         candidates.push(DeclutterCandidate {
@@ -418,10 +512,13 @@ fn project_and_declutter_labels(
     // compact cluster; stable alternative slots preserve all eight without
     // allowing any lower-priority label to overlap them.
     let placements = layout_projected_labels(&candidates, viewport_bounds);
-    for (label, _, mut node) in &mut labels {
+    for (label, visual, mut node) in &mut labels {
         if let Some(rect) = placements.get(&label.index) {
             node.left = px(rect.min.x);
             node.top = px(rect.min.y);
+            let size = visual.size(labels_visible, icons_visible);
+            node.width = px(size.x);
+            node.height = px(size.y);
             node.display = Display::Flex;
         } else {
             node.display = Display::None;
@@ -893,6 +990,54 @@ mod tests {
         assert!(!body_is_contextually_visible(himalia, &context));
         context.selected = himalia;
         assert!(body_is_contextually_visible(himalia, &context));
+    }
+
+    #[test]
+    fn labels_and_icons_layers_control_their_children_independently() {
+        let mut layers = LayerState::default();
+        layers.set_visible(LayerId::Labels, false);
+        let mut app = App::new();
+        app.insert_resource(layers)
+            .add_systems(Update, sync_label_layer_children);
+        let text = app.world_mut().spawn((BodyLabelText, Node::default())).id();
+        let icon = app.world_mut().spawn((BodyReticle, Node::default())).id();
+        app.update();
+        assert_eq!(
+            app.world().entity(text).get::<Node>().unwrap().display,
+            Display::None
+        );
+        assert_eq!(
+            app.world().entity(icon).get::<Node>().unwrap().display,
+            Display::Flex
+        );
+
+        {
+            let mut layers = app.world_mut().resource_mut::<LayerState>();
+            layers.set_visible(LayerId::Labels, true);
+            layers.set_visible(LayerId::Icons, false);
+        }
+        app.update();
+        assert_eq!(
+            app.world().entity(text).get::<Node>().unwrap().display,
+            Display::Flex
+        );
+        assert_eq!(
+            app.world().entity(icon).get::<Node>().unwrap().display,
+            Display::None
+        );
+
+        app.world_mut()
+            .resource_mut::<LayerState>()
+            .set_visible(LayerId::UserInterface, false);
+        app.update();
+        assert_eq!(
+            app.world().entity(text).get::<Node>().unwrap().display,
+            Display::None
+        );
+        assert_eq!(
+            app.world().entity(icon).get::<Node>().unwrap().display,
+            Display::None
+        );
     }
 
     #[test]

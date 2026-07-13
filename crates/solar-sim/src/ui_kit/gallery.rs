@@ -8,6 +8,7 @@ use super::{
     checkbox_row, chip, panel, section_header, slider, tab_bar, toast, UiTheme, WidgetKind,
     WidgetSpec, WidgetVisualState, INTER_FONT_ASSET,
 };
+use crate::layers::HudSurface;
 use bevy::{
     prelude::*,
     text::{FontSourceTemplate, LetterSpacing},
@@ -40,6 +41,7 @@ fn gallery_root(theme: UiTheme) -> impl Scene {
             overflow: Overflow::scroll_y(),
         }
         WidgetGalleryRoot
+        HudSurface
         AccessibleLabel("Widget gallery: all widgets in all states")
         BackgroundColor({theme.colors.scrim.color()})
         BorderColor::all(theme.colors.separator.color())

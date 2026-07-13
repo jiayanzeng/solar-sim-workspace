@@ -1,4 +1,4 @@
-//! WP4–WP10 — simulation rendering, camera control, reusable HUD, and contextual UI.
+//! WP4–WP11 — simulation rendering, camera control, reusable HUD, and layers.
 //!
 //! `sim-core` remains the f64 source of truth. This crate owns filesystem
 //! loading, parent-to-heliocentric composition, the one f64→f32 render rebase,
@@ -10,6 +10,7 @@
 mod control;
 mod input_intent;
 mod labels;
+mod layers;
 mod left_panel;
 mod orbit_lines;
 mod time_bar;
@@ -22,6 +23,10 @@ pub use control::{
 pub use labels::{
     declutter_labels, moon_label_is_contextually_visible, ray_sphere_hit_distance, BodyLabel,
     DeclutterCandidate, LabelPriority, LabelsPlugin, ScreenRect, SelectionPlugin,
+};
+pub use layers::{
+    LayerId, LayerState, LayerStateSnapshot, LayersPanelRoot, LayersPlugin, PresentationState,
+    RightRailRoot, UiRestoreAffordance, ZOOM_IN_DOLLY_DELTA, ZOOM_OUT_DOLLY_DELTA,
 };
 pub use left_panel::{
     body_info_view_model, moon_collections, rendered_body_radius_units, BodyInfoViewModel,
@@ -49,10 +54,11 @@ pub use ui_kit::{WidgetGalleryCell, WidgetGalleryRoot};
 
 #[cfg(debug_assertions)]
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use control::{
-    advance_camera_controller, consume_sim_command, framing_distance_units,
-    full_system_framing_distance_units, SimCommandQueue, SimulationFrame,
+    advance_camera_controller, consume_presentation_command, consume_sim_command,
+    framing_distance_units, full_system_framing_distance_units, SimCommandQueue, SimulationFrame,
 };
 use input_intent::InputIntentPlugin;
 use sim_core::catalog::{Catalog, CatalogError, Category};
@@ -423,7 +429,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
             })
             .set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: "Solar Sim — WP10 Left panel".into(),
+                    title: "Solar Sim — WP11 Layers".into(),
                     ..default()
                 }),
                 ..default()
@@ -483,6 +489,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
         CameraRigPlugin,
         OrbitLinesPlugin,
         UiKitPlugin,
+        LayersPlugin,
         TimeBarPlugin,
         LabelsPlugin,
         SelectionPlugin,
@@ -517,15 +524,31 @@ fn wall_now_t() -> f64 {
     t_from_unix_utc(unix_s)
 }
 
-fn apply_sim_commands(
-    mut queue: ResMut<SimCommandQueue>,
-    mut clock: ResMut<SimulationClock>,
-    loaded: Option<Res<LoadedCatalog>>,
-    camera: Option<ResMut<CameraController>>,
-    frame: Res<SimulationFrame>,
-    mut recording: ResMut<CommandRecording>,
-    mut reports: MessageWriter<ClockTickReport>,
-) {
+#[derive(SystemParam)]
+struct SimCommandGate<'w> {
+    queue: ResMut<'w, SimCommandQueue>,
+    clock: ResMut<'w, SimulationClock>,
+    loaded: Option<Res<'w, LoadedCatalog>>,
+    camera: Option<ResMut<'w, CameraController>>,
+    frame: Res<'w, SimulationFrame>,
+    recording: ResMut<'w, CommandRecording>,
+    reports: MessageWriter<'w, ClockTickReport>,
+    layers: ResMut<'w, LayerState>,
+    presentation: ResMut<'w, PresentationState>,
+}
+
+fn apply_sim_commands(gate: SimCommandGate) {
+    let SimCommandGate {
+        mut queue,
+        mut clock,
+        loaded,
+        camera,
+        frame,
+        mut recording,
+        mut reports,
+        mut layers,
+        mut presentation,
+    } = gate;
     let (Some(loaded), Some(mut camera)) = (loaded, camera) else {
         queue.drain().for_each(drop);
         return;
@@ -533,6 +556,19 @@ fn apply_sim_commands(
     let commands: Vec<_> = queue.drain().collect();
     for command in commands {
         recording.record(frame.0, clock.0.t(), command.clone());
+        let layers_before = *layers;
+        let presentation_before = *presentation;
+        consume_presentation_command(
+            &command,
+            layers.bypass_change_detection(),
+            presentation.bypass_change_detection(),
+        );
+        if *layers != layers_before {
+            layers.set_changed();
+        }
+        if *presentation != presentation_before {
+            presentation.set_changed();
+        }
         let report = consume_sim_command(&command, &mut clock.0, &mut camera, &loaded);
         write_tick_report(report, &mut reports);
     }
@@ -754,6 +790,7 @@ fn spawn_diag_overlay(mut commands: Commands, theme: Res<UiTheme>, asset_server:
         },
         GlobalZIndex(110),
         AccessibleLabel::new("Frame rate diagnostic"),
+        layers::HudSurface,
         DiagText,
     ));
 }

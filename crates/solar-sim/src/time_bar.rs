@@ -5,6 +5,7 @@
 //! path reimplements clock levels or time arithmetic.
 
 use crate::control::{SimCommand, SimCommandQueue};
+use crate::layers::HudSurface;
 use crate::ui_kit::{toast, UiColorToken, UiTheme, WidgetSpec, WidgetVisualState};
 use crate::{wall_now_t, ClockTickReport, SimulationClock, SimulationSet, INTER_FONT_ASSET};
 use bevy::{
@@ -224,6 +225,7 @@ fn time_bar_scene(theme: UiTheme, clock: &SimClock) -> impl Scene {
             column_gap: px(theme.spacing.md_px),
         }
         TimeBarRoot
+        HudSurface
         AccessibleLabel("Simulation time bar")
         BackgroundColor({theme.colors.top_bar.color()})
         BorderColor::all(theme.colors.separator.color())
@@ -455,6 +457,7 @@ fn toast_stack(theme: UiTheme) -> impl Scene {
             row_gap: px(theme.spacing.sm_px),
         }
         TimeToastStack
+        HudSurface
         AccessibleLabel("Simulation notices")
         GlobalZIndex(105)
     }

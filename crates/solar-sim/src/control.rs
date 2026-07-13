@@ -6,8 +6,8 @@
 //! moving-focus evolution are deterministic updates driven by explicit inputs.
 
 use crate::{
-    propagate_into, BodyStates, LoadedCatalog, PropagationError, DEFAULT_CAMERA_DISTANCE_UNITS,
-    KM_PER_RENDER_UNIT,
+    propagate_into, BodyStates, LayerId, LayerState, LoadedCatalog, PresentationState,
+    PropagationError, DEFAULT_CAMERA_DISTANCE_UNITS, KM_PER_RENDER_UNIT,
 };
 use bevy::prelude::{Resource, Vec3};
 use sim_core::catalog::{Catalog, CatalogError, Category};
@@ -34,6 +34,9 @@ pub enum SimCommand {
     Pause,
     TogglePlay,
     SnapToLive,
+    SetLayerVisibility { layer: LayerId, visible: bool },
+    ToggleFullscreen,
+    OpenSettings,
 }
 
 #[derive(Resource, Default)]
@@ -196,8 +199,28 @@ pub(crate) fn consume_sim_command(
         SimCommand::Pause => clock.pause(),
         SimCommand::TogglePlay => clock.toggle_play(),
         SimCommand::SnapToLive => clock.snap_to_live(),
+        SimCommand::SetLayerVisibility { .. }
+        | SimCommand::ToggleFullscreen
+        | SimCommand::OpenSettings => {}
     }
     report
+}
+
+/// Deterministic presentation reducer. It is called beside the simulation
+/// reducer by both the desktop command gate and the headless replay runner.
+pub(crate) fn consume_presentation_command(
+    command: &SimCommand,
+    layers: &mut LayerState,
+    presentation: &mut PresentationState,
+) {
+    match command {
+        SimCommand::SetLayerVisibility { layer, visible } => {
+            layers.set_visible(*layer, *visible);
+        }
+        SimCommand::ToggleFullscreen => presentation.toggle_fullscreen(),
+        SimCommand::OpenSettings => presentation.request_settings(),
+        _ => {}
+    }
 }
 
 /// Evolves Follow/travel from explicit f64 state. A completed tween writes the
@@ -450,6 +473,8 @@ pub struct HeadlessSimulation {
     clock: SimClock,
     states: BodyStates,
     camera: CameraController,
+    layers: LayerState,
+    presentation: PresentationState,
     frame: u64,
     wall_now_t: f64,
 }
@@ -478,6 +503,8 @@ impl HeadlessSimulation {
             clock,
             states,
             camera,
+            layers: LayerState::default(),
+            presentation: PresentationState::default(),
             frame: 0,
             wall_now_t,
         })
@@ -499,6 +526,14 @@ impl HeadlessSimulation {
         &self.camera
     }
 
+    pub fn layer_state(&self) -> &LayerState {
+        &self.layers
+    }
+
+    pub fn layer_state_hash(&self) -> u64 {
+        self.layers.stable_hash()
+    }
+
     pub fn step(
         &mut self,
         wall_dt_s: f64,
@@ -509,6 +544,7 @@ impl HeadlessSimulation {
             if let Some(recorder) = recording.as_deref_mut() {
                 recorder.record(self.frame, self.clock.t(), command.clone());
             }
+            consume_presentation_command(command, &mut self.layers, &mut self.presentation);
             consume_sim_command(command, &mut self.clock, &mut self.camera, &self.loaded);
         }
         self.wall_now_t += wall_dt_s;
@@ -636,6 +672,13 @@ fn serialize_entry(entry: &StampedCommand) -> String {
         SimCommand::Pause => format!("{prefix}|pause"),
         SimCommand::TogglePlay => format!("{prefix}|toggle-play"),
         SimCommand::SnapToLive => format!("{prefix}|snap-live"),
+        SimCommand::SetLayerVisibility { layer, visible } => format!(
+            "{prefix}|layer|{}|{}",
+            layer.replay_slug(),
+            u8::from(*visible)
+        ),
+        SimCommand::ToggleFullscreen => format!("{prefix}|toggle-fullscreen"),
+        SimCommand::OpenSettings => format!("{prefix}|open-settings"),
     }
 }
 
@@ -677,6 +720,17 @@ fn parse_entry(line: &str) -> Result<StampedCommand, String> {
         "pause" if fields.len() == 3 => SimCommand::Pause,
         "toggle-play" if fields.len() == 3 => SimCommand::TogglePlay,
         "snap-live" if fields.len() == 3 => SimCommand::SnapToLive,
+        "layer" if fields.len() == 5 => {
+            let layer = LayerId::from_replay_slug(fields[3]).ok_or("unknown layer id")?;
+            let visible = match fields[4] {
+                "0" => false,
+                "1" => true,
+                _ => return Err("layer visibility must be 0 or 1".into()),
+            };
+            SimCommand::SetLayerVisibility { layer, visible }
+        }
+        "toggle-fullscreen" if fields.len() == 3 => SimCommand::ToggleFullscreen,
+        "open-settings" if fields.len() == 3 => SimCommand::OpenSettings,
         command => return Err(format!("unknown or malformed command '{command}'")),
     };
     Ok(StampedCommand {
@@ -937,7 +991,9 @@ mod tests {
             "solar-sim-replay-v1\n",
             "bad|timestamp|play\n",
             "2|7ff0000000000000|dolly|0000000000000000\n",
-            "3|0000000000000000|set-time|7ff0000000000000\n"
+            "3|0000000000000000|set-time|7ff0000000000000\n",
+            "4|0000000000000000|layer|unknown|1\n",
+            "5|0000000000000000|layer|labels|maybe\n"
         );
         let result = std::panic::catch_unwind(|| ReplayStream::from_text(text));
         assert!(result.is_ok());
@@ -945,6 +1001,8 @@ mod tests {
         assert!(message.contains("line 2"));
         assert!(message.contains("line 3"));
         assert!(message.contains("line 4"));
+        assert!(message.contains("line 5"));
+        assert!(message.contains("line 6"));
 
         let mut invalid_catalog = catalog();
         invalid_catalog.bodies.clear();
@@ -990,6 +1048,16 @@ mod tests {
                     frame: 8,
                     sim_time_s: T_MIN_S,
                     command: SimCommand::SnapToLive,
+                },
+                StampedCommand {
+                    frame: 9,
+                    sim_time_s: T_MIN_S,
+                    command: SimCommand::ToggleFullscreen,
+                },
+                StampedCommand {
+                    frame: 10,
+                    sim_time_s: T_MIN_S,
+                    command: SimCommand::OpenSettings,
                 },
             ],
         };
@@ -1038,5 +1106,62 @@ mod tests {
             recording.stream().entries[0].sim_time_s,
             t_from_jd_tdb(2_461_042.0)
         );
+    }
+
+    #[test]
+    fn recorded_layer_session_replays_to_the_same_final_layer_hash() {
+        let catalog = catalog();
+        let mut original = HeadlessSimulation::new(&catalog).unwrap();
+        let mut recording = CommandRecording::default();
+        let frames = [
+            vec![
+                SimCommand::SetLayerVisibility {
+                    layer: LayerId::Planets,
+                    visible: false,
+                },
+                SimCommand::SetLayerVisibility {
+                    layer: LayerId::Labels,
+                    visible: false,
+                },
+            ],
+            vec![
+                SimCommand::SetLayerVisibility {
+                    layer: LayerId::Planets,
+                    visible: false,
+                },
+                SimCommand::SetLayerVisibility {
+                    layer: LayerId::Icons,
+                    visible: false,
+                },
+            ],
+            vec![
+                SimCommand::SetLayerVisibility {
+                    layer: LayerId::Labels,
+                    visible: true,
+                },
+                SimCommand::SetLayerVisibility {
+                    layer: LayerId::Orbits,
+                    visible: false,
+                },
+            ],
+        ];
+        for commands in &frames {
+            original
+                .step(FRAME_DT_S, commands, Some(&mut recording))
+                .unwrap();
+        }
+
+        let encoded = recording.stream().to_text();
+        let decoded = ReplayStream::from_text(&encoded).unwrap();
+        let replayed =
+            replay_headless(&catalog, &decoded, frames.len() as u64, FRAME_DT_S).unwrap();
+
+        assert_eq!(replayed.layer_state_hash(), original.layer_state_hash());
+        assert_eq!(replayed.layer_state(), original.layer_state());
+        assert!(!replayed.layer_state().is_visible(LayerId::Planets));
+        assert!(replayed.layer_state().is_visible(LayerId::Labels));
+        assert!(!replayed.layer_state().is_visible(LayerId::Icons));
+        assert!(!replayed.layer_state().is_visible(LayerId::Orbits));
+        assert!(replayed.layer_state().is_visible(LayerId::Moons));
     }
 }

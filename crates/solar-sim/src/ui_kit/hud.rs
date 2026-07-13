@@ -5,6 +5,7 @@
 //! surface and its typography.
 
 use super::{NavigationStack, UiTheme, INTER_FONT_ASSET};
+use crate::layers::HudSurface;
 use bevy::{
     input_focus::tab_navigation::TabIndex,
     prelude::*,
@@ -37,6 +38,7 @@ pub fn top_bar(theme: UiTheme, breadcrumb: String) -> impl Scene {
             column_gap: px(theme.spacing.lg_px),
         }
         TopBarRoot
+        HudSurface
         AccessibleLabel("Solar Sim top bar")
         BackgroundColor({theme.colors.top_bar.color()})
         BorderColor::all(theme.colors.separator.color())

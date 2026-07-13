@@ -9,7 +9,7 @@
 
 use crate::{
     left_panel::body_passes_moon_visibility, rebase_position, BodyStates, CameraController,
-    LoadedCatalog, SimulationClock, SimulationSet, ViewOptionsState,
+    LayerId, LayerState, LoadedCatalog, SimulationClock, SimulationSet, ViewOptionsState,
 };
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -242,6 +242,7 @@ struct OrbitLine {
 struct OrbitLineRenderOptions<'w> {
     brightness: Res<'w, OrbitLineBrightness>,
     view_options: Option<Res<'w, ViewOptionsState>>,
+    layers: Option<Res<'w, LayerState>>,
 }
 
 pub struct OrbitLinesPlugin;
@@ -258,15 +259,14 @@ fn spawn_orbit_lines(
     mut commands: Commands,
     loaded: Option<Res<LoadedCatalog>>,
     clock: Res<SimulationClock>,
-    brightness: Res<OrbitLineBrightness>,
-    view_options: Option<Res<ViewOptionsState>>,
+    options: OrbitLineRenderOptions,
     camera: Option<Res<CameraController>>,
     mut gizmo_assets: ResMut<Assets<GizmoAsset>>,
 ) {
     let Some(loaded) = loaded else {
         return;
     };
-    let brightness = brightness.sanitized();
+    let brightness = options.brightness.sanitized();
 
     for (body_index, body) in loaded.catalog.bodies.iter().enumerate() {
         let (Some(parent_id), Some(orbit)) = (body.parent.as_deref(), body.orbit.as_ref()) else {
@@ -289,10 +289,15 @@ fn spawn_orbit_lines(
         let selected = camera
             .as_ref()
             .is_some_and(|camera| camera.selected_body_index() == body_index);
-        let displayed_alpha = if view_options.as_ref().is_none_or(|options| {
-            options.local_orbit_visible(&body.id)
-                && (selected || body_passes_moon_visibility(body, options))
-        }) {
+        let orbit_layer_visible = options
+            .layers
+            .as_ref()
+            .is_none_or(|layers| layers.is_visible(LayerId::Orbits));
+        let local_visible = options.view_options.as_ref().is_none_or(|view_options| {
+            view_options.local_orbit_visible(&body.id)
+                && (selected || body_passes_moon_visibility(body, view_options))
+        });
+        let displayed_alpha = if orbit_layer_visible && local_visible {
             palette.base_alpha
         } else {
             0.0
@@ -381,12 +386,16 @@ fn update_orbit_lines(
         } else {
             1.0
         };
-        let orbit_visible = options.view_options.as_ref().is_none_or(|options| {
-            options.local_orbit_visible(&body.id)
+        let orbit_layer_visible = options
+            .layers
+            .as_ref()
+            .is_none_or(|layers| layers.is_visible(LayerId::Orbits));
+        let local_visible = options.view_options.as_ref().is_none_or(|view_options| {
+            view_options.local_orbit_visible(&body.id)
                 && (camera.selected_body_index() == line.body_index
-                    || body_passes_moon_visibility(body, options))
+                    || body_passes_moon_visibility(body, view_options))
         });
-        let displayed_alpha = if orbit_visible {
+        let displayed_alpha = if orbit_layer_visible && local_visible {
             quantized_alpha(orbit_alpha(
                 line.palette.base_alpha,
                 camera_distance_km,
@@ -812,7 +821,7 @@ mod tests {
     }
 
     #[test]
-    fn major_mode_hides_unflagged_moon_orbits_and_all_restores_them() {
+    fn major_and_global_layers_filter_orbits_and_restore_them() {
         let catalog = catalog();
         let t_s = t_from_jd_tdb(2_461_042.0);
         let states = propagate_catalog(&catalog, t_s).unwrap();
@@ -840,6 +849,7 @@ mod tests {
                 t_s,
             )))
             .insert_resource(OrbitLineBrightness::default())
+            .insert_resource(LayerState::default())
             .insert_resource(options)
             .add_systems(Startup, spawn_orbit_lines)
             .add_systems(Update, update_orbit_lines);
@@ -868,6 +878,15 @@ mod tests {
             .iter(app.world())
             .find(|line| line.body_index == himalia)
             .is_some_and(|line| line.displayed_alpha > 0.0));
+
+        app.world_mut()
+            .resource_mut::<LayerState>()
+            .set_visible(LayerId::Orbits, false);
+        app.update();
+        let mut query = app.world_mut().query::<&OrbitLine>();
+        assert!(query
+            .iter(app.world())
+            .all(|line| line.displayed_alpha == 0.0));
     }
 
     #[test]

@@ -42,7 +42,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 8 | Time bar: detented log slider, editable date/clock, LIVE chip | **✅ done** |
 | 9 | Labels/reticles, tiered declutter, contextual moon visibility, picking | **✅ done** |
 | 10 | Left panel: Info tab, collection pages, View Options | **✅ done** |
-| 11 | Layers quick panel, right rail, Icons layer, UI-off mode | todo |
+| 11 | Layers quick panel, right rail, Icons layer, UI-off mode | **✅ done** |
 | 12 | Search (alias-aware) + Menu browse with live counts | todo |
 | 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | todo |
 | 14 | Settings screen + render-recovery policies | todo |
@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 138 passing** (53 `sim-core` · 54 `solar-sim` · 28 `xtask`
+**Test baseline: 149 passing** (53 `sim-core` · 65 `solar-sim` · 28 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -468,11 +468,11 @@ icons), WP4 (body categories).
   WP14).
 
 **Acceptance.**
-- [ ] Every layer toggle takes effect within one frame and is reflected
+- [x] Every layer toggle takes effect within one frame and is reflected
   in the panel state.
-- [ ] UI-off leaves exactly one restore affordance; restoring returns the
+- [x] UI-off leaves exactly one restore affordance; restoring returns the
   previous layout and layer states.
-- [ ] Zoom buttons and scroll wheel produce identical command traffic.
+- [x] Zoom buttons and scroll wheel produce identical command traffic.
 
 **Tests required.** LayerState reducer test (toggle idempotence,
 group-independence); a replay-based test that a recorded toggle session
@@ -710,6 +710,32 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-14** — WP11 done. Added a central nine-layer `LayerState` reducer
+  with stable replay ids/hash and an explicit WP14 persistence snapshot; every
+  layer, fullscreen, settings, and rail-zoom action crosses `SimCommand`.
+  Built the accessible right rail and the exact four-group bottom-right panel
+  (User Interface · four body categories · Moons · Orbits/Labels/Icons), plus
+  borderless-fullscreen and WP14 settings-request hooks. Category switches now
+  drive body visibility, WP6 consumes Orbits, and WP9 independently lays out
+  Labels and circular-reticle Icons. UI-off suppresses every tagged HUD/label
+  surface after rebuilds and exposes exactly one restore control; restoration
+  preserves the open-panel layout and all unrelated layer values. Eleven
+  regressions cover idempotence/group independence, all nine one-update
+  transitions, exact grouping/accessibility, body/orbit/label/icon consumers,
+  restore behavior, rail command traffic, fullscreen, persistence, malformed
+  replay rows, and recorded-session layer-hash equality, raising the workspace
+  from 138 to 149 tests. Evidence: `cargo test`,
+  `cargo fmt --all -- --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`,
+  `xtask gen-catalog --dry-run`, and `git diff --check` pass; the final native
+  180-frame Jupiter smoke measured 118.3 fps after warmup. No dependency,
+  generated catalog, or read-only file changed.
+- **2026-07-14** — Started WP11 from the clean, green 138-test WP10
+  checkout after reading ARCHITECTURE §§9.3–9.4. Layer mutations will cross
+  the existing `SimCommand` queue and reduce into one persistence-ready
+  resource; WP6/WP9 visibility and every HUD surface will consume that state.
+  The rail's zoom buttons will enqueue the same `Dolly` command as wheel input,
+  while fullscreen and the WP14 settings placeholder remain render/UI concerns.
 - **2026-07-13** — WP10 done after human approval closed Q8. Added the
   backward-compatible `BodyRecord::is_major_moon` schema field, rejects its use
   on non-moons, and derives every emitted value from a centralized 24-id

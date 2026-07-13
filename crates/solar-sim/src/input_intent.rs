@@ -142,13 +142,18 @@ fn intent_to_command(intent: InputIntent) -> SimCommand {
             delta_yaw,
             delta_pitch,
         },
-        InputIntent::Dolly { delta } => SimCommand::Dolly { delta },
+        InputIntent::Dolly { delta } => dolly_command(delta),
     }
+}
+
+pub(crate) fn dolly_command(delta: f64) -> SimCommand {
+    SimCommand::Dolly { delta }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ZOOM_IN_DOLLY_DELTA, ZOOM_OUT_DOLLY_DELTA};
     use std::collections::HashSet;
 
     #[test]
@@ -167,5 +172,21 @@ mod tests {
                 .collect();
             assert_eq!(matches.len(), 1, "{:?}", binding.key);
         }
+    }
+
+    #[test]
+    fn rail_zoom_and_unit_scroll_use_identical_dolly_commands() {
+        assert_eq!(
+            intent_to_command(InputIntent::Dolly {
+                delta: ZOOM_IN_DOLLY_DELTA,
+            }),
+            dolly_command(ZOOM_IN_DOLLY_DELTA)
+        );
+        assert_eq!(
+            intent_to_command(InputIntent::Dolly {
+                delta: ZOOM_OUT_DOLLY_DELTA,
+            }),
+            dolly_command(ZOOM_OUT_DOLLY_DELTA)
+        );
     }
 }
