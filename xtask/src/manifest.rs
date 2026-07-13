@@ -7,23 +7,22 @@
 //! - **Generated from JPL, never hand-typed:** every orbital element, epoch,
 //!   secular rate, and mean motion.
 //!
-//! REVIEW STATUS: all 66 radii and the three TNO parent GMs were
-//! human-reviewed on 2026-07-13. The general Sun/planet GM review marker below
-//! remains open.
+//! REVIEW STATUS: all 66 radii and every curated parent GM were human-reviewed
+//! on 2026-07-13. See the radius and DE440 GM audits under `docs/`.
 
 use sim_core::catalog::Category;
 
-/// IAU/JPL gravitational parameters, km³/s². TODO(review): verify against the
-/// JPL DE440 constants file before catalog sign-off.
-pub const GM_SUN: f64 = 1.327_124_400_18e11;
-pub const GM_MERCURY: f64 = 2.203_186_8e4;
-pub const GM_VENUS: f64 = 3.248_585_92e5;
-pub const GM_EARTH: f64 = 3.986_004_418e5;
-pub const GM_MARS: f64 = 4.282_837_5e4;
-pub const GM_JUPITER: f64 = 1.266_865_32e8;
-pub const GM_SATURN: f64 = 3.793_118_7e7;
-pub const GM_URANUS: f64 = 5.793_939e6;
-pub const GM_NEPTUNE: f64 = 6.836_529e6;
+/// JPL DE440 gravitational parameters, km³/s², human-reviewed 2026-07-13.
+/// Mars through Neptune are the DE440 system values; see the GM audit.
+pub const GM_SUN: f64 = 132_712_440_041.279_42;
+pub const GM_MERCURY: f64 = 22_031.868_551;
+pub const GM_VENUS: f64 = 324_858.592_000;
+pub const GM_EARTH: f64 = 398_600.435_507;
+pub const GM_MARS: f64 = 42_828.375_816;
+pub const GM_JUPITER: f64 = 126_712_764.100_000;
+pub const GM_SATURN: f64 = 37_940_584.841_800;
+pub const GM_URANUS: f64 = 5_794_556.400_000;
+pub const GM_NEPTUNE: f64 = 6_836_527.100_580;
 // TNO parent-system values (needed because they carry moons), human-reviewed
 // 2026-07-13. Pluto deliberately includes Charon for the best two-body fit to
 // every Pluto-system moon: 869.6 + 105.9 = 975.5 km³/s².
@@ -112,7 +111,7 @@ macro_rules! planet {
             color: $col,
             route: Route::HorizonsPlanet { command: $cmd },
             blurb: $blurb,
-            source_note: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular)",
+            source_note: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021)",
         }
     };
 }
@@ -176,7 +175,7 @@ pub fn entries() -> Vec<Entry> {
         color: C_SUN,
         route: Route::SunFixed,
         blurb: "The star at the center of the solar system, holding 99.8% of its mass. Every orbit in this catalog ultimately answers to it.",
-        source_note: "no orbit (heliocentric anchor)",
+        source_note: "no orbit (heliocentric anchor); GM: JPL DE440 (Park et al. 2021)",
     });
 
     // --- Planets (8) ---
@@ -802,6 +801,34 @@ mod tests {
                 "missing physical provenance for '{id}': {source}"
             );
             assert!(source.contains("curated radius reviewed 2026-07-13"));
+        }
+    }
+
+    #[test]
+    fn approved_de440_sun_and_planet_gms_carry_provenance() {
+        let es = entries();
+        let expected = [
+            ("sun", 132_712_440_041.279_42),
+            ("mercury", 22_031.868_551),
+            ("venus", 324_858.592_000),
+            ("earth", 398_600.435_507),
+            ("mars", 42_828.375_816),
+            ("jupiter", 126_712_764.100_000),
+            ("saturn", 37_940_584.841_800),
+            ("uranus", 5_794_556.400_000),
+            ("neptune", 6_836_527.100_580),
+        ];
+
+        for (id, expected_gm) in expected {
+            let entry = es
+                .iter()
+                .find(|entry| entry.id == id)
+                .unwrap_or_else(|| panic!("missing DE440 body '{id}'"));
+            assert_eq!(entry.gm_km3_s2, Some(expected_gm));
+            assert!(
+                source_string(entry).contains("GM: JPL DE440 (Park et al. 2021)"),
+                "missing DE440 GM provenance for '{id}'"
+            );
         }
     }
 }

@@ -1,6 +1,7 @@
 //! WP0 — application shell (ARCHITECTURE §8): window, orbit-camera stub,
 //! dev-only diagnostics overlay, and a `--smoke` mode for CI launch checks.
 
+#[cfg(debug_assertions)]
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 

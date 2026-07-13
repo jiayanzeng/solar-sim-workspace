@@ -34,7 +34,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 0 | Workspace, Bevy 0.19 pin, CI, window+camera+diagnostics, core-purity rule | **✅ done** |
 | 1 | `sim-core::time` — full ladder, start epoch, LIVE, range | **✅ done** |
 | 2 | `sim-core::kepler` — elliptic + hyperbolic, guards | **✅ done** |
-| 3 | `xtask gen-catalog` + committed 66-body `catalog.ron` + validation | **in-progress** (pipeline + Q5 routes + online capture + radius/TNO review ✅; captured artifacts await commit; general GM review/spot-check remain) |
+| 3 | `xtask gen-catalog` + committed 66-body `catalog.ron` + validation | **in-progress** (all implementation, capture, curated review, and active spot-check gates ✅; generated/captured artifacts await commit) |
 | 4 | Propagation + floating origin: 66 colored spheres at 2026 positions | todo (unblocked by WP0) |
 | 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | todo |
 | 6 | Orbit lines (adaptive; hyperbolic arc), colors, fades | todo |
@@ -51,8 +51,8 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 81 passing** (52 `sim-core` · 26 `xtask` lib · 2 smoke ·
-1 spot-check harness, dormant). Any change that lowers this number without
+**Test baseline: 82 passing** (52 `sim-core` · 27 `xtask` lib · 2 smoke ·
+1 spot-check gate, active). Any change that lowers this number without
 an accompanying change-log justification is a regression. The number may
 only go up.
 
@@ -102,7 +102,7 @@ app loader. Spec: `docs/wp3-gen-catalog-spec.md`.
 - [x] **TNO moon resolution**: Horizons lookup-API resolution for
   Dysnomia / Hiʻiaka / Namaka COMMANDs and Eris/Haumea center designators
   (`xtask/src/lookup.rs`; strict API-version and unique-match checks).
-- [ ] **Curated review pass**: clear every `TODO(review)` in
+- [x] **Curated review pass**: clear every `TODO(review)` in
   `xtask/src/manifest.rs` (all radii; GMs for Pluto / Eris / Haumea;
   3I/ATLAS nucleus radius). Research brief with citations and
   recommendations: `docs/open-questions-brief-2026-07-12.md` (Q2, Q3).
@@ -110,14 +110,19 @@ app loader. Spec: `docs/wp3-gen-catalog-spec.md`.
   Note the Pluto-GM semantics question raised there (Pluto-only 869.6 vs
   Pluto+Charon ≈ 975.5 for correct Charon period under μ=parent-GM
   propagation) — that is part of Q2's human decision.
-  Progress (2026-07-13): Q2/Q3 and all 66 radii are human-approved and
-  applied. The radius/TNO markers are cleared; the separate general
-  Sun/planet GM verification marker still prevents checking this item.
-- [ ] **Spot-check activation**: capture Horizons VECTORS for the 10-body
+  Completed 2026-07-13: Q2/Q3, all 66 radii, the TNO-system GMs, and the
+  exact JPL DE440 Sun/planet GM set are human-approved and applied with
+  per-body provenance. No `TODO(review)` remains in the manifest.
+- [x] **Spot-check activation**: capture Horizons VECTORS for the 10-body
   set (ARCHITECTURE §5.6) at JD 2461042.0 and 1986-02-09 into
   `xtask/fixtures/spotcheck/vectors.json`; document per-category
   tolerances in `docs/wp3-gen-catalog-spec.md`; `cargo test` must show the
   gate passing (not skipping).
+  Q6 was human-approved 2026-07-13: all 10 bodies gate at JD 2461042.0,
+  Halley additionally gates at JD 2446471.0, and the other nine historical
+  captures remain audit-only. The test pins this selection and the ordered
+  1 km / 10 km / 25,000 km / 30,000,000 km category budgets, which the
+  human explicitly approved on 2026-07-13.
 
 ## WP0 — remaining to close
 
@@ -675,9 +680,8 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Next up (dependency order)
 
-1. **WP3** close-out: finish the general Sun/planet GM review, commit the
-   generated catalog + captured responses, then activate the human-owned
-   10-body spot-check truth data.
+1. **WP3** close-out: commit the generated catalog, captured responses, and
+   active spot-check data.
 2. **WP4 → WP5 → WP6**, then **WP7/WP8** (ui_kit, then the time bar
    binding WP1's API), then WP9–WP15 per briefs, WP16–17 release
    engineering.
@@ -691,9 +695,69 @@ Optional post-beta. No brief until un-deferred by the human.
 | Q3 | 3I/ATLAS nucleus radius: literature is uncertain; which value + citation ships? | 2026-07-12 | **closed 2026-07-13** — human approved adopted R = 0.5 km with the HST 0.16–2.8 km range and NGA-based estimate cited in provenance. |
 | Q4 | Constellation-figure line set licensing (fast-follow; Yale BSC-derived in-house vs licensed) | 2026-07-12 | open — options + recommendation in brief §Q4 (recommend in-house over public-domain BSC) |
 | Q5 | **Horizons planet routes: switch giant planets from planet centers (599/699/799/899) to system barycenters (5/6/7/8)?** The 2026-07-12 online run failed at Jupiter (`no $$SOE`). Planet-center ephemerides are defined by satellite solutions with limited time spans, while barycenters cover ±9999 yr, and JPL's own manual recommends barycenters for osculating-element output. Giant-planet vs own-barycenter offset ≤ ~100 km — far under two-body display budgets. Requires: manifest route edit, ARCHITECTURE §5.3 wording (human edit), dry-run/spec text updates. Raw capture/diagnostics are now implemented; the JD 2561120 probe confirmed Jupiter-center ends in 2200 while barycenter 5 returns ELEMENTS. Full analysis in brief §Q5. | 2026-07-12 | **closed 2026-07-13** — human approved and saved ARCHITECTURE §5.3; Mercury–Mars remain geometric centers and Jupiter–Neptune now use system barycenters. The mean-motion/secular-fit and SBDB normalization contracts remain binding. |
+| Q6 | **Spot-check epoch semantics after real-vector calibration:** require all 10 bodies at both 2026 and 1986, or use the 2026 point for the full set plus the 1986 point only for Halley? The 20-point interpretation forces non-physical pass budgets (Earth is 144,450,813.9 km off in 1986 because the approved near-pair unwrapped-MA slope is 1.335394656°/day; Phoebe is 14,762,084.4 km off under the declared no-secular moon model). | 2026-07-13 | **closed 2026-07-13** — human approved the full 10-body gate at the catalog epoch plus Halley at its 1986 demo/perihelion epoch, retained all 20 vectors as audit data, and explicitly approved the 1 km planet / 10 km moon / 25,000 km dwarf / 30,000,000 km comet budgets. |
+| Q7 | **Approve the general Sun/planet GM audit?** Adopt the exact JPL DE440 set in `docs/wp3-gm-audit-2026-07-13.md`: eight numeric replacements, with Venus verified unchanged; Mars–Neptune use DE440 system GMs. | 2026-07-13 | **closed 2026-07-13** — human approved all nine rows. The eight replacements and verified Venus value are applied with DE440 provenance; both catalogs were regenerated from captured responses and the active position gate remains green. |
 
 ## Change log (append-only; newest first)
 
+- **2026-07-13** — Human approved Q7's complete JPL DE440 Sun/planet GM
+  table. Applied eight replacements (Venus was already exact), added emitted
+  DE440 provenance, cleared the final `TODO(review)`, added a nine-body
+  regression test, and regenerated `assets/catalog.ron` plus the spot-check
+  catalog from the captured responses through `xtask`. Evidence: `cargo test`
+  82 passed; nextest 82 passed with zero skips; online-feature xtask suites 30
+  passed; active `horizons_position_spot_check` passed; fmt, clippy,
+  warning-denied release build, and diff check passed; normal and `--features
+  dev` macOS launches each rendered 60 smoke frames and exited 0. The expected
+  Bevy/winit teardown warning remains non-gating. The curated review item is
+  complete; WP3 remains in-progress only until its generated and captured
+  artifacts are committed.
+- **2026-07-13** — Audited the final open WP3 curated-data marker against
+  JPL DE440 and recorded the exact nine-row decision table in
+  `docs/wp3-gm-audit-2026-07-13.md`. Eight constants differ; Venus is already
+  exact. Opened Q7 for the required human sign-off. No GM, generated catalog,
+  truth fixture, or review marker was changed pending that decision.
+- **2026-07-13** — Re-audited the complete
+  `docs/wp0-dev-setup-macos.md` procedure against the current checkout and
+  refreshed its stale A6/B4 status. Found and fixed one release-only warning
+  by cfg-gating the debug diagnostics imports in `solar-sim`; a
+  warning-denied release build is now clean. Current evidence: Xcode CLT
+  present; rustc/cargo 1.95.0; cargo-nextest 0.9.140; Bevy 0.19.0 locked;
+  `cargo test` and `cargo nextest run --workspace` each passed 81/81 with
+  zero skips; fmt and clippy clean; isolated offline Rust 1.75 `sim-core`
+  check passed; core-purity/default-offline/CI-feature checks passed; the
+  six-body fixture pipeline passed; normal and `--features dev` macOS smoke
+  launches each rendered 60 frames and exited 0. Hosted Windows/macOS
+  evidence remains [Actions run #3](https://github.com/jiayanzeng/solar-sim-workspace/actions)
+  for commit `5540cdd`, with lint, test-macos, build-windows, and invariants
+  successful. WP0 remains ✅ done; real-Windows hardware launch remains the
+  intentional pre-WP16 deferral.
+- **2026-07-13** — Human explicitly approved the calibrated spot-check
+  budgets: planets 1 km, moons 10 km, dwarf planets 25,000 km, and comets
+  30,000,000 km. This closes the remaining approval ambiguity in step 5;
+  the already-green active gate and its fixture values are unchanged.
+- **2026-07-13** — Human closed Q6 with the recommended spot-check epoch
+  policy. Activated all 10 bodies at JD 2461042.0 plus Halley at JD
+  2446471.0, while retaining the other nine historical vectors as
+  `gate: false` audit data. The test pins 20 captured records, 10 distinct
+  active ids, the Halley-only historical gate, and ordered per-category
+  budgets: planets 1 km, moons 10 km, dwarf planets 25,000 km, comets
+  30,000,000 km. Measured maxima are documented in the WP3 spec; the
+  approved unwrapped-MA, coarse least-squares, and SBDB normalization
+  contracts are unchanged. Evidence: active spot-check passed with 11
+  points; `cargo test` 81 passed; online-feature xtask suites 29 passed;
+  fmt clean; clippy zero warnings; `git diff --check` clean.
+- **2026-07-13** — Transcribed the human-captured Horizons VECTORS truth
+  into `xtask/fixtures/spotcheck/vectors.json`: 20 parent-centric,
+  ecliptic-J2000 positions covering the specified 10 bodies at JD
+  2461042.0 and 2446471.0. Halley's ambiguous designation response was
+  resolved to Horizons record 90000030 (1P/Halley, JPL#75) and recaptured.
+  Zero-tolerance calibration deliberately failed: catalog-epoch matches
+  are exact or close, but historical phase errors reach 144,450,813.9 km
+  for Earth, 14,762,084.4 km for Phoebe, and 23,021,717.1 km for 3I/ATLAS.
+  Q6 records the contract conflict; no permissive tolerances were invented,
+  the spot-check checklist remains open, and the workspace gate is
+  intentionally red pending human direction.
 - **2026-07-13** — Human approved all eight flagged radius changes from
   `docs/wp3-radius-audit-2026-07-13.md`. Updated Himalia 75→85 km, Nix
   19.5→18 km, Hydra 18→18.5 km, Hiʻiaka 160→185 km, Namaka 85→75 km,

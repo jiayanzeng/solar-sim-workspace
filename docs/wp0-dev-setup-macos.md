@@ -8,6 +8,14 @@ Windows machine, and finishes with the WP3 online-capture procedure
 
 Intended location in the repo: `docs/wp0-dev-setup-macos.md`.
 
+**Completion status — re-audited 2026-07-13:** Part A is complete for the
+defined macOS + hosted-CI scope. The only residual is the explicitly deferred
+real-Windows-hardware launch before WP16. Part B's Q5 route work, 66-body/68-
+payload capture, and active 10-body spot-check are also complete; the current
+spot-check changes remain part of the WP3 worktree until the maintainer commits
+that package. WP3's separate Sun/planet GM review is now human-approved and
+implemented; the artifact commit is its only remaining close-out action.
+
 ---
 
 ## Part A — WP0
@@ -386,13 +394,25 @@ matters).
 
 ### A6. WP0 done — evidence to record in TASKS.md
 
-- [ ] `rust-toolchain.toml` @ 1.95.0 committed; Q1 closed with the
+- [x] `rust-toolchain.toml` @ 1.95.0 committed; Q1 closed with the
       crates.io citation.
-- [ ] `crates/solar-sim` in the workspace; `cargo run -p solar-sim`
+- [x] `crates/solar-sim` in the workspace; `cargo run -p solar-sim`
       opens a window with the fps overlay on the Mac; `--smoke` exits 0.
-- [ ] `Cargo.lock` committed.
-- [ ] CI green: lint, test-macos, build-windows, invariants.
-- [ ] Change-log entry citing the CI run URL and the local run.
+- [x] `Cargo.lock` committed.
+- [x] CI green: lint, test-macos, build-windows, invariants.
+- [x] Change-log entry citing the CI run URL and the local run.
+
+Re-audit evidence (2026-07-13): Xcode Command Line Tools present; rustc/cargo
+1.95.0 selected; cargo-nextest 0.9.140 installed; Bevy 0.19.0 locked; 82/82
+tests passed under both `cargo test` and nextest with zero skips; fmt and
+clippy clean; warning-denied release build passed; isolated offline Rust 1.75
+`sim-core` check passed; core-purity and default-offline dependency checks
+passed; fixture generation produced the expected six-body sample; normal and
+`--features dev` macOS launches each rendered 60 smoke frames and exited 0.
+The forced smoke exit emits a Bevy/winit teardown-only warning after rendering;
+it does not affect the successful exit. Hosted evidence remains GitHub Actions
+`ci` run #3 for commit `5540cdd`, where all four jobs passed. Real-Windows
+hardware remains deferred exactly as recorded in `TASKS.md`.
 
 ---
 
@@ -415,7 +435,7 @@ curl -s "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND='599'&OBJ
 curl -s "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND='5'&OBJ_DATA='NO'&MAKE_EPHEM='YES'&EPHEM_TYPE='ELEMENTS'&CENTER='500@10'&REF_PLANE='ECLIPTIC'&REF_SYSTEM='J2000'&OUT_UNITS='KM-S'&TLIST_TYPE='JD'&TLIST='2561120.0'" | head -40
 ```
 
-### B2. Land the Q5 changes (agent task; approved)
+### B2. Land the Q5 changes — complete
 
 1. `xtask/src/manifest.rs`: giant-planet routes
    `HorizonsPlanet { command: "599" } → "5"`, `"699" → "6"`,
@@ -436,7 +456,7 @@ curl -s "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND='5'&OBJ_D
    least-squares secular fit, and the SBDB AU→km / `q/(1−e)` /
    perihelion-rebasing rules.
 
-### B3. The capture run
+### B3. The capture run — complete
 
 ```bash
 cargo run -p xtask --features online -- gen-catalog --online \
@@ -456,7 +476,7 @@ a regression test. Missing or ambiguous lookup results remain hard errors
 rather than silent fallbacks. The `git add` / `git commit` lines above are
 still an explicit maintainer action.
 
-### B4. Spot-check vectors (activates the armed gate)
+### B4. Spot-check vectors — complete; gate active
 
 For each of the 10 bodies in ARCHITECTURE §5.6 (Mercury, Earth, Jupiter,
 Sedna, Io, Triton, Phoebe, Nereid, Halley, 3I/ATLAS), request Horizons
@@ -471,17 +491,16 @@ CENTER="500@10"     # for Io use 500@599, Triton/Nereid 500@899, Phoebe 500@699
 curl -s "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND='199'&OBJ_DATA='NO'&MAKE_EPHEM='YES'&EPHEM_TYPE='VECTORS'&CENTER='${CENTER}'&REF_PLANE='ECLIPTIC'&REF_SYSTEM='J2000'&OUT_UNITS='KM-S'&VEC_TABLE='2'&TLIST_TYPE='JD'&TLIST='2461042.0'"
 ```
 
-Transcribe positions into
-`xtask/fixtures/spotcheck/vectors.json` as
-`[{ "id": "...", "jd_tdb": ..., "position_km": [x, y, z], "tol_km": ... }]`,
-drop the freshly generated catalog beside it as
-`xtask/fixtures/spotcheck/catalog.ron`, document the per-category
-tolerances in `docs/wp3-gen-catalog-spec.md`, and confirm
-`cargo test` shows `horizons_position_spot_check` *asserting*, not
-skipping. Suggested starting tolerances (tighten after the first run
-shows real residuals): planets low-1e4 km at-epoch / larger at 1986 via
-secular fit; moons mid-1e3 km; SBDB dwarfs/asteroids 1e4–1e5 km; comets
-loosest (non-gravitational forces are ignored by design).
+Both epochs are retained in `xtask/fixtures/spotcheck/vectors.json` as
+`[{ "id": "...", "jd_tdb": ..., "position_km": [x, y, z], "tol_km": ..., "gate": ... }]`.
+Q6's human-approved policy gates all ten bodies at JD 2461042.0 plus Halley
+at JD 2446471.0; the other nine historical positions remain `gate: false`
+audit data rather than forcing meaningless long-span phase tolerances. The
+human-approved category budgets are planets 1 km, moons 10 km, dwarf planets
+25,000 km, and comets 30,000,000 km. The freshly generated catalog is beside
+the vectors at `xtask/fixtures/spotcheck/catalog.ron`, the numerical basis is
+documented in `docs/wp3-gen-catalog-spec.md`, and both `cargo test` and nextest
+show `horizons_position_spot_check` passing as an active assertion.
 
 ---
 

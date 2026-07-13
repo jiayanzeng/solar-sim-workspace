@@ -2,9 +2,9 @@
 
 **Status:** Implemented (schema + validation + generator, offline smoke path,
 raw-response capture/diagnostics, TNO-satellite lookup resolution, and the
-66-body online capture, and radius/TNO curated-value review). The separate
-Sun/planet GM review and position spot-check data remain before WP3 sign-off,
-itemized in §8–§9.
+66-body online capture, complete curated-value review, and active position
+spot-check gate). Only the artifact commit recorded in `TASKS.md` remains
+before WP3 sign-off.
 **Parent design:** Rev B §4 (Body Catalog), §7 (workspace/firewall), §11 (WP3 acceptance).
 **Companion code:** `crates/sim-core/src/catalog.rs` (schema of record), `xtask/src/*` (generator).
 
@@ -30,7 +30,7 @@ Rev B names hand-typos across 66 bodies as the main data risk. The mitigation is
 | display color, description blurb | fitted mean motion (planets) |
 | source route + provenance note | |
 
-The manifest is small, diffable, and covered by its own unit tests (66 bodies, Rev B category counts 1/8/9/8/32/8, unique ids, parents precede children, every parent has a GM). All 66 radii and the three TNO parent-system GMs were human-reviewed on 2026-07-13; the radius audit and decisions are recorded in `docs/wp3-radius-audit-2026-07-13.md`. Their WP3 review markers are cleared.
+The manifest is small, diffable, and covered by its own unit tests (66 bodies, Rev B category counts 1/8/9/8/32/8, unique ids, parents precede children, every parent has a GM). All 66 radii and every curated parent GM were human-reviewed on 2026-07-13; the decisions are recorded in `docs/wp3-radius-audit-2026-07-13.md` and `docs/wp3-gm-audit-2026-07-13.md`. Their WP3 review markers are cleared.
 
 ## 3. The `catalog.ron` schema (v1)
 
@@ -90,13 +90,33 @@ Default epoch is JD 2461042.0 = 2026-01-01 12:00 TDB (Rev B's startup epoch). `-
 ## 8. Open items (tracked, not forgotten)
 
 1. **TNO satellite resolution — implemented.** The online path resolves the satellite and parent-primary SPK IDs from a strict parent-system lookup; offline fixtures remain direct ELEMENTS captures.
-2. **Curated-value review — radius/TNO decisions complete.** Q2/Q3 were human-resolved on 2026-07-13: Pluto uses the 975.5 km³/s² Pluto+Charon system GM, Eris/Haumea retain their system GMs, and 3I/ATLAS uses an adopted 0.5 km radius with its observational range cited. The human also approved all eight flagged central-value changes in the all-66-body audit at `docs/wp3-radius-audit-2026-07-13.md`; each changed body carries its individual physical provenance and the radius review marker is cleared. The pre-existing general Sun/planet GM `TODO(review)` remains open and must be resolved separately before the TASKS.md curated-review checkbox can be checked.
+2. **Curated-value review — complete.** Q2/Q3 were human-resolved on 2026-07-13: Pluto uses the 975.5 km³/s² Pluto+Charon system GM, Eris/Haumea retain their system GMs, and 3I/ATLAS uses an adopted 0.5 km radius with its observational range cited. The human also approved all eight flagged central-value changes in the all-66-body radius audit and all nine rows in the JPL DE440 Sun/planet GM audit. Each value carries physical provenance, the general GM marker is cleared, and the manifest regression tests pin the approved constants.
 3. **Descriptions** — ~50 bodies have empty blurbs (deliberate; WP10 content pass). The lint keeps the list visible.
 4. **Textures** — `texture` is emitted as `None` everywhere until WP15; the license/source-per-asset CI check from Rev B §2 attaches there.
 
 ## 9. Interaction with WP2 and the acceptance check
 
 WP3's acceptance ("10-body Horizons spot-check fixtures within two-body tolerance") compares **propagated positions**, which requires the WP2 Kepler solvers. Sequencing: capture, now, per spot-check body, Horizons **VECTORS** (not ELEMENTS) at two epochs — 2026-01-01 and 1986-02-09 (Halley perihelion, already a demo-script stop) — into `xtask/fixtures/spotcheck/`; when WP2 lands, a `sim-core` integration test propagates each body from its catalog elements to both epochs and asserts against those vectors within a documented two-body tolerance per category (planets tightest; comets loosest, dominated by ignored non-gravitational forces per Rev B §4.3). Suggested spot-check set, exercising every regime: Mercury (fast), Earth (reference), Jupiter (secular-sensitive), Sedna (extreme a), Io (fast moon), Triton and Phoebe (retrograde), Nereid (high-e moon), Halley (high-e comet), 3I/ATLAS (hyperbolic).
+
+**Q6 decision and active budgets (human-approved 2026-07-13).** The captured
+file retains all 20 truth positions (all ten bodies at both epochs) for audit.
+The active gate covers all ten bodies at the catalog epoch plus Halley at the
+1986 perihelion/demo epoch; the other nine historical points have `gate: false`.
+The human explicitly approved the four numerical category budgets in the table
+below on 2026-07-13.
+This preserves the approved unwrapped-MA near-pair slope, coarse-span
+least-squares fit, and single-epoch/no-secular moon model without hiding their
+long-span phase decorrelation behind permissive budgets.
+
+| Category | Gate budget | Measured maximum | Numerical basis |
+|---|---:|---:|---|
+| Planet | 1 km | < 0.1 km | Horizons ELEMENTS and VECTORS at the shared catalog epoch; tight serialization guard. |
+| Moon | 10 km | < 0.1 km | Same parent-centric epoch and frame; small envelope for numeric/GM representation. |
+| Dwarf planet | 25,000 km | 20,090.2 km (Sedna) | SBDB osculating elements cross-checked against independent Horizons VECTORS. |
+| Comet | 30,000,000 km | 26,983,130.7 km (Halley, 2026) | Static SBDB osculating solutions propagated two-body; ignored perturbations and non-gravitational forces dominate. Halley at 1986 is 5,274,441.3 km off; 3I/ATLAS at 2026 is 21,649.7 km off. |
+
+The test pins the 10 distinct ids, exact active-epoch policy, and category
+budgets so future fixture edits cannot silently weaken the gate.
 
 ## 10. What downstream WPs may rely on
 

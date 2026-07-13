@@ -5,18 +5,23 @@
 //! Expected files:
 //! - `fixtures/spotcheck/catalog.ron` — emitted by a real `--online` run.
 //! - `fixtures/spotcheck/vectors.json` — captured Horizons VECTORS truth:
-//!   `[{ "id": "...", "jd_tdb": f64, "position_km": [x,y,z], "tol_km": f64 }]`
+//!   `[{ "id": "...", "jd_tdb": f64, "position_km": [x,y,z], "tol_km": f64, "gate": bool }]`
 //!   Frame: ecliptic-J2000, **parent-centric** (planets/small bodies about the
 //!   Sun via CENTER='500@10'; moons about their parent), matching `state_at`
 //!   output directly so no frame composition is needed here.
+//!
+//! Q6 retains both captured epochs for audit, but gates all 10 bodies at the
+//! catalog epoch plus Halley at its 1986 perihelion/demo epoch. The other nine
+//! historical points carry `gate: false`.
 //!
 //! Tolerances are per-category budgets, documented in the spec: two-body
 //! motion vs full ephemeris — planets tightest, comets loosest (ignored
 //! non-gravitational forces dominate).
 
-use sim_core::catalog::Catalog;
+use sim_core::catalog::{Catalog, Category};
 use sim_core::kepler::state_at;
 use sim_core::time::t_from_jd_tdb;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 #[derive(serde::Deserialize)]
@@ -25,6 +30,7 @@ struct VectorFixture {
     jd_tdb: f64,
     position_km: [f64; 3],
     tol_km: f64,
+    gate: bool,
 }
 
 #[test]
@@ -47,14 +53,53 @@ fn horizons_position_spot_check() {
 
     let vectors: Vec<VectorFixture> =
         serde_json::from_str(&std::fs::read_to_string(&vectors_path).unwrap()).unwrap();
+    assert_eq!(
+        vectors.len(),
+        20,
+        "retain both captured epochs as audit data"
+    );
+
+    let gated: Vec<&VectorFixture> = vectors.iter().filter(|v| v.gate).collect();
+    let gated_ids: HashSet<&str> = gated.iter().map(|v| v.id.as_str()).collect();
+    assert_eq!(
+        gated_ids.len(),
+        10,
+        "the active gate must exercise all 10 approved bodies"
+    );
+    for id in &gated_ids {
+        assert!(
+            gated.iter().any(|v| v.id == *id && v.jd_tdb == 2461042.0),
+            "'{id}' must be gated at the catalog epoch"
+        );
+    }
     assert!(
-        vectors.len() >= 10,
-        "spec §9 calls for a 10-body spot-check set"
+        gated
+            .iter()
+            .any(|v| v.id == "halley" && v.jd_tdb == 2446471.0),
+        "Halley's 1986 perihelion/demo epoch must remain gated"
+    );
+    assert!(
+        gated
+            .iter()
+            .all(|v| v.jd_tdb != 2446471.0 || v.id == "halley"),
+        "the other nine 1986 vectors are audit-only under the Q6 decision"
     );
 
     let mut failures = Vec::new();
-    for v in &vectors {
+    for v in gated {
         let body = &catalog.bodies[*index.get(v.id.as_str()).expect("fixture id in catalog")];
+        let expected_tolerance = match body.category {
+            Category::Planet => 1.0,
+            Category::Moon => 10.0,
+            Category::DwarfPlanet => 25_000.0,
+            Category::Comet => 30_000_000.0,
+            category => panic!("no approved spot-check budget for {category:?}"),
+        };
+        assert_eq!(
+            v.tol_km, expected_tolerance,
+            "{} must use its documented category budget",
+            v.id
+        );
         let orbit = body.orbit.as_ref().expect("spot-check body has an orbit");
         let parent = &catalog.bodies[*index
             .get(
