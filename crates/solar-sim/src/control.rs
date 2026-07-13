@@ -128,6 +128,19 @@ impl CameraController {
             (sin_yaw * cos_pitch * self.distance_units) as f32,
         )
     }
+
+    /// Camera position in the simulation's f64 ecliptic frame. Render-only
+    /// systems use this for view-dependent fades before the final f32 rebase.
+    pub(crate) fn camera_position_km(&self) -> [f64; 3] {
+        let (sin_yaw, cos_yaw) = self.yaw_rad.sin_cos();
+        let (sin_pitch, cos_pitch) = self.pitch_rad.sin_cos();
+        let distance_km = self.distance_units * KM_PER_RENDER_UNIT;
+        [
+            self.focus_position_km[0] + cos_yaw * cos_pitch * distance_km,
+            self.focus_position_km[1] + sin_yaw * cos_pitch * distance_km,
+            self.focus_position_km[2] + sin_pitch * distance_km,
+        ]
+    }
 }
 
 /// USER_STATE_MUTATION_GATE: this is the sole match over `SimCommand` that

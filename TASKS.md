@@ -36,8 +36,8 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 2 | `sim-core::kepler` — elliptic + hyperbolic, guards | **✅ done** |
 | 3 | `xtask gen-catalog` + committed 66-body `catalog.ron` + validation | **✅ done** |
 | 4 | Propagation + floating origin: 66 colored spheres at 2026 positions | **✅ done** |
-| 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | **in-progress** |
-| 6 | Orbit lines (adaptive; hyperbolic arc), colors, fades | todo |
+| 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | **✅ done** |
+| 6 | Orbit lines (adaptive; hyperbolic arc), colors, fades | **✅ done** |
 | 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | todo |
 | 8 | Time bar: detented log slider, editable date/clock, LIVE chip | todo (binds to WP1 API) |
 | 9 | Labels/reticles, tiered declutter, contextual moon visibility, picking | todo |
@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 97 passing** (52 `sim-core` · 15 `solar-sim` · 27 `xtask`
+**Test baseline: 108 passing** (52 `sim-core` · 26 `solar-sim` · 27 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -247,7 +247,7 @@ change focus.
 - [x] Travel tween to a moving target (e.g. Io) lands and follows without
   a snap.
 - [x] Zoom clamps hold at both ends.
-- [ ] Replay determinism test runs in CI on macOS and Windows and produces
+- [x] Replay determinism test runs in CI on macOS and Windows and produces
   identical hashes across both.
 
 **Tests required.** Replay round-trip (record 500+ mixed commands, replay,
@@ -282,13 +282,13 @@ perihelion.
 hook for WP13.
 
 **Acceptance.**
-- [ ] Ellipses close with no visible seam gap; Nereid (e=0.75) shows
+- [x] Ellipses close with no visible seam gap; Nereid (e=0.75) shows
   visibly denser sampling near perihelion.
-- [ ] 3I/ATLAS renders an open arc spanning ±25 yr around perihelion and
+- [x] 3I/ATLAS renders an open arc spanning ±25 yr around perihelion and
   never a closed loop.
-- [ ] No orbit-line jitter or z-fighting flicker at full-system zoom while
+- [x] No orbit-line jitter or z-fighting flicker at full-system zoom while
   focused on an inner body.
-- [ ] Perf budget holds with all orbit lines on.
+- [x] Perf budget holds with all orbit lines on.
 
 **Tests required.** Sampler unit tests (vertex count bounds by e; first ==
 last for elliptic; endpoints at ±25 yr for hyperbolic; all vertices finite);
@@ -709,6 +709,39 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-13** — WP6 done. Added `OrbitLinesPlugin` with 65 retained orbit
+  paths whose f64 vertices remain parent-relative while each line entity is
+  independently rebased around the camera focus. Ellipses use 256–768 samples
+  by eccentricity with uniform true-anomaly spacing and a bit-identical seam;
+  the Nereid regression requires perihelion chords below 20% of its apoapsis
+  spacing. `Elements::is_hyperbolic` selects a 767-vertex open 3I/ATLAS branch
+  with an exact perihelion center sample and endpoints at ±25 Julian years.
+  Sampling uses `elements_at` at the current simulation time plus the same
+  fitted/two-body mean motion and `state_from_elements` path as propagation.
+  Added the eight-planet color LUT, shared per-category defaults, quantized
+  camera-distance/view-angle alpha fades, and an `OrbitLineBrightness`
+  resource hook for WP13. A small negative retained-line depth bias prevents
+  body/path z-fighting; the full-system re-anchor test holds parent vertices
+  unchanged across Mercury and Sedna focus origins. Eleven new tests cover
+  every required sampler/property gate plus colors, fades, all-65 spawning,
+  anchoring, and invalid-input rejection. Evidence: `cargo test` passed
+  108/108; fmt, warning-denied clippy, `git diff --check`, and a warning-denied
+  release build passed; a 600-frame release GPU smoke focused on Mercury
+  measured 60.0 fps with every orbit line
+  enabled. The known forced-exit winit warning remains non-gating. No
+  dependency or generated-data changes.
+- **2026-07-13** — Started WP6 after a green 97-test workspace baseline and
+  reading ARCHITECTURE invariant 6 plus §10.2. The implementation is scoped
+  to parent-relative adaptive orbit sampling, the open 3I/ATLAS ±25-year arc,
+  color/fade rendering, floating-origin re-anchoring, and the required tests;
+  WP10/WP11 toggles and WP13 emphasis behavior remain out of scope.
+- **2026-07-13** — WP5 done. The human confirmed completion after commit
+  `6095dab` (`feat: WP5`) was pushed to `origin/main`; this closes the hosted
+  macOS + Windows replay-determinism acceptance item and the dashboard status.
+  Both OS jobs execute the same 600-frame, 500+-mixed-command replay test and
+  assert the pinned canonical f64-state hash `12568395442970282829`. The
+  implementation commit contains the complete 97-test local gate evidence
+  recorded below; this entry is the final human-confirmed hosted-CI evidence.
 - **2026-07-13** — WP5 implementation and local acceptance are complete;
   the dashboard remains in-progress only until the pinned replay test has
   passed a hosted macOS + Windows CI run. Added a sole raw-input intent

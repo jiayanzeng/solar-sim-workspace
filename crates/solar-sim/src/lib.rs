@@ -1,17 +1,23 @@
-//! WP4–WP5 — propagation, floating origin, and deterministic camera control.
+//! WP4–WP6 — propagation, camera control, and parent-relative orbit lines.
 //!
 //! `sim-core` remains the f64 source of truth. This crate owns filesystem
 //! loading, parent-to-heliocentric composition, the one f64→f32 render rebase,
-//! explicit frame-flow ordering, and WP5's single command-consumer boundary.
-//! Raw device events are isolated in `input_intent`; camera/control state is
-//! private to `control`, which also supplies the headless replay gate.
+//! explicit frame-flow ordering, WP5's single command-consumer boundary, and
+//! WP6's retained orbit rendering. Raw device events are isolated in
+//! `input_intent`; camera/control state is private to `control`, which also
+//! supplies the headless replay gate.
 
 mod control;
 mod input_intent;
+mod orbit_lines;
 
 pub use control::{
     replay_headless, CameraController, CommandRecording, HeadlessSimulation, ReplayParseError,
     ReplayRunError, ReplayStream, SimCommand, StampedCommand,
+};
+pub use orbit_lines::{
+    orbit_vertex_count, sample_orbit, OrbitLineBrightness, OrbitLinesPlugin, OrbitPath,
+    HYPERBOLIC_HALF_SPAN_S, MAX_ORBIT_VERTICES, MIN_ORBIT_VERTICES,
 };
 
 #[cfg(debug_assertions)]
@@ -380,7 +386,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
-            title: "solar-sim — WP5 camera and replay".into(),
+            title: "solar-sim — WP6 orbit lines".into(),
             ..default()
         }),
         ..default()
@@ -436,6 +442,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
         PropagationPlugin,
         OriginPlugin,
         CameraRigPlugin,
+        OrbitLinesPlugin,
     ))
     .add_systems(
         Startup,
