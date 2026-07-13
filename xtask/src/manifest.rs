@@ -7,9 +7,9 @@
 //! - **Generated from JPL, never hand-typed:** every orbital element, epoch,
 //!   secular rate, and mean motion.
 //!
-//! REVIEW FLAGS: radii and the three TNO GM values below are curated from
-//! standard references and MUST be confirmed against JPL physical-data pages
-//! during the WP3 review pass (Rev B §4.2). Items marked `TODO(review)`.
+//! REVIEW STATUS: all 66 radii and the three TNO parent GMs were
+//! human-reviewed on 2026-07-13. The general Sun/planet GM review marker below
+//! remains open.
 
 use sim_core::catalog::Category;
 
@@ -24,8 +24,10 @@ pub const GM_JUPITER: f64 = 1.266_865_32e8;
 pub const GM_SATURN: f64 = 3.793_118_7e7;
 pub const GM_URANUS: f64 = 5.793_939e6;
 pub const GM_NEPTUNE: f64 = 6.836_529e6;
-// TNO parents (needed because they carry moons). TODO(review): literature values.
-pub const GM_PLUTO: f64 = 8.696e2;
+// TNO parent-system values (needed because they carry moons), human-reviewed
+// 2026-07-13. Pluto deliberately includes Charon for the best two-body fit to
+// every Pluto-system moon: 869.6 + 105.9 = 975.5 km³/s².
+pub const GM_PLUTO: f64 = 9.755e2;
 pub const GM_ERIS: f64 = 1.108e3;
 pub const GM_HAUMEA: f64 = 2.67e2;
 
@@ -83,7 +85,7 @@ pub struct Entry {
     pub category: Category,
     pub parent: Option<&'static str>,
     pub gm_km3_s2: Option<f64>,
-    /// TODO(review): confirm every radius against JPL physical data.
+    /// Human-reviewed mean/effective radius; see the 2026-07-13 WP3 audit.
     pub radius_km: f64,
     pub color: (u8, u8, u8),
     pub route: Route,
@@ -93,7 +95,8 @@ pub struct Entry {
     pub source_note: &'static str,
 }
 
-const PHYS_NOTE: &str = "phys: curated (IAU/JPL references, review pending)";
+const PHYS_NOTE: &str =
+    "phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)";
 
 macro_rules! planet {
     ($id:literal, $name:literal, $cmd:literal, $gm:expr, $r:expr, $col:expr, $blurb:literal) => {
@@ -275,9 +278,11 @@ pub fn entries() -> Vec<Entry> {
     v.push(moon!(
         "amalthea", "Amalthea", "505", "500@599", "jupiter", 83.5
     ));
-    v.push(moon!(
-        "himalia", "Himalia", "506", "500@599", "jupiter", 75.0
-    ));
+    v.push({
+        let mut m = moon!("himalia", "Himalia", "506", "500@599", "jupiter", 85.0);
+        m.source_note = "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; radius: JPL Planetary Satellite Physical Parameters 85 +/- 10 km";
+        m
+    });
     // Saturn
     v.push(moon!("mimas", "Mimas", "601", "500@699", "saturn", 198.2));
     v.push(moon!(
@@ -333,18 +338,22 @@ pub fn entries() -> Vec<Entry> {
     // --- Dwarf planets (9) — before their moons; parents must precede children ---
     v.push(sbdb!("ceres", "Ceres", None, &["1 Ceres"], DwarfPlanet, None, 469.7, C_DWARF, "Ceres",
         "The largest object in the asteroid belt and the only dwarf planet of the inner solar system."));
-    v.push(sbdb!(
-        "pluto",
-        "Pluto",
-        None,
-        &["134340"],
-        DwarfPlanet,
-        Some(GM_PLUTO),
-        1188.3,
-        C_DWARF,
-        "134340",
-        "The best-loved dwarf planet, ruling a five-moon system in the Kuiper Belt."
-    ));
+    v.push({
+        let mut e = sbdb!(
+            "pluto",
+            "Pluto",
+            None,
+            &["134340"],
+            DwarfPlanet,
+            Some(GM_PLUTO),
+            1188.3,
+            C_DWARF,
+            "134340",
+            "The best-loved dwarf planet, ruling a five-moon system in the Kuiper Belt."
+        );
+        e.source_note = "orbit: JPL SBDB heliocentric ECLIPJ2000; parent GM: Pluto+Charon system 975.5 km^3/s^2 = 869.6 + 105.9 (Brozović et al. 2015)";
+        e
+    });
     v.push(sbdb!(
         "eris",
         "Eris",
@@ -423,8 +432,16 @@ pub fn entries() -> Vec<Entry> {
     // --- TNO moons (belong to the 32-moon count) ---
     // Pluto
     v.push(moon!("charon", "Charon", "901", "500@999", "pluto", 606.0));
-    v.push(moon!("nix", "Nix", "902", "500@999", "pluto", 19.5));
-    v.push(moon!("hydra", "Hydra", "903", "500@999", "pluto", 18.0));
+    v.push({
+        let mut m = moon!("nix", "Nix", "902", "500@999", "pluto", 18.0);
+        m.source_note = "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; radius: JPL Planetary Satellite Physical Parameters 18.0 +/- 1.0 km (Stern et al. 2018)";
+        m
+    });
+    v.push({
+        let mut m = moon!("hydra", "Hydra", "903", "500@999", "pluto", 18.5);
+        m.source_note = "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; radius: JPL Planetary Satellite Physical Parameters 18.5 +/- 1.0 km (Stern et al. 2018)";
+        m
+    });
     // Eris / Haumea (Horizons ids resolved at generation time — see spec Open items)
     v.push(Entry {
         id: "dysnomia",
@@ -451,14 +468,14 @@ pub fn entries() -> Vec<Entry> {
         category: Moon,
         parent: Some("haumea"),
         gm_km3_s2: None,
-        radius_km: 160.0,
+        radius_km: 185.0,
         color: C_MOON,
         route: Route::HorizonsLookupMoon {
             sstr: "Hiiaka",
             parent_sstr: "Haumea",
         },
         blurb: "",
-        source_note: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup)",
+        source_note: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup); radius: volume-equivalent diameter 370 +/- 20 km / 2 (Fernandez-Valenzuela et al. 2025)",
     });
     v.push(Entry {
         id: "namaka",
@@ -468,14 +485,14 @@ pub fn entries() -> Vec<Entry> {
         category: Moon,
         parent: Some("haumea"),
         gm_km3_s2: None,
-        radius_km: 85.0,
+        radius_km: 75.0,
         color: C_MOON,
         route: Route::HorizonsLookupMoon {
             sstr: "Namaka",
             parent_sstr: "Haumea",
         },
         blurb: "",
-        source_note: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup)",
+        source_note: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup); radius: adopted from thermal diameter about 150 +/- 50 km / 2 (Muller et al. 2019)",
     });
 
     // --- Asteroids (8) ---
@@ -515,18 +532,23 @@ pub fn entries() -> Vec<Entry> {
         "4 Vesta",
         ""
     ));
-    v.push(sbdb!(
-        "hygiea",
-        "10 Hygiea",
-        None,
-        &["Hygiea"],
-        Asteroid,
-        None,
-        217.0,
-        C_AST,
-        "10 Hygiea",
-        ""
-    ));
+    v.push({
+        let mut e = sbdb!(
+            "hygiea",
+            "10 Hygiea",
+            None,
+            &["Hygiea"],
+            Asteroid,
+            None,
+            203.56,
+            C_AST,
+            "10 Hygiea",
+            ""
+        );
+        e.source_note =
+            "orbit: JPL SBDB heliocentric ECLIPJ2000; radius: SBDB diameter 407.12 +/- 6.8 km / 2";
+        e
+    });
     v.push(sbdb!(
         "psyche",
         "16 Psyche",
@@ -603,30 +625,38 @@ pub fn entries() -> Vec<Entry> {
         "9P",
         ""
     ));
-    v.push(sbdb!(
-        "churyumov_gerasimenko",
-        "67P/Churyumov-Gerasimenko",
-        Some("67P"),
-        &["Churyumov-Gerasimenko"],
-        Comet,
-        None,
-        2.0,
-        C_COMET,
-        "67P",
-        ""
-    ));
-    v.push(sbdb!(
-        "hartley_2",
-        "103P/Hartley 2",
-        Some("103P"),
-        &["Hartley 2"],
-        Comet,
-        None,
-        0.6,
-        C_COMET,
-        "103P",
-        ""
-    ));
+    v.push({
+        let mut e = sbdb!(
+            "churyumov_gerasimenko",
+            "67P/Churyumov-Gerasimenko",
+            Some("67P"),
+            &["Churyumov-Gerasimenko"],
+            Comet,
+            None,
+            1.7,
+            C_COMET,
+            "67P",
+            ""
+        );
+        e.source_note = "orbit: JPL SBDB heliocentric ECLIPJ2000; radius: SBDB diameter 3.4 +/- 0.1 km / 2 (Sierks et al. 2015)";
+        e
+    });
+    v.push({
+        let mut e = sbdb!(
+            "hartley_2",
+            "103P/Hartley 2",
+            Some("103P"),
+            &["Hartley 2"],
+            Comet,
+            None,
+            0.8,
+            C_COMET,
+            "103P",
+            ""
+        );
+        e.source_note = "orbit: JPL SBDB heliocentric ECLIPJ2000; radius: SBDB diameter 1.6 km / 2 (Lamy et al. 2004)";
+        e
+    });
     v.push(sbdb!(
         "hale_bopp",
         "Hale-Bopp",
@@ -651,8 +681,12 @@ pub fn entries() -> Vec<Entry> {
         "C/2020 F3",
         ""
     ));
-    v.push(sbdb!("3i_atlas", "3I/ATLAS", Some("C/2025 N1"), &["3I"], Comet, None, 2.5, C_COMET, "C/2025 N1",
-        "The third known interstellar object, crossing the solar system on a hyperbolic path — the catalog's open-arc stress test."));
+    v.push({
+        let mut e = sbdb!("3i_atlas", "3I/ATLAS", Some("C/2025 N1"), &["3I"], Comet, None, 0.5, C_COMET, "C/2025 N1",
+            "The third known interstellar object, crossing the solar system on a hyperbolic path — the catalog's open-arc stress test.");
+        e.source_note = "orbit: JPL SBDB heliocentric ECLIPJ2000; nucleus radius adopted 0.5 km; HST constraint 0.16-2.8 km at pV=0.04 (NASA/HST 2025; arXiv:2512.22365); NGA-based estimates ~0.3 km";
+        e
+    });
 
     v
 }
@@ -734,6 +768,40 @@ mod tests {
                 },
                 "unexpected Horizons route for '{id}'"
             );
+        }
+    }
+
+    #[test]
+    fn approved_curated_values_carry_provenance() {
+        let es = entries();
+        let pluto = es.iter().find(|entry| entry.id == "pluto").unwrap();
+
+        assert_eq!(pluto.gm_km3_s2, Some(869.6 + 105.9));
+        assert!(source_string(pluto).contains("Pluto+Charon system 975.5 km^3/s^2"));
+
+        let expected = [
+            ("himalia", 85.0, "85 +/- 10 km"),
+            ("nix", 18.0, "Stern et al. 2018"),
+            ("hydra", 18.5, "Stern et al. 2018"),
+            ("hiiaka", 185.0, "Fernandez-Valenzuela et al. 2025"),
+            ("namaka", 75.0, "Muller et al. 2019"),
+            ("hygiea", 203.56, "SBDB diameter 407.12"),
+            ("churyumov_gerasimenko", 1.7, "Sierks et al. 2015"),
+            ("hartley_2", 0.8, "Lamy et al. 2004"),
+            ("3i_atlas", 0.5, "HST constraint 0.16-2.8 km"),
+        ];
+        for (id, radius_km, provenance) in expected {
+            let entry = es
+                .iter()
+                .find(|entry| entry.id == id)
+                .unwrap_or_else(|| panic!("missing curated body '{id}'"));
+            assert_eq!(entry.radius_km, radius_km, "unexpected radius for '{id}'");
+            let source = source_string(entry);
+            assert!(
+                source.contains(provenance),
+                "missing physical provenance for '{id}': {source}"
+            );
+            assert!(source.contains("curated radius reviewed 2026-07-13"));
         }
     }
 }

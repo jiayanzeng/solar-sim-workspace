@@ -32,6 +32,11 @@ revisit the pin.
 
 ## Q2 — TNO GM values (curated review)
 
+**Decision 2026-07-13:** approved option (a). Store Pluto's parent GM as
+the Pluto+Charon system value 975.5 km³/s² (869.6 + 105.9); retain the
+reviewed Eris and Haumea system values. The emitted provenance states the
+system-vs-body choice explicitly.
+
 The three placeholder values are in fact the standard literature values,
 so this is mostly a citation-and-sign-off exercise — with one genuine
 decision hiding inside (Pluto).
@@ -69,9 +74,17 @@ pages plus Archinal et al. (2018, IAU WG report) for planets and major
 moons, flag any manifest value off by > 2%, and hand you the diff. You
 sign; the agent commits.
 
+**Audit completed 2026-07-13:** see
+`docs/wp3-radius-audit-2026-07-13.md`. All 66 ids are covered; eight
+flagged central-value changes were human-approved and applied on 2026-07-13.
+
 ---
 
 ## Q3 — 3I/ATLAS nucleus radius
+
+**Decision 2026-07-13:** approved the recommended adopted radius of 0.5 km,
+with the HST 0.16–2.8 km constraint and the approximately 0.3 km NGA-based
+estimate carried in the emitted provenance.
 
 Current literature (all radius, not diameter):
 

@@ -2,8 +2,9 @@
 
 **Status:** Implemented (schema + validation + generator, offline smoke path,
 raw-response capture/diagnostics, TNO-satellite lookup resolution, and the
-66-body online capture). The curated-value review and position spot-check data
-remain before WP3 sign-off, itemized in §8–§9.
+66-body online capture, and radius/TNO curated-value review). The separate
+Sun/planet GM review and position spot-check data remain before WP3 sign-off,
+itemized in §8–§9.
 **Parent design:** Rev B §4 (Body Catalog), §7 (workspace/firewall), §11 (WP3 acceptance).
 **Companion code:** `crates/sim-core/src/catalog.rs` (schema of record), `xtask/src/*` (generator).
 
@@ -29,7 +30,7 @@ Rev B names hand-typos across 66 bodies as the main data risk. The mitigation is
 | display color, description blurb | fitted mean motion (planets) |
 | source route + provenance note | |
 
-The manifest is small, diffable, and covered by its own unit tests (66 bodies, Rev B category counts 1/8/9/8/32/8, unique ids, parents precede children, every parent has a GM). Radii and the three TNO GMs are marked `TODO(review)` and **must** be confirmed against JPL physical-data pages in the WP3 review pass — that review is part of the acceptance, not optional polish.
+The manifest is small, diffable, and covered by its own unit tests (66 bodies, Rev B category counts 1/8/9/8/32/8, unique ids, parents precede children, every parent has a GM). All 66 radii and the three TNO parent-system GMs were human-reviewed on 2026-07-13; the radius audit and decisions are recorded in `docs/wp3-radius-audit-2026-07-13.md`. Their WP3 review markers are cleared.
 
 ## 3. The `catalog.ron` schema (v1)
 
@@ -89,7 +90,7 @@ Default epoch is JD 2461042.0 = 2026-01-01 12:00 TDB (Rev B's startup epoch). `-
 ## 8. Open items (tracked, not forgotten)
 
 1. **TNO satellite resolution — implemented.** The online path resolves the satellite and parent-primary SPK IDs from a strict parent-system lookup; offline fixtures remain direct ELEMENTS captures.
-2. **Curated-value review** — radii for all 66 bodies and the Pluto/Eris/Haumea GMs against JPL physical data; every `TODO(review)` in `manifest.rs` must be cleared for WP3 sign-off. The 3I/ATLAS nucleus radius is genuinely uncertain in the literature; pick a value and cite it.
+2. **Curated-value review — radius/TNO decisions complete.** Q2/Q3 were human-resolved on 2026-07-13: Pluto uses the 975.5 km³/s² Pluto+Charon system GM, Eris/Haumea retain their system GMs, and 3I/ATLAS uses an adopted 0.5 km radius with its observational range cited. The human also approved all eight flagged central-value changes in the all-66-body audit at `docs/wp3-radius-audit-2026-07-13.md`; each changed body carries its individual physical provenance and the radius review marker is cleared. The pre-existing general Sun/planet GM `TODO(review)` remains open and must be resolved separately before the TASKS.md curated-review checkbox can be checked.
 3. **Descriptions** — ~50 bodies have empty blurbs (deliberate; WP10 content pass). The lint keeps the list visible.
 4. **Textures** — `texture` is emitted as `None` everywhere until WP15; the license/source-per-asset CI check from Rev B §2 attaches there.
 

@@ -34,7 +34,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 0 | Workspace, Bevy 0.19 pin, CI, window+camera+diagnostics, core-purity rule | **✅ done** |
 | 1 | `sim-core::time` — full ladder, start epoch, LIVE, range | **✅ done** |
 | 2 | `sim-core::kepler` — elliptic + hyperbolic, guards | **✅ done** |
-| 3 | `xtask gen-catalog` + committed 66-body `catalog.ron` + validation | **in-progress** (pipeline + Q5 routes + 66-body online capture ✅; captured artifacts await commit; curated review/spot-check remain) |
+| 3 | `xtask gen-catalog` + committed 66-body `catalog.ron` + validation | **in-progress** (pipeline + Q5 routes + online capture + radius/TNO review ✅; captured artifacts await commit; general GM review/spot-check remain) |
 | 4 | Propagation + floating origin: 66 colored spheres at 2026 positions | todo (unblocked by WP0) |
 | 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | todo |
 | 6 | Orbit lines (adaptive; hyperbolic arc), colors, fades | todo |
@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 80 passing** (52 `sim-core` · 25 `xtask` lib · 2 smoke ·
+**Test baseline: 81 passing** (52 `sim-core` · 26 `xtask` lib · 2 smoke ·
 1 spot-check harness, dormant). Any change that lowers this number without
 an accompanying change-log justification is a regression. The number may
 only go up.
@@ -77,7 +77,7 @@ both branches; retrograde (Triton i=157°, Phoebe i=175°) and Nereid
 (e=0.75) fixtures; guard tests.
 
 ### WP3 (core) — schema + generator ✅
-`crates/sim-core/src/catalog.rs` (16 tests), `xtask/*` (25 lib + 2 smoke).
+`crates/sim-core/src/catalog.rs` (16 tests), `xtask/*` (26 lib + 2 smoke).
 Schema v1 with collect-all validation + lints; 66-body curated manifest
 with count/order/GM tests; Horizons + SBDB parsers; fitted secular/mean-
 motion normalization; `--dry-run` / `--fixtures --allow-partial` /
@@ -110,6 +110,9 @@ app loader. Spec: `docs/wp3-gen-catalog-spec.md`.
   Note the Pluto-GM semantics question raised there (Pluto-only 869.6 vs
   Pluto+Charon ≈ 975.5 for correct Charon period under μ=parent-GM
   propagation) — that is part of Q2's human decision.
+  Progress (2026-07-13): Q2/Q3 and all 66 radii are human-approved and
+  applied. The radius/TNO markers are cleared; the separate general
+  Sun/planet GM verification marker still prevents checking this item.
 - [ ] **Spot-check activation**: capture Horizons VECTORS for the 10-body
   set (ARCHITECTURE §5.6) at JD 2461042.0 and 1986-02-09 into
   `xtask/fixtures/spotcheck/vectors.json`; document per-category
@@ -672,11 +675,10 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Next up (dependency order)
 
-1. **WP0** close-out (human-driven; guide in `docs/wp0-dev-setup-macos.md`),
-   in parallel with the Q5 decision that unblocks WP3's online capture.
-2. **WP3** close-out: Q5 fix → online capture (+ raw-response commit) →
-   spot-check activation → curated review sign-off (brief ready).
-3. **WP4 → WP5 → WP6**, then **WP7/WP8** (ui_kit, then the time bar
+1. **WP3** close-out: finish the general Sun/planet GM review, commit the
+   generated catalog + captured responses, then activate the human-owned
+   10-body spot-check truth data.
+2. **WP4 → WP5 → WP6**, then **WP7/WP8** (ui_kit, then the time bar
    binding WP1's API), then WP9–WP15 per briefs, WP16–17 release
    engineering.
 
@@ -685,13 +687,44 @@ Optional post-beta. No brief until un-deferred by the human.
 | # | Question | Raised | Status |
 |---|---|---|---|
 | Q1 | Confirm Bevy 0.19.x minimum Rust toolchain and record in WP0 pin | 2026-07-12 | **closed 2026-07-12** — crates.io reports `rust_version = 1.95.0` for bevy 0.19.0 (and all 0.19 RCs); `rust-toolchain.toml` pins `channel = "1.95.0"`, while `crates/sim-core/Cargo.toml` retains `rust-version = "1.75"`. Evidence: `docs/open-questions-brief-2026-07-12.md` §Q1; commit `61896e8`. |
-| Q2 | TNO GM values (Pluto 869.6 / Eris 1108 / Haumea 267 km³/s²) — accept or replace with cited values during curated review? Includes the Pluto-GM semantics decision (Pluto-only vs Pluto+Charon ≈ 975.5 for correct Charon period under μ=parent-GM). | 2026-07-12 | open — research brief with citations + recommendation ready (`docs/open-questions-brief-2026-07-12.md` §Q2) |
-| Q3 | 3I/ATLAS nucleus radius: literature is uncertain; which value + citation ships? | 2026-07-12 | open — brief recommends adopting R = 0.5 km with the HST-constrained range cited (`docs/open-questions-brief-2026-07-12.md` §Q3) |
+| Q2 | TNO GM values (Pluto 869.6 / Eris 1108 / Haumea 267 km³/s²) — accept or replace with cited values during curated review? Includes the Pluto-GM semantics decision (Pluto-only vs Pluto+Charon ≈ 975.5 for correct Charon period under μ=parent-GM). | 2026-07-12 | **closed 2026-07-13** — human approved Pluto+Charon system GM 975.5 km³/s² (869.6 + 105.9); Eris/Haumea retain their system values; provenance must state the choice. |
+| Q3 | 3I/ATLAS nucleus radius: literature is uncertain; which value + citation ships? | 2026-07-12 | **closed 2026-07-13** — human approved adopted R = 0.5 km with the HST 0.16–2.8 km range and NGA-based estimate cited in provenance. |
 | Q4 | Constellation-figure line set licensing (fast-follow; Yale BSC-derived in-house vs licensed) | 2026-07-12 | open — options + recommendation in brief §Q4 (recommend in-house over public-domain BSC) |
 | Q5 | **Horizons planet routes: switch giant planets from planet centers (599/699/799/899) to system barycenters (5/6/7/8)?** The 2026-07-12 online run failed at Jupiter (`no $$SOE`). Planet-center ephemerides are defined by satellite solutions with limited time spans, while barycenters cover ±9999 yr, and JPL's own manual recommends barycenters for osculating-element output. Giant-planet vs own-barycenter offset ≤ ~100 km — far under two-body display budgets. Requires: manifest route edit, ARCHITECTURE §5.3 wording (human edit), dry-run/spec text updates. Raw capture/diagnostics are now implemented; the JD 2561120 probe confirmed Jupiter-center ends in 2200 while barycenter 5 returns ELEMENTS. Full analysis in brief §Q5. | 2026-07-12 | **closed 2026-07-13** — human approved and saved ARCHITECTURE §5.3; Mercury–Mars remain geometric centers and Jupiter–Neptune now use system barycenters. The mean-motion/secular-fit and SBDB normalization contracts remain binding. |
 
 ## Change log (append-only; newest first)
 
+- **2026-07-13** — Human approved all eight flagged radius changes from
+  `docs/wp3-radius-audit-2026-07-13.md`. Updated Himalia 75→85 km, Nix
+  19.5→18 km, Hydra 18→18.5 km, Hiʻiaka 160→185 km, Namaka 85→75 km,
+  Hygiea 217→203.56 km, 67P 2.0→1.7 km, and Hartley 2 0.6→0.8 km;
+  attached individual physical provenance, cleared the radius review
+  marker, and regenerated the 66-body catalog through captured-fixture
+  replay. A manifest regression test pins every approved value and source.
+  Evidence: `cargo test` 81 passed; online-feature xtask suites 29 passed;
+  `cargo fmt --all -- --check` clean; clippy zero warnings; generated
+  catalog inspection confirmed all eight values; `git diff --check` clean.
+- **2026-07-13** — Completed the source-backed 66-body radius audit in
+  `docs/wp3-radius-audit-2026-07-13.md`, using current JPL planetary and
+  satellite tables, live SBDB `phys-par=true` responses, and primary
+  literature where JPL has no current radius. All 66 ids occur exactly
+  once: 58 are within the 2% review threshold or already approved; eight
+  proposed updates (Himalia, Nix, Hydra, Hiʻiaka, Namaka, Hygiea, 67P,
+  Hartley 2) await human sign-off. No flagged manifest value was changed.
+- **2026-07-13** — Regenerated the 66-body catalog from the 68 captured
+  JPL payloads after the Q2/Q3 manifest changes. The emitted Pluto record
+  contains GM 975.5 and the explicit 869.6 + 105.9 Pluto+Charon
+  provenance; the emitted 3I/ATLAS record contains radius 0.5 km and the
+  approved HST/NGA provenance. Evidence: `cargo test` 81 passed;
+  online-feature xtask suites 29 passed; fmt clean; clippy zero warnings;
+  `git diff --check` clean.
+- **2026-07-13** — Human closed Q2/Q3. The curated manifest now uses
+  Pluto+Charon system GM 975.5 km³/s² (869.6 + 105.9) for Pluto-system
+  moon propagation and an adopted 0.5 km nucleus radius for 3I/ATLAS.
+  Both emitted source strings carry the approved derivation/citations,
+  and a manifest regression test pins the values and provenance. The
+  broader 66-body radius audit remains open. Catalog regeneration and
+  verification follow this entry.
 - **2026-07-13** — The full WP3 online generation succeeded: 66 bodies
   emitted to `assets/catalog.ron` and 68 exact responses captured under
   `xtask/fixtures/captured-2026-07` (65 body fetches + three TNO lookup
