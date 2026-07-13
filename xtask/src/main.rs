@@ -1,7 +1,7 @@
 //! CLI:
 //!   cargo run -p xtask -- gen-catalog --dry-run
 //!   cargo run -p xtask -- gen-catalog --fixtures xtask/fixtures --allow-partial --out assets/catalog.sample.ron
-//!   cargo run -p xtask --features online -- gen-catalog --online --out assets/catalog.ron
+//!   cargo run -p xtask --features online -- gen-catalog --online --capture xtask/fixtures/captured-YYYY-MM --out assets/catalog.ron
 
 use anyhow::{bail, Result};
 use std::path::PathBuf;
@@ -12,7 +12,7 @@ fn main() -> Result<()> {
     match args.first().map(String::as_str) {
         Some("gen-catalog") => gen_catalog(&args[1..]),
         _ => {
-            eprintln!("usage: xtask gen-catalog [--out PATH] [--epoch-jd F] [--dry-run] [--fixtures DIR [--allow-partial]] [--online]");
+            eprintln!("usage: xtask gen-catalog [--out PATH] [--epoch-jd F] [--dry-run] [--fixtures DIR [--allow-partial]] [--online [--capture DIR]]");
             std::process::exit(2);
         }
     }
@@ -25,6 +25,7 @@ fn gen_catalog(args: &[String]) -> Result<()> {
     let mut online = false;
     let mut dry_run = false;
     let mut allow_partial = false;
+    let mut capture: Option<PathBuf> = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -51,11 +52,22 @@ fn gen_catalog(args: &[String]) -> Result<()> {
                 ));
             }
             "--online" => online = true,
+            "--capture" => {
+                i += 1;
+                capture = Some(PathBuf::from(
+                    args.get(i)
+                        .ok_or_else(|| anyhow::anyhow!("--capture needs a dir"))?,
+                ));
+            }
             "--dry-run" => dry_run = true,
             "--allow-partial" => allow_partial = true,
             other => bail!("unknown flag: {other}"),
         }
         i += 1;
+    }
+
+    if capture.is_some() && !online {
+        bail!("--capture requires --online");
     }
 
     if dry_run {
@@ -79,13 +91,23 @@ fn gen_catalog(args: &[String]) -> Result<()> {
             .map(|d| format!(" --fixtures {}", d.display()))
             .unwrap_or_default(),
     );
+    let invocation = if let Some(dir) = &capture {
+        format!("{invocation} --capture {}", dir.display())
+    } else {
+        invocation
+    };
 
     let (catalog, skipped) = match (fixtures, online) {
         (Some(dir), false) => xtask::generate(&fetch::Fixtures { dir }, &opts)?,
         (None, true) => {
             #[cfg(feature = "online")]
             {
-                xtask::generate(&fetch::Http, &opts)?
+                xtask::generate(
+                    &fetch::Http {
+                        capture_dir: capture,
+                    },
+                    &opts,
+                )?
             }
             #[cfg(not(feature = "online"))]
             bail!("--online requires: cargo run -p xtask --features online -- ...");

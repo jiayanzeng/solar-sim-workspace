@@ -34,7 +34,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 0 | Workspace, Bevy 0.19 pin, CI, window+camera+diagnostics, core-purity rule | **✅ done** |
 | 1 | `sim-core::time` — full ladder, start epoch, LIVE, range | **✅ done** |
 | 2 | `sim-core::kepler` — elliptic + hyperbolic, guards | **✅ done** |
-| 3 | `xtask gen-catalog` + committed 66-body `catalog.ron` + validation | **in-progress** (pipeline ✅; online capture blocked on Q5; curated review brief ready) |
+| 3 | `xtask gen-catalog` + committed 66-body `catalog.ron` + validation | **in-progress** (pipeline + Q5 routes + 66-body online capture ✅; captured artifacts await commit; curated review/spot-check remain) |
 | 4 | Propagation + floating origin: 66 colored spheres at 2026 positions | todo (unblocked by WP0) |
 | 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | todo |
 | 6 | Orbit lines (adaptive; hyperbolic arc), colors, fades | todo |
@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 72 passing** (52 `sim-core` · 17 `xtask` lib · 2 smoke ·
+**Test baseline: 80 passing** (52 `sim-core` · 25 `xtask` lib · 2 smoke ·
 1 spot-check harness, dormant). Any change that lowers this number without
 an accompanying change-log justification is a regression. The number may
 only go up.
@@ -77,7 +77,7 @@ both branches; retrograde (Triton i=157°, Phoebe i=175°) and Nereid
 (e=0.75) fixtures; guard tests.
 
 ### WP3 (core) — schema + generator ✅
-`crates/sim-core/src/catalog.rs` (16 tests), `xtask/*` (17 lib + 2 smoke).
+`crates/sim-core/src/catalog.rs` (16 tests), `xtask/*` (25 lib + 2 smoke).
 Schema v1 with collect-all validation + lints; 66-body curated manifest
 with count/order/GM tests; Horizons + SBDB parsers; fitted secular/mean-
 motion normalization; `--dry-run` / `--fixtures --allow-partial` /
@@ -92,15 +92,16 @@ app loader. Spec: `docs/wp3-gen-catalog-spec.md`.
 - [ ] **Online capture run** (needs JPL network access; run
   `cargo run -p xtask --features online -- gen-catalog --online --out
   assets/catalog.ron`). Commit the emitted file *and* the captured API
-  responses for reproducibility. **Currently `blocked(Q5)`** — the
-  2026-07-12 attempt failed at Jupiter (`no $$SOE in Horizons result`);
-  see Open question Q5 for the diagnosis and proposed route fix. Also
-  land the diagnostics hardening from Q5 (dump raw response on parse
-  failure; `--capture DIR` writing every raw response) before the real
-  run, so the capture doubles as the committed reproducibility record.
-- [ ] **TNO moon resolution**: Horizons lookup-API resolution for
+  responses for reproducibility. Q5 is closed and its approved route split
+  is implemented: Mercury–Mars target geometric centers, while
+  Jupiter–Neptune target system barycenters.
+  The 2026-07-13 live run succeeded for all 66 bodies and produced
+  `assets/catalog.ron` plus 68 raw captures (65 body responses and three
+  TNO lookup responses). The generated and captured artifacts are present
+  in the worktree but remain unchecked until the requested commit lands.
+- [x] **TNO moon resolution**: Horizons lookup-API resolution for
   Dysnomia / Hiʻiaka / Namaka COMMANDs and Eris/Haumea center designators
-  (`xtask/src/lib.rs` lookup route; spec §8 item 1). Until then: fixtures.
+  (`xtask/src/lookup.rs`; strict API-version and unique-match checks).
 - [ ] **Curated review pass**: clear every `TODO(review)` in
   `xtask/src/manifest.rs` (all radii; GMs for Pluto / Eris / Haumea;
   3I/ATLAS nucleus radius). Research brief with citations and
@@ -687,10 +688,46 @@ Optional post-beta. No brief until un-deferred by the human.
 | Q2 | TNO GM values (Pluto 869.6 / Eris 1108 / Haumea 267 km³/s²) — accept or replace with cited values during curated review? Includes the Pluto-GM semantics decision (Pluto-only vs Pluto+Charon ≈ 975.5 for correct Charon period under μ=parent-GM). | 2026-07-12 | open — research brief with citations + recommendation ready (`docs/open-questions-brief-2026-07-12.md` §Q2) |
 | Q3 | 3I/ATLAS nucleus radius: literature is uncertain; which value + citation ships? | 2026-07-12 | open — brief recommends adopting R = 0.5 km with the HST-constrained range cited (`docs/open-questions-brief-2026-07-12.md` §Q3) |
 | Q4 | Constellation-figure line set licensing (fast-follow; Yale BSC-derived in-house vs licensed) | 2026-07-12 | open — options + recommendation in brief §Q4 (recommend in-house over public-domain BSC) |
-| Q5 | **Horizons planet routes: switch giant planets from planet centers (599/699/799/899) to system barycenters (5/6/7/8)?** The 2026-07-12 online run failed at Jupiter (`no $$SOE`). Planet-center ephemerides are defined by satellite solutions with limited time spans, while barycenters cover ±9999 yr, and JPL's own manual recommends barycenters for osculating-element output. Giant-planet vs own-barycenter offset ≤ ~100 km — far under two-body display budgets. Requires: manifest route edit, ARCHITECTURE §5.3 wording (human edit), dry-run/spec text updates. Companion (non-controversial) hardening: dump the raw response on parse failure; add `--capture DIR` for the reproducibility commit. Confirmation probe + full analysis in brief §Q5. | 2026-07-12 | open — blocks WP3 online capture |
+| Q5 | **Horizons planet routes: switch giant planets from planet centers (599/699/799/899) to system barycenters (5/6/7/8)?** The 2026-07-12 online run failed at Jupiter (`no $$SOE`). Planet-center ephemerides are defined by satellite solutions with limited time spans, while barycenters cover ±9999 yr, and JPL's own manual recommends barycenters for osculating-element output. Giant-planet vs own-barycenter offset ≤ ~100 km — far under two-body display budgets. Requires: manifest route edit, ARCHITECTURE §5.3 wording (human edit), dry-run/spec text updates. Raw capture/diagnostics are now implemented; the JD 2561120 probe confirmed Jupiter-center ends in 2200 while barycenter 5 returns ELEMENTS. Full analysis in brief §Q5. | 2026-07-12 | **closed 2026-07-13** — human approved and saved ARCHITECTURE §5.3; Mercury–Mars remain geometric centers and Jupiter–Neptune now use system barycenters. The mean-motion/secular-fit and SBDB normalization contracts remain binding. |
 
 ## Change log (append-only; newest first)
 
+- **2026-07-13** — The full WP3 online generation succeeded: 66 bodies
+  emitted to `assets/catalog.ron` and 68 exact responses captured under
+  `xtask/fixtures/captured-2026-07` (65 body fetches + three TNO lookup
+  payloads). The first complete fetch exposed SBDB `null` values on
+  unrelated 3I/ATLAS fields (`per`, `ad`); the parser now filters to the
+  eight consumed orbital fields before numeric conversion, with an
+  adversarial regression test. Fixture replay reproduced every catalog
+  datum exactly; only the command/timestamp provenance header differed.
+  Evidence: `cargo test` 80 passed; online-feature xtask suites 28 passed;
+  fmt clean; clippy zero warnings; `git diff --check` clean. The artifacts
+  await an explicit commit, so the online-capture checklist remains open.
+- **2026-07-13** — Implemented approved Q5 routing after the human-authored
+  ARCHITECTURE §5.3 edit: Mercury–Mars remain on geometric center commands
+  199/299/399/499; Jupiter–Neptune now use barycenter commands 5/6/7/8.
+  Added a manifest regression test pinning the complete eight-planet split
+  and updated the WP3 spec/setup guide without changing the unwrapped-MA,
+  least-squares secular-fit, or SBDB normalization contracts. Verification
+  and the full online capture follow this entry.
+- **2026-07-13** — Q5 closed by human decision: keep Mercury–Mars on
+  geometric planet centers and switch Jupiter–Neptune to system
+  barycenters for the 1800–2300 fit. The decision explicitly preserves
+  the unwrapped-MA near-pair slope, coarse-span least-squares secular fit,
+  and all SBDB AU→km / `q/(1−e)` / perihelion-rebasing rules. Per the
+  repository's human-maintained-file rule, route implementation waits for
+  the corresponding human edit to ARCHITECTURE §5.3.
+- **2026-07-13** — WP3 capture prerequisites hardened without changing
+  Q5-controlled planet routes. Added `--capture DIR`, exact raw-response
+  dumps on Horizons parse failure, and strict Horizons Lookup API 1.1
+  resolution for Dysnomia / Hiʻiaka / Namaka plus their parent-primary
+  centers. Live evidence: the pre-Q5 online run captured Mercury through
+  Jupiter and preserved Jupiter's exact post-2200 error; JPL parent-system
+  lookups returned unique SPK IDs whose three parent-centric ELEMENTS
+  probes all returned `$$SOE` at JD 2461042. Tests: `cargo test` (78
+  passed), `cargo test -p xtask --features online` (26 passed across the
+  xtask suites), fmt clean, clippy zero warnings. Q5 remains blocked on the
+  human-owned ARCHITECTURE §5.3 route wording/sign-off.
 - **2026-07-13** — WP0 done. GitHub Actions `ci` run #3 for commit
   `5540cdd` completed successfully: `lint`, `test-macos`,
   `build-windows`, and `invariants` all passed. The accompanying local

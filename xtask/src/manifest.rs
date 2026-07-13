@@ -67,7 +67,7 @@ pub enum Route {
     /// Horizons response is accepted directly.
     HorizonsLookupMoon {
         sstr: &'static str,
-        center_hint: &'static str,
+        parent_sstr: &'static str,
     },
     /// JPL Small-Body Database (`sbdb.api?sstr=...&full-prec=true`),
     /// heliocentric ecliptic-J2000 elements at the SBDB epoch. Comets without
@@ -216,7 +216,7 @@ pub fn entries() -> Vec<Entry> {
     v.push(planet!(
         "jupiter",
         "Jupiter",
-        "599",
+        "5",
         GM_JUPITER,
         69_911.0,
         C_JUPITER,
@@ -225,7 +225,7 @@ pub fn entries() -> Vec<Entry> {
     v.push(planet!(
         "saturn",
         "Saturn",
-        "699",
+        "6",
         GM_SATURN,
         58_232.0,
         C_SATURN,
@@ -234,7 +234,7 @@ pub fn entries() -> Vec<Entry> {
     v.push(planet!(
         "uranus",
         "Uranus",
-        "799",
+        "7",
         GM_URANUS,
         25_362.0,
         C_URANUS,
@@ -243,7 +243,7 @@ pub fn entries() -> Vec<Entry> {
     v.push(planet!(
         "neptune",
         "Neptune",
-        "899",
+        "8",
         GM_NEPTUNE,
         24_622.0,
         C_NEPTUNE,
@@ -438,7 +438,7 @@ pub fn entries() -> Vec<Entry> {
         color: C_MOON,
         route: Route::HorizonsLookupMoon {
             sstr: "Dysnomia",
-            center_hint: "@eris (resolve via lookup)",
+            parent_sstr: "Eris",
         },
         blurb: "",
         source_note: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup)",
@@ -455,7 +455,7 @@ pub fn entries() -> Vec<Entry> {
         color: C_MOON,
         route: Route::HorizonsLookupMoon {
             sstr: "Hiiaka",
-            center_hint: "@haumea (resolve via lookup)",
+            parent_sstr: "Haumea",
         },
         blurb: "",
         source_note: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup)",
@@ -472,7 +472,7 @@ pub fn entries() -> Vec<Entry> {
         color: C_MOON,
         route: Route::HorizonsLookupMoon {
             sstr: "Namaka",
-            center_hint: "@haumea (resolve via lookup)",
+            parent_sstr: "Haumea",
         },
         blurb: "",
         source_note: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup)",
@@ -705,6 +705,35 @@ mod tests {
             if parents.contains(e.id) {
                 assert!(e.gm_km3_s2.is_some(), "parent '{}' missing GM", e.id);
             }
+        }
+    }
+
+    #[test]
+    fn planet_routes_split_inner_centers_from_outer_barycenters() {
+        let es = entries();
+        let expected = [
+            ("mercury", "199"),
+            ("venus", "299"),
+            ("earth", "399"),
+            ("mars", "499"),
+            ("jupiter", "5"),
+            ("saturn", "6"),
+            ("uranus", "7"),
+            ("neptune", "8"),
+        ];
+
+        for (id, expected_command) in expected {
+            let entry = es
+                .iter()
+                .find(|entry| entry.id == id)
+                .unwrap_or_else(|| panic!("missing planet '{id}'"));
+            assert_eq!(
+                entry.route,
+                Route::HorizonsPlanet {
+                    command: expected_command,
+                },
+                "unexpected Horizons route for '{id}'"
+            );
         }
     }
 }

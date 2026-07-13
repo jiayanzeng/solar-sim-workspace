@@ -157,13 +157,13 @@ generating osculating-element output, because planet-center elements
 carry the wobble of the planet about its own system barycenter aliased
 into the elements — noise for a fit like ours.
 
-Confidence check: the exact current spans weren't verifiable from the
-sandboxed environment; §B1 of `docs/wp0-dev-setup-macos.md` has a
-30-second `curl` probe that confirms (or refutes) this on your machine
-before anything is changed. If the probe comes back with `$$SOE` for
-`COMMAND='599'` at JD 2378495, the diagnosis is wrong and the raw
-response (see hardening below) will tell us what actually happened —
-either way we stop debugging blind.
+Confidence check completed 2026-07-13 at the failing boundary. Jupiter
+center (`COMMAND='599'`) at the generator's JD 2561120 sample reports no
+ephemeris after 2200, while Jupiter system barycenter (`COMMAND='5'`)
+returns a valid `$$SOE` ELEMENTS record. The earlier 1800 probe also
+returns center data, as expected; it did not exercise the upper end of
+the 1800–2300 TLIST. Raw-response capture now preserves this diagnostic
+payload automatically.
 
 ### Proposed fix (needs your sign-off — curated route + §5.3 wording)
 

@@ -48,9 +48,12 @@ pub fn parse_response(json_body: &str) -> Result<SbdbOrbit> {
     let mut have = std::collections::HashSet::new();
     for el in elements {
         let name = el.get("name").and_then(|n| n.as_str()).unwrap_or("");
+        if !matches!(name, "e" | "i" | "om" | "w" | "a" | "q" | "ma" | "tp") {
+            continue;
+        }
         let val = match el.get("value") {
-            Some(v) => num(v)?,
-            None => continue,
+            Some(v) if !v.is_null() => num(v)?,
+            _ => continue,
         };
         have.insert(name.to_string());
         match name {
@@ -178,5 +181,27 @@ mod tests {
     fn missing_required_element_is_an_error() {
         let bad = r#"{"orbit":{"epoch":"2461000.5","elements":[{"name":"e","value":"0.1"}]}}"#;
         assert!(parse_response(bad).is_err());
+    }
+
+    #[test]
+    fn null_unrelated_elements_do_not_reject_a_valid_orbit() {
+        let response = r#"{
+            "orbit": {"epoch": "2461090.5", "elements": [
+                {"name": "e", "value": "6.14"},
+                {"name": "a", "value": "-0.263"},
+                {"name": "q", "value": "1.356"},
+                {"name": "i", "value": "175.1"},
+                {"name": "om", "value": "322.1"},
+                {"name": "w", "value": "128.0"},
+                {"name": "ma", "value": "818.2"},
+                {"name": "tp", "value": "2460977.9"},
+                {"name": "per", "value": null},
+                {"name": "ad", "value": null}
+            ]}
+        }"#;
+
+        let parsed = parse_response(response).unwrap();
+        assert_eq!(parsed.a_au, Some(-0.263));
+        assert_eq!(parsed.ma_deg, Some(818.2));
     }
 }

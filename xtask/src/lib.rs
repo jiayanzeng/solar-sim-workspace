@@ -4,11 +4,12 @@
 pub mod emit;
 pub mod fetch;
 pub mod horizons;
+pub mod lookup;
 pub mod manifest;
 pub mod normalize;
 pub mod sbdb;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use fetch::Fetch;
 use manifest::{Entry, Route};
 use sim_core::catalog::{BodyRecord, Catalog, FRAME_ECLIPJ2000, J2000_JD_TDB, SCHEMA_VERSION};
@@ -73,8 +74,8 @@ pub fn plan(epoch_jd: f64) -> Vec<PlanRow> {
                 Route::HorizonsMoon { command, center } => {
                     format!("Horizons ELEMENTS cmd={command} center={center}, 1 epoch")
                 }
-                Route::HorizonsLookupMoon { sstr, center_hint } => {
-                    format!("Horizons lookup '{sstr}' then ELEMENTS ({center_hint})")
+                Route::HorizonsLookupMoon { sstr, parent_sstr } => {
+                    format!("Horizons lookup '{sstr}' in {parent_sstr} system, then ELEMENTS")
                 }
                 Route::Sbdb { sstr } => format!("SBDB sstr='{sstr}'"),
             };
@@ -132,34 +133,46 @@ pub fn generate(fetcher: &dyn Fetch, opts: &GenOptions) -> Result<(Catalog, Vec<
                 let body = fetcher
                     .get(&url, e.id)
                     .with_context(|| format!("fetch {}", e.id))?;
-                let recs = horizons::parse_response(&body)
+                let recs = horizons::parse_response_for_body(&body, e.id)
                     .with_context(|| format!("parse Horizons response for {}", e.id))?;
                 rec.orbit = Some(normalize::fit_planet(&recs, epoch)?.orbit);
             }
-            Route::HorizonsMoon { command, center }
-            | Route::HorizonsLookupMoon {
-                sstr: command,
-                center_hint: center,
-            } => {
+            Route::HorizonsMoon { command, center } => {
                 if opts.allow_partial && !fetcher.has(e.id) {
                     skipped.push(e.id.to_string());
                     continue;
-                }
-                if matches!(e.route, Route::HorizonsLookupMoon { .. }) && !fetcher.has(e.id) {
-                    // Online lookup resolution is an open item (spec §8);
-                    // fixtures satisfy the route directly.
-                    bail!(
-                        "'{}': Horizons lookup route not yet implemented online \
-                         (resolve '{command}' near {center}); provide a fixture or \
-                         see docs/wp3-gen-catalog-spec.md §Open items",
-                        e.id
-                    );
                 }
                 let url = horizons::elements_url(command, center, &[epoch]);
                 let body = fetcher
                     .get(&url, e.id)
                     .with_context(|| format!("fetch {}", e.id))?;
-                let recs = horizons::parse_response(&body)
+                let recs = horizons::parse_response_for_body(&body, e.id)
+                    .with_context(|| format!("parse Horizons response for {}", e.id))?;
+                rec.orbit = Some(normalize::moon_orbit(&recs, epoch)?);
+            }
+            Route::HorizonsLookupMoon { sstr, parent_sstr } => {
+                if opts.allow_partial && !fetcher.has(e.id) {
+                    skipped.push(e.id.to_string());
+                    continue;
+                }
+
+                let url = if fetcher.is_online() {
+                    let lookup_key = format!("{}.lookup", e.id);
+                    let lookup_body = fetcher
+                        .get(&lookup::lookup_url(parent_sstr), &lookup_key)
+                        .with_context(|| format!("lookup {} in {parent_sstr} system", e.id))?;
+                    let resolved = lookup::resolve_tno_moon(&lookup_body, sstr, parent_sstr)
+                        .with_context(|| format!("resolve Horizons ids for {}", e.id))?;
+                    horizons::elements_url(&resolved.command, &resolved.center, &[epoch])
+                } else {
+                    // Fixture files already contain the resolved ELEMENTS response.
+                    String::new()
+                };
+
+                let body = fetcher
+                    .get(&url, e.id)
+                    .with_context(|| format!("fetch {}", e.id))?;
+                let recs = horizons::parse_response_for_body(&body, e.id)
                     .with_context(|| format!("parse Horizons response for {}", e.id))?;
                 rec.orbit = Some(normalize::moon_orbit(&recs, epoch)?);
             }

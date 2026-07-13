@@ -224,17 +224,30 @@ parents-precede-children, every-parent-has-GM. `TODO(review)` markers on
 radii and the Pluto/Eris/Haumea GMs MUST be cleared for WP3 sign-off.
 
 ### 5.3 Routes
-Sun: constants, no fetch. Planets: Horizons ELEMENTS, `CENTER='500@10'`,
-13-epoch TLIST (catalog epoch, epoch+1 d, Jan-1 of 1800…2300 step 50 yr)
-feeding base elements + fitted mean motion (unwrapped-MA slope over the
-near-epoch pair) + fitted secular rates (least squares over the coarse
-span; spans < 50 yr yield `None`). Moons: Horizons ELEMENTS,
-`CENTER='500@<parent>'`, single epoch, parent-centric, no secular. TNO
-moons (Dysnomia, Hiʻiaka, Namaka): lookup-API resolution is an open item;
-fixtures satisfy the route directly. Dwarfs/asteroids/comets: SBDB
-(`full-prec`), AU→km the only unit conversion; `a` from `q/(1−e)` when
-absent (automatically negative for e>1); `ma`-at-epoch when present, else
-perihelion re-basing.
+Sun: constants, no fetch.
+
+Planets: Horizons ELEMENTS, `CENTER='500@10'`. Mercury–Mars target
+geometric planet centers (`199` / `299` / `399` / `499`), while
+Jupiter–Neptune target planetary-system barycenters (`5` / `6` / `7` /
+`8`) for stable coverage across the full fit range. Each planet uses a
+13-epoch TLIST: the catalog epoch, epoch+1 d, and Jan-1 of 1800…2300 in
+50-year steps. Base elements come from the catalog-epoch record. Fitted
+mean motion is the linear slope of unwrapped mean anomaly across the
+near-epoch pair. Secular rates for a/e/i/Ω/ω are least-squares fits over
+the coarse span; spans shorter than 50 years yield `None`.
+
+Moons: Horizons ELEMENTS, `CENTER='500@<parent>'`, single sample at the
+catalog epoch, parent-centric, with no secular terms. Dysnomia, Hiʻiaka,
+and Namaka resolve their satellite and parent-primary SPK IDs through
+the Horizons Lookup API at generation time; offline fixtures contain
+the resolved ELEMENTS response directly.
+
+Dwarf planets, asteroids, and comets: SBDB with `full-prec`. SBDB’s AU
+distances are converted to km here—the only AU→km conversion in the
+repository. Use `a` when present; otherwise derive `a = q/(1−e)`, which
+automatically produces negative `a` for hyperbolic `e > 1`. Use mean
+anomaly at the SBDB epoch when present; otherwise re-base to perihelion
+with `epoch := Tp` and `m0 := 0`.
 
 ### 5.4 Request pinning
 Every Horizons request pins `EPHEM_TYPE='ELEMENTS'`,

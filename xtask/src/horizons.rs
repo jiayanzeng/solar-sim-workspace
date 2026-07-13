@@ -9,6 +9,7 @@
 use crate::normalize::RawElements;
 use anyhow::{anyhow, Context, Result};
 use regex::Regex;
+use std::path::Path;
 
 pub const HORIZONS_API: &str = "https://ssd.jpl.nasa.gov/api/horizons.api";
 
@@ -37,6 +38,41 @@ pub fn parse_response(json_body: &str) -> Result<Vec<(f64, RawElements)>> {
         .and_then(|r| r.as_str())
         .ok_or_else(|| anyhow!("Horizons JSON missing 'result' field"))?;
     parse_elements_text(text)
+}
+
+/// Parse one body's response, preserving the exact raw payload on failure so
+/// online-capture diagnostics never lose the server's explanatory message.
+pub fn parse_response_for_body(json_body: &str, body_id: &str) -> Result<Vec<(f64, RawElements)>> {
+    parse_response_with_debug_dir(json_body, body_id, Path::new("target/xtask-debug"))
+}
+
+fn parse_response_with_debug_dir(
+    json_body: &str,
+    body_id: &str,
+    debug_dir: &Path,
+) -> Result<Vec<(f64, RawElements)>> {
+    match parse_response(json_body) {
+        Ok(records) => Ok(records),
+        Err(parse_error) => {
+            let path = debug_dir.join(format!("{body_id}.response.txt"));
+            let dump = std::fs::create_dir_all(debug_dir)
+                .with_context(|| format!("create debug directory {}", debug_dir.display()))
+                .and_then(|()| {
+                    std::fs::write(&path, json_body)
+                        .with_context(|| format!("write raw response {}", path.display()))
+                });
+            match dump {
+                Ok(()) => Err(parse_error.context(format!(
+                    "raw Horizons response written to {}",
+                    path.display()
+                ))),
+                Err(dump_error) => Err(parse_error.context(format!(
+                    "failed to preserve raw Horizons response at {}: {dump_error:#}",
+                    path.display()
+                ))),
+            }
+        }
+    }
 }
 
 /// Parse the `$$SOE … $$EOE` element table.
@@ -109,6 +145,17 @@ pub fn parse_elements_text(text: &str) -> Result<Vec<(f64, RawElements)>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+
+    fn temp_dir() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "solar-sim-horizons-debug-test-{}-{}",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
 
     const SNIPPET: &str = "\
 *******************************************************************************
@@ -140,6 +187,18 @@ $$EOE
     #[test]
     fn rejects_missing_markers() {
         assert!(parse_elements_text("no markers here").is_err());
+    }
+
+    #[test]
+    fn parse_failure_preserves_raw_response_and_reports_its_path() {
+        let dir = temp_dir();
+        let raw = r#"{"result":"No ephemeris after 2200"}"#;
+        let error = parse_response_with_debug_dir(raw, "jupiter", &dir).unwrap_err();
+        let path = dir.join("jupiter.response.txt");
+
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), raw);
+        assert!(format!("{error:#}").contains(path.to_str().unwrap()));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

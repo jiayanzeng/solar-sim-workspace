@@ -1,6 +1,9 @@
 # WP3 — `catalog.ron` Schema & `xtask gen-catalog` Specification
 
-**Status:** Implemented (schema + validation + generator skeleton + offline smoke path). Online capture, real fixtures, and the position spot-check harness are the remaining WP3 work, itemized in §8–§9.
+**Status:** Implemented (schema + validation + generator, offline smoke path,
+raw-response capture/diagnostics, TNO-satellite lookup resolution, and the
+66-body online capture). The curated-value review and position spot-check data
+remain before WP3 sign-off, itemized in §8–§9.
 **Parent design:** Rev B §4 (Body Catalog), §7 (workspace/firewall), §11 (WP3 acceptance).
 **Companion code:** `crates/sim-core/src/catalog.rs` (schema of record), `xtask/src/*` (generator).
 
@@ -50,14 +53,14 @@ One route per body, declared in the manifest and printed by `--dry-run`:
 
 **Sun — `SunFixed`.** No fetch; IAU nominal radius and GM from the manifest.
 
-**Planets — `HorizonsPlanet`.** Horizons `MAKE_EPHEM`, `EPHEM_TYPE='ELEMENTS'`, `CENTER='500@10'`, `REF_PLANE='ECLIPTIC'`, `REF_SYSTEM='J2000'`, `OUT_UNITS='KM-S'`, `TLIST` in JD TDB. One request per planet with 13 epochs: the catalog epoch, epoch+1 day, and Jan-1 of 1800…2300 in 50-year steps. From these the generator fits, entirely from data (no hand-embedded Standish table to mistype):
+**Planets — `HorizonsPlanet`.** Horizons `MAKE_EPHEM`, `EPHEM_TYPE='ELEMENTS'`, `CENTER='500@10'`, `REF_PLANE='ECLIPTIC'`, `REF_SYSTEM='J2000'`, `OUT_UNITS='KM-S'`, `TLIST` in JD TDB. Mercury–Mars use geometric planet-center targets `199` / `299` / `399` / `499`; Jupiter–Neptune use planetary-system barycenter targets `5` / `6` / `7` / `8`, whose ephemerides cover the full fitting span. One request per planet has 13 epochs: the catalog epoch, epoch+1 day, and Jan-1 of 1800…2300 in 50-year steps. From these the generator fits, entirely from data (no hand-embedded Standish table to mistype):
 - *Base elements:* the record at the catalog epoch (must be within 0.5 d).
 - *Mean motion:* linear slope of unwrapped MA across the near-epoch pair — this captures the perturbation-averaged rate the way Standish's mean-longitude rates do, and it is why the runtime prefers the override to `√(μ/a³)`.
 - *Secular rates:* least-squares linear fit of a, e, i, Ω, ω (angles unwrapped) over the 1800–2300 coarse samples, matching the Rev B soft time range. Spans under 50 years yield `secular: None` rather than a garbage fit.
 
 **Moons — `HorizonsMoon`.** Same ELEMENTS request, `CENTER='500@<parent body center>'` (e.g. `500@599`), single sample at the catalog epoch, emitted parent-centric with no secular terms. This realizes Rev B §4.3's "parent-frame elements re-expressed in ecliptic at generation time" directly: Horizons does the frame work; the generator stores what comes back.
 
-**TNO moons (Dysnomia, Hiʻiaka, Namaka) — `HorizonsLookupMoon`.** Their Horizons COMMAND codes and parent center designators are not stable well-known constants, so they must be resolved through the Horizons lookup API at generation time. Resolution is an open item (§8); in `--fixtures` mode a captured ELEMENTS response per body id is accepted directly, and in online mode the generator currently passes the name to COMMAND best-effort and fails loudly on ambiguity.
+**TNO moons (Dysnomia, Hiʻiaka, Namaka) — `HorizonsLookupMoon`.** Their Horizons COMMAND codes and parent center designators are not stable well-known constants, so online generation queries the parent system through the Horizons Lookup API (`group=mb`). It requires API version 1.1, selects exactly one `asteroidal system primary` plus exactly one normalized-name satellite match, and uses their returned SPK IDs for the parent-centric ELEMENTS request. Missing or ambiguous matches fail loudly. Lookup payloads are captured as `<body-id>.lookup.json`; in `--fixtures` mode the resolved `<body-id>.json` ELEMENTS response is accepted directly.
 
 **Dwarf planets, asteroids, comets — `Sbdb`.** `sbdb.api?sstr=<designation>&full-prec=true`. SBDB elements are already heliocentric ecliptic-J2000 with JD-TDB epochs; the only unit conversion is AU→km (IAU value 149,597,870.7). Two normalization rules:
 - `a_km` from `a` when present, else `q/(1−e)` — automatically negative for `e > 1`, matching the schema convention with no special-casing.
@@ -78,14 +81,14 @@ The corrupt-fixture half of the WP3 acceptance check ("loader rejects corrupt fi
 ```
 cargo run -p xtask -- gen-catalog --dry-run                 # print the fetch plan, no network
 cargo run -p xtask -- gen-catalog --fixtures DIR [--allow-partial] [--out PATH] [--epoch-jd F]
-cargo run -p xtask --features online -- gen-catalog --online [--out PATH] [--epoch-jd F]
+cargo run -p xtask --features online -- gen-catalog --online [--capture DIR] [--out PATH] [--epoch-jd F]
 ```
 
-Default epoch is JD 2461042.0 = 2026-01-01 12:00 TDB (Rev B's startup epoch). `--fixtures` runs the identical parse/normalize/validate/emit path against captured API responses; `--allow-partial` skips bodies without fixtures and prunes any resulting orphans, which is what the CI smoke test uses. Given fixed inputs the pipeline is deterministic except for the `generated_utc` stamp; when real captures land (§9), the captured responses are committed alongside the emitted catalog so any output can be reproduced and diffed.
+Default epoch is JD 2461042.0 = 2026-01-01 12:00 TDB (Rev B's startup epoch). `--fixtures` runs the identical parse/normalize/validate/emit path against captured API responses; `--allow-partial` skips bodies without fixtures and prunes any resulting orphans, which is what the CI smoke test uses. In online mode, `--capture DIR` writes every exact raw response as `DIR/<body-id>.json` (plus `<body-id>.lookup.json` for TNO-moon resolution); parse failures also preserve the payload at `target/xtask-debug/<body-id>.response.txt` and report that path. Given fixed inputs the pipeline is deterministic except for the `generated_utc` stamp and regeneration-command header. The 2026-07 capture contains 68 payloads for all 66 bodies (the Sun needs no fetch; the three lookup moons each add a lookup payload), and fixture replay reproduces all catalog data exactly.
 
 ## 8. Open items (tracked, not forgotten)
 
-1. **TNO satellite resolution** — implement Horizons lookup-API resolution for Dysnomia/Hiʻiaka/Namaka COMMANDs and the Eris/Haumea center designators; until then those three require fixtures.
+1. **TNO satellite resolution — implemented.** The online path resolves the satellite and parent-primary SPK IDs from a strict parent-system lookup; offline fixtures remain direct ELEMENTS captures.
 2. **Curated-value review** — radii for all 66 bodies and the Pluto/Eris/Haumea GMs against JPL physical data; every `TODO(review)` in `manifest.rs` must be cleared for WP3 sign-off. The 3I/ATLAS nucleus radius is genuinely uncertain in the literature; pick a value and cite it.
 3. **Descriptions** — ~50 bodies have empty blurbs (deliberate; WP10 content pass). The lint keeps the list visible.
 4. **Textures** — `texture` is emitted as `None` everywhere until WP15; the license/source-per-asset CI check from Rev B §2 attaches there.

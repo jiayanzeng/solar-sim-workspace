@@ -398,10 +398,11 @@ matters).
 
 ## Part B — WP3 online capture (runs on this Mac)
 
-Blocked on the **Q5 decision** (see
-`docs/open-questions-brief-2026-07-12.md` §Q5 for the diagnosis of the
-Jupiter `no $$SOE` failure and the proposed barycenter-route fix). Once
-Q5 is signed off:
+Q5 was approved on 2026-07-13: Mercury–Mars retain geometric planet-center
+targets, while Jupiter–Neptune use system barycenters over the 1800–2300
+fit span. The architecture, fitting constraints, and SBDB normalization
+rules are now explicit; the remaining steps below apply and verify that
+decision.
 
 ### B1. Confirm the diagnosis (30 seconds, optional but satisfying)
 
@@ -414,7 +415,7 @@ curl -s "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND='599'&OBJ
 curl -s "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND='5'&OBJ_DATA='NO'&MAKE_EPHEM='YES'&EPHEM_TYPE='ELEMENTS'&CENTER='500@10'&REF_PLANE='ECLIPTIC'&REF_SYSTEM='J2000'&OUT_UNITS='KM-S'&TLIST_TYPE='JD'&TLIST='2561120.0'" | head -40
 ```
 
-### B2. Land the Q5 changes (agent task after sign-off)
+### B2. Land the Q5 changes (agent task; approved)
 
 1. `xtask/src/manifest.rs`: giant-planet routes
    `HorizonsPlanet { command: "599" } → "5"`, `"699" → "6"`,
@@ -430,7 +431,10 @@ curl -s "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND='5'&OBJ_D
    requires), and doubles as a fixtures source for future offline runs.
 4. Tests: `url_is_stable` untouched; add a manifest test asserting the
    four giant routes use barycenter commands; dry-run snapshot updated.
-5. ARCHITECTURE §5.3 wording — **human edit**, agents don't touch it.
+5. ARCHITECTURE §5.3 wording — **saved by the human on 2026-07-13**. It
+   preserves the unwrapped-MA near-pair slope, the coarse-span
+   least-squares secular fit, and the SBDB AU→km / `q/(1−e)` /
+   perihelion-rebasing rules.
 
 ### B3. The capture run
 
@@ -443,10 +447,14 @@ git add assets/catalog.ron xtask/fixtures/captured-2026-07
 git commit -m "WP3: real 66-body capture (Q5 routes), raw responses committed"
 ```
 
-Expected leftovers: the three TNO-moon lookups (Dysnomia, Hiʻiaka,
-Namaka) still error until the lookup route is implemented — run with
-fixtures for those or land the lookup resolution first (WP3 checklist
-item 2).
+The three TNO-moon lookups are now resolved online through strict
+parent-system Lookup API queries. The 2026-07-13 run reached all 66 bodies,
+wrote `assets/catalog.ron`, and captured 68 payloads. Its only newly exposed
+edge case was unrelated `null` SBDB fields in the live 3I/ATLAS response;
+the parser now ignores unconsumed fields before numeric conversion and has
+a regression test. Missing or ambiguous lookup results remain hard errors
+rather than silent fallbacks. The `git add` / `git commit` lines above are
+still an explicit maintainer action.
 
 ### B4. Spot-check vectors (activates the armed gate)
 
