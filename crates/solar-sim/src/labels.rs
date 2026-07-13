@@ -6,6 +6,7 @@
 //! into the existing `SimCommand` mutation boundary.
 
 use crate::control::{CameraController, SimCommand, SimCommandQueue};
+use crate::left_panel::{body_passes_moon_visibility, ViewOptionsState};
 use crate::ui_kit::{UiTheme, INTER_FONT_ASSET, TOP_BAR_HEIGHT_PX};
 use crate::{rebase_position, BodyStates, LoadedCatalog, KM_PER_RENDER_UNIT, TIME_BAR_HEIGHT_PX};
 use bevy::{
@@ -339,6 +340,7 @@ fn project_and_declutter_labels(
     states: Option<Res<BodyStates>>,
     controller: Option<Res<CameraController>>,
     extents: Option<Res<MoonSystemExtents>>,
+    view_options: Option<Res<ViewOptionsState>>,
     mut labels: Query<(&BodyLabel, &LabelVisual, &mut Node)>,
 ) {
     let (Some(loaded), Some(states), Some(controller), Some(extents)) =
@@ -367,21 +369,22 @@ fn project_and_declutter_labels(
     let focus_system = focus_system_index(&loaded, controller.focus_body_index());
     let camera_position_km = controller.camera_position_km();
     let focus_position_km = controller.focus_position_km();
+    let visibility_context = LabelVisibilityContext {
+        selected,
+        focus_system,
+        loaded: &loaded,
+        states: &states,
+        extents: &extents,
+        camera_position_km,
+        view_options: view_options.as_deref(),
+    };
     let mut candidates = Vec::with_capacity(loaded.catalog.bodies.len());
 
     for (label, visual, _) in &mut labels {
         let Some(body) = loaded.catalog.bodies.get(label.index) else {
             continue;
         };
-        if !body_is_contextually_visible(
-            label.index,
-            selected,
-            focus_system,
-            &loaded,
-            &states,
-            &extents,
-            camera_position_km,
-        ) {
+        if !body_is_contextually_visible(label.index, &visibility_context) {
             continue;
         }
         let Some(state) = states.0.get(label.index) else {
@@ -462,31 +465,46 @@ fn label_priority(
     }
 }
 
-fn body_is_contextually_visible(
-    body_index: usize,
+struct LabelVisibilityContext<'a> {
     selected: usize,
     focus_system: usize,
-    loaded: &LoadedCatalog,
-    states: &BodyStates,
-    extents: &MoonSystemExtents,
+    loaded: &'a LoadedCatalog,
+    states: &'a BodyStates,
+    extents: &'a MoonSystemExtents,
     camera_position_km: [f64; 3],
-) -> bool {
-    let body = &loaded.catalog.bodies[body_index];
-    if body.category != Category::Moon || body_index == selected {
+    view_options: Option<&'a ViewOptionsState>,
+}
+
+fn body_is_contextually_visible(body_index: usize, context: &LabelVisibilityContext<'_>) -> bool {
+    let body = &context.loaded.catalog.bodies[body_index];
+    if body_index == context.selected {
         return true;
     }
-    let Some(parent_index) = body.parent.as_deref().and_then(|id| loaded.index_of(id)) else {
+    if context
+        .view_options
+        .is_some_and(|settings| !body_passes_moon_visibility(body, settings))
+    {
+        return false;
+    }
+    if body.category != Category::Moon {
+        return true;
+    }
+    let Some(parent_index) = body
+        .parent
+        .as_deref()
+        .and_then(|id| context.loaded.index_of(id))
+    else {
         return false;
     };
-    let Some(parent_state) = states.0.get(parent_index) else {
+    let Some(parent_state) = context.states.0.get(parent_index) else {
         return false;
     };
     moon_label_is_contextually_visible(
         false,
         parent_index,
-        focus_system,
-        distance3(camera_position_km, parent_state.position_km),
-        extents.0.get(parent_index).copied().unwrap_or(0.0),
+        context.focus_system,
+        distance3(context.camera_position_km, parent_state.position_km),
+        context.extents.0.get(parent_index).copied().unwrap_or(0.0),
     )
 }
 
@@ -573,7 +591,7 @@ fn spawn_viewport_pick_surface(mut commands: Commands) {
 fn pick_inflated_body_sphere(
     click: On<Pointer<Click>>,
     cameras: Query<(&Camera, &GlobalTransform, &Projection), With<Camera3d>>,
-    bodies: Query<(&crate::BodyVisual, &GlobalTransform)>,
+    bodies: Query<(&crate::BodyVisual, &GlobalTransform, &Visibility)>,
     loaded: Res<LoadedCatalog>,
     mut commands: ResMut<SimCommandQueue>,
 ) {
@@ -592,7 +610,10 @@ fn pick_inflated_body_sphere(
     let ray_direction = vec3_to_array(*ray.direction);
     let mut nearest: Option<(f64, usize)> = None;
 
-    for (visual, transform) in &bodies {
+    for (visual, transform, visibility) in &bodies {
+        if *visibility == Visibility::Hidden {
+            continue;
+        }
         let Some(body) = loaded.catalog.bodies.get(visual.index) else {
             continue;
         };
@@ -627,7 +648,7 @@ fn pick_inflated_body_sphere(
     }
 }
 
-fn inflated_pick_radius(
+pub(crate) fn inflated_pick_radius(
     true_radius: f64,
     camera_distance: f64,
     projection: &Projection,
@@ -672,7 +693,7 @@ fn distance3(left: [f64; 3], right: [f64; 3]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::load_catalog_text;
+    use crate::{load_catalog_text, propagate_catalog, MoonVisibilityMode};
     use bevy::{
         app::TaskPoolPlugin,
         asset::{AssetApp, AssetPlugin},
@@ -846,6 +867,32 @@ mod tests {
             1.0e9,
             saturn_system_extent_km,
         ));
+    }
+
+    #[test]
+    fn major_mode_filters_unflagged_moon_labels_before_declutter() {
+        let loaded = catalog();
+        let states = propagate_catalog(&loaded.catalog, 0.0).unwrap();
+        let extents = MoonSystemExtents(moon_system_extents(&loaded));
+        let jupiter = loaded.index_of("jupiter").unwrap();
+        let io = loaded.index_of("io").unwrap();
+        let himalia = loaded.index_of("himalia").unwrap();
+        let mut options = ViewOptionsState::default();
+        options.set_moon_visibility("jupiter", MoonVisibilityMode::Major);
+        let mut context = LabelVisibilityContext {
+            selected: jupiter,
+            focus_system: jupiter,
+            loaded: &loaded,
+            states: &states,
+            extents: &extents,
+            camera_position_km: [0.0; 3],
+            view_options: Some(&options),
+        };
+
+        assert!(body_is_contextually_visible(io, &context));
+        assert!(!body_is_contextually_visible(himalia, &context));
+        context.selected = himalia;
+        assert!(body_is_contextually_visible(himalia, &context));
     }
 
     #[test]

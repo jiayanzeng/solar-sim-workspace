@@ -103,6 +103,7 @@ fn record_shell(e: &Entry) -> BodyRecord {
         aliases: e.aliases.iter().map(|s| s.to_string()).collect(),
         category: e.category,
         parent: e.parent.map(str::to_string),
+        is_major_moon: e.is_major_moon,
         gm_km3_s2: e.gm_km3_s2,
         radius_km: e.radius_km,
         color_srgb: e.color,

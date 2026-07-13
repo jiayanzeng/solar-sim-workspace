@@ -41,7 +41,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | **✅ done** |
 | 8 | Time bar: detented log slider, editable date/clock, LIVE chip | **✅ done** |
 | 9 | Labels/reticles, tiered declutter, contextual moon visibility, picking | **✅ done** |
-| 10 | Left panel: Info tab, collection pages, View Options | todo |
+| 10 | Left panel: Info tab, collection pages, View Options | **✅ done** |
 | 11 | Layers quick panel, right rail, Icons layer, UI-off mode | todo |
 | 12 | Search (alias-aware) + Menu browse with live counts | todo |
 | 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | todo |
@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 127 passing** (52 `sim-core` · 45 `solar-sim` · 27 `xtask`
+**Test baseline: 138 passing** (53 `sim-core` · 54 `solar-sim` · 28 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -433,13 +433,13 @@ moon visibility, local orbit toggle).
   now, persistence hook left in place).
 
 **Acceptance.**
-- [ ] Iterating all 66 bodies programmatically populates the Info tab
+- [x] Iterating all 66 bodies programmatically populates the Info tab
   without panic, missing field, or empty period for elliptic bodies.
-- [ ] "Moons of X (n)" counts equal the catalog's actual children counts
+- [x] "Moons of X (n)" counts equal the catalog's actual children counts
   for every parent with moons.
-- [ ] Size exaggeration changes rendered radius only: picking radius and
+- [x] Size exaggeration changes rendered radius only: picking radius and
   propagation are unaffected (test by picking at ×50).
-- [ ] Description shows the curated blurb; empty descriptions surface the
+- [x] Description shows the curated blurb; empty descriptions surface the
   WP3 lint, not a blank row.
 
 **Tests required.** Info view-model test over the full catalog (66/66
@@ -706,9 +706,49 @@ Optional post-beta. No brief until un-deferred by the human.
 | Q5 | **Horizons planet routes: switch giant planets from planet centers (599/699/799/899) to system barycenters (5/6/7/8)?** The 2026-07-12 online run failed at Jupiter (`no $$SOE`). Planet-center ephemerides are defined by satellite solutions with limited time spans, while barycenters cover ±9999 yr, and JPL's own manual recommends barycenters for osculating-element output. Giant-planet vs own-barycenter offset ≤ ~100 km — far under two-body display budgets. Requires: manifest route edit, ARCHITECTURE §5.3 wording (human edit), dry-run/spec text updates. Raw capture/diagnostics are now implemented; the JD 2561120 probe confirmed Jupiter-center ends in 2200 while barycenter 5 returns ELEMENTS. Full analysis in brief §Q5. | 2026-07-12 | **closed 2026-07-13** — human approved and saved ARCHITECTURE §5.3; Mercury–Mars remain geometric centers and Jupiter–Neptune now use system barycenters. The mean-motion/secular-fit and SBDB normalization contracts remain binding. |
 | Q6 | **Spot-check epoch semantics after real-vector calibration:** require all 10 bodies at both 2026 and 1986, or use the 2026 point for the full set plus the 1986 point only for Halley? The 20-point interpretation forces non-physical pass budgets (Earth is 144,450,813.9 km off in 1986 because the approved near-pair unwrapped-MA slope is 1.335394656°/day; Phoebe is 14,762,084.4 km off under the declared no-secular moon model). | 2026-07-13 | **closed 2026-07-13** — human approved the full 10-body gate at the catalog epoch plus Halley at its 1986 demo/perihelion epoch, retained all 20 vectors as audit data, and explicitly approved the 1 km planet / 10 km moon / 25,000 km dwarf / 30,000,000 km comet budgets. |
 | Q7 | **Approve the general Sun/planet GM audit?** Adopt the exact JPL DE440 set in `docs/wp3-gm-audit-2026-07-13.md`: eight numeric replacements, with Venus verified unchanged; Mars–Neptune use DE440 system GMs. | 2026-07-13 | **closed 2026-07-13** — human approved all nine rows. The eight replacements and verified Venus value are applied with DE440 provenance; both catalogs were regenerated from captured responses and the active position gate remains green. |
+| Q8 | **What defines “Major” in WP10's per-system Major/All moon visibility option?** The frozen catalog has no major-moon flag and ARCHITECTURE gives no membership list or physical cutoff. Recommend an additive curated boolean in the generator manifest/schema so the choice is reviewable; alternatives are a human-approved id set or a specified radius rule. | 2026-07-13 | **closed 2026-07-13** — human approved the recommended additive, catalog-backed curated boolean. The manifest's explicit 24-id membership list is the source of truth and covers every modeled moon system. |
 
 ## Change log (append-only; newest first)
 
+- **2026-07-13** — WP10 done after human approval closed Q8. Added the
+  backward-compatible `BodyRecord::is_major_moon` schema field, rejects its use
+  on non-moons, and derives every emitted value from a centralized 24-id
+  manifest list covering all nine modeled moon systems. Both committed catalogs
+  were regenerated through offline `xtask` fixtures with the display
+  classification in each moon's provenance. The enabled Major/All control now
+  filters spheres, labels, picking eligibility, and orbit lines per system; a
+  selected minor moon remains visible, and All restores every modeled moon.
+  Five new regressions cover schema/default validation, exact unique manifest
+  membership and system coverage, rendered visibility, label filtering,
+  orbit filtering, and restoration, raising the workspace from 133 to 138
+  tests. Evidence: `cargo test`, `cargo fmt --all -- --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`,
+  `xtask gen-catalog --dry-run`, and `git diff --check` pass; the final
+  120-frame Jupiter native smoke measured 118.9 fps after warmup. No dependency
+  or read-only fixture changed.
+- **2026-07-13** — Implemented WP10's unambiguous surface while leaving the
+  package in progress on Q8. Added the collapsible contextual panel, data-driven
+  Info/Collection/View Options tabs, exact catalog lint surfacing for empty
+  descriptions, elliptic/hyperbolic period models, parent travel links, and
+  catalog-derived moon pages. View settings now have a WP14 snapshot/restore
+  seam; ×1/×10/×50 scales only `BodyVisual`, and per-body local-orbit visibility
+  feeds the existing orbit renderer. All is the honest default moon mode and
+  Major is visibly disabled until Q8 supplies authoritative membership. Six
+  regressions cover all 66 Info models, topology-derived collection counts,
+  ×50 render/propagation/picking separation, settings round-trip, collection
+  navigation, and local-orbit isolation, raising the workspace from 127 to 133
+  tests. Exact-app visual probes exercised Jupiter's Info, six-moon collection,
+  and View Options surfaces. Evidence: `cargo test`,
+  `cargo fmt --all -- --check`, and
+  `cargo clippy --workspace --all-targets -- -D warnings` pass; the final
+  120-frame Jupiter native smoke measured 120.0 fps after warmup. No dependency
+  or generated catalog asset changed.
+- **2026-07-13** — Started WP10 from the green 127-test WP9 checkout after
+  reading ARCHITECTURE §§4.1 and 9.2. The Info and collection models will be
+  catalog-derived, empty descriptions will display the existing WP3 lint, and
+  visual size/orbit options will remain outside propagation and picking truth.
+  Raised Q8 because neither the schema nor architecture defines Major-moon
+  membership; no cutoff or id list will be improvised.
 - **2026-07-13** — WP9 done. Added 66 accessible projected label buttons,
   wide-tracked uppercase Sun/planet labels, mixed-case circular-reticle labels
   for the other 57 bodies, deterministic priority/catalog-index declutter,

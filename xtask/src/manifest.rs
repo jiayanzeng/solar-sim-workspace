@@ -3,7 +3,7 @@
 //! Split of responsibility, deliberately:
 //! - **Curated here, human-reviewed:** identity (id/name/designation/aliases),
 //!   taxonomy (category/parent), physical radius, GM for parents, display
-//!   color, description blurbs, and the source route.
+//!   color, Major/All moon visibility, description blurbs, and the source route.
 //! - **Generated from JPL, never hand-typed:** every orbital element, epoch,
 //!   secular rate, and mean motion.
 //!
@@ -83,6 +83,8 @@ pub struct Entry {
     pub aliases: &'static [&'static str],
     pub category: Category,
     pub parent: Option<&'static str>,
+    /// Curated WP10 display tier; assigned from `MAJOR_MOON_IDS` below.
+    pub is_major_moon: bool,
     pub gm_km3_s2: Option<f64>,
     /// Human-reviewed mean/effective radius; see the 2026-07-13 WP3 audit.
     pub radius_km: f64,
@@ -97,6 +99,38 @@ pub struct Entry {
 const PHYS_NOTE: &str =
     "phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)";
 
+/// Project display classification approved under TASKS Q8 on 2026-07-13.
+///
+/// This is intentionally a reviewable identity list rather than a radius
+/// cutoff: the principal companions of small systems remain useful in Major
+/// mode, while the giant-planet systems shed their smaller/irregular entries.
+const MAJOR_MOON_IDS: &[&str] = &[
+    "moon",
+    "phobos",
+    "deimos",
+    "io",
+    "europa",
+    "ganymede",
+    "callisto",
+    "mimas",
+    "enceladus",
+    "tethys",
+    "dione",
+    "rhea",
+    "titan",
+    "iapetus",
+    "miranda",
+    "ariel",
+    "umbriel",
+    "titania",
+    "oberon",
+    "triton",
+    "charon",
+    "dysnomia",
+    "hiiaka",
+    "namaka",
+];
+
 macro_rules! planet {
     ($id:literal, $name:literal, $cmd:literal, $gm:expr, $r:expr, $col:expr, $blurb:literal) => {
         Entry {
@@ -106,6 +140,7 @@ macro_rules! planet {
             aliases: &[],
             category: Category::Planet,
             parent: Some("sun"),
+            is_major_moon: false,
             gm_km3_s2: Some($gm),
             radius_km: $r,
             color: $col,
@@ -125,6 +160,7 @@ macro_rules! moon {
             aliases: &[],
             category: Category::Moon,
             parent: Some($parent),
+            is_major_moon: false,
             gm_km3_s2: None,
             radius_km: $r,
             color: C_MOON,
@@ -147,6 +183,7 @@ macro_rules! sbdb {
             aliases: $aliases,
             category: $cat,
             parent: Some("sun"),
+            is_major_moon: false,
             gm_km3_s2: $gm,
             radius_km: $r,
             color: $col,
@@ -170,6 +207,7 @@ pub fn entries() -> Vec<Entry> {
         aliases: &["Sol"],
         category: Star,
         parent: None,
+        is_major_moon: false,
         gm_km3_s2: Some(GM_SUN),
         radius_km: 695_700.0,
         color: C_SUN,
@@ -449,6 +487,7 @@ pub fn entries() -> Vec<Entry> {
         aliases: &[],
         category: Moon,
         parent: Some("eris"),
+        is_major_moon: false,
         gm_km3_s2: None,
         radius_km: 350.0,
         color: C_MOON,
@@ -466,6 +505,7 @@ pub fn entries() -> Vec<Entry> {
         aliases: &["Hiiaka"],
         category: Moon,
         parent: Some("haumea"),
+        is_major_moon: false,
         gm_km3_s2: None,
         radius_km: 185.0,
         color: C_MOON,
@@ -483,6 +523,7 @@ pub fn entries() -> Vec<Entry> {
         aliases: &[],
         category: Moon,
         parent: Some("haumea"),
+        is_major_moon: false,
         gm_km3_s2: None,
         radius_km: 75.0,
         color: C_MOON,
@@ -687,12 +728,26 @@ pub fn entries() -> Vec<Entry> {
         e
     });
 
+    for entry in &mut v {
+        entry.is_major_moon = MAJOR_MOON_IDS.contains(&entry.id);
+    }
     v
 }
 
 /// Full source string for the emitted record.
 pub fn source_string(e: &Entry) -> String {
-    format!("{}; {}", e.source_note, PHYS_NOTE)
+    let visibility_note = (e.category == Category::Moon).then(|| {
+        format!(
+            "; display: WP10 major_moon={} curated under TASKS Q8 (2026-07-13)",
+            e.is_major_moon
+        )
+    });
+    format!(
+        "{}; {}{}",
+        e.source_note,
+        PHYS_NOTE,
+        visibility_note.as_deref().unwrap_or_default()
+    )
 }
 
 #[cfg(test)]
@@ -711,6 +766,36 @@ mod tests {
         assert_eq!(count(Category::Asteroid), 8);
         assert_eq!(count(Category::Moon), 32);
         assert_eq!(count(Category::Comet), 8);
+    }
+
+    #[test]
+    fn major_moon_membership_is_explicit_unique_and_covers_every_moon_system() {
+        let entries = entries();
+        let expected: HashSet<&str> = MAJOR_MOON_IDS.iter().copied().collect();
+        assert_eq!(expected.len(), MAJOR_MOON_IDS.len(), "duplicate major id");
+
+        let actual: HashSet<&str> = entries
+            .iter()
+            .filter(|entry| entry.is_major_moon)
+            .map(|entry| entry.id)
+            .collect();
+        assert_eq!(actual, expected);
+        assert!(entries
+            .iter()
+            .filter(|entry| entry.is_major_moon)
+            .all(|entry| entry.category == Category::Moon));
+
+        let moon_parents: HashSet<&str> = entries
+            .iter()
+            .filter(|entry| entry.category == Category::Moon)
+            .filter_map(|entry| entry.parent)
+            .collect();
+        let major_parents: HashSet<&str> = entries
+            .iter()
+            .filter(|entry| entry.is_major_moon)
+            .filter_map(|entry| entry.parent)
+            .collect();
+        assert_eq!(major_parents, moon_parents);
     }
 
     #[test]

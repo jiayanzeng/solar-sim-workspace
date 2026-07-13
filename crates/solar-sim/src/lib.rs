@@ -1,4 +1,4 @@
-//! WP4–WP9 — simulation rendering, camera control, reusable HUD, labels, and picking.
+//! WP4–WP10 — simulation rendering, camera control, reusable HUD, and contextual UI.
 //!
 //! `sim-core` remains the f64 source of truth. This crate owns filesystem
 //! loading, parent-to-heliocentric composition, the one f64→f32 render rebase,
@@ -10,6 +10,7 @@
 mod control;
 mod input_intent;
 mod labels;
+mod left_panel;
 mod orbit_lines;
 mod time_bar;
 mod ui_kit;
@@ -21,6 +22,12 @@ pub use control::{
 pub use labels::{
     declutter_labels, moon_label_is_contextually_visible, ray_sphere_hit_distance, BodyLabel,
     DeclutterCandidate, LabelPriority, LabelsPlugin, ScreenRect, SelectionPlugin,
+};
+pub use left_panel::{
+    body_info_view_model, moon_collections, rendered_body_radius_units, BodyInfoViewModel,
+    BodyLinkViewModel, BodySizeScale, DescriptionViewModel, InfoViewModelError, LeftPanelPlugin,
+    LeftPanelRoot, LeftPanelTab, MoonCollectionViewModel, MoonVisibilityMode,
+    OrbitalPeriodViewModel, ViewOptionsSnapshot, ViewOptionsState,
 };
 pub use orbit_lines::{
     orbit_vertex_count, sample_orbit, OrbitLineBrightness, OrbitLinesPlugin, OrbitPath,
@@ -416,7 +423,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
             })
             .set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: "Solar Sim — WP9 Labels and picking".into(),
+                    title: "Solar Sim — WP10 Left panel".into(),
                     ..default()
                 }),
                 ..default()
@@ -479,6 +486,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
         TimeBarPlugin,
         LabelsPlugin,
         SelectionPlugin,
+        LeftPanelPlugin,
     ))
     .add_systems(
         Startup,

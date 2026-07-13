@@ -8,8 +8,10 @@
 //! a strictly open ±25-Julian-year arc centered on perihelion (Rev C §10.2).
 
 use crate::{
-    rebase_position, BodyStates, CameraController, LoadedCatalog, SimulationClock, SimulationSet,
+    left_panel::body_passes_moon_visibility, rebase_position, BodyStates, CameraController,
+    LoadedCatalog, SimulationClock, SimulationSet, ViewOptionsState,
 };
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use sim_core::catalog::{BodyRecord, Category, Elements, Orbit};
 use sim_core::kepler::{elements_at, solve_hyperbolic, state_from_elements, KeplerError};
@@ -236,6 +238,12 @@ struct OrbitLine {
     displayed_brightness: f32,
 }
 
+#[derive(SystemParam)]
+struct OrbitLineRenderOptions<'w> {
+    brightness: Res<'w, OrbitLineBrightness>,
+    view_options: Option<Res<'w, ViewOptionsState>>,
+}
+
 pub struct OrbitLinesPlugin;
 
 impl Plugin for OrbitLinesPlugin {
@@ -251,6 +259,8 @@ fn spawn_orbit_lines(
     loaded: Option<Res<LoadedCatalog>>,
     clock: Res<SimulationClock>,
     brightness: Res<OrbitLineBrightness>,
+    view_options: Option<Res<ViewOptionsState>>,
+    camera: Option<Res<CameraController>>,
     mut gizmo_assets: ResMut<Assets<GizmoAsset>>,
 ) {
     let Some(loaded) = loaded else {
@@ -276,7 +286,17 @@ fn spawn_orbit_lines(
             }
         };
         let palette = orbit_palette(body);
-        let displayed_alpha = palette.base_alpha;
+        let selected = camera
+            .as_ref()
+            .is_some_and(|camera| camera.selected_body_index() == body_index);
+        let displayed_alpha = if view_options.as_ref().is_none_or(|options| {
+            options.local_orbit_visible(&body.id)
+                && (selected || body_passes_moon_visibility(body, options))
+        }) {
+            palette.base_alpha
+        } else {
+            0.0
+        };
         let mut asset = GizmoAsset::default();
         rebuild_asset(
             &mut asset,
@@ -315,7 +335,7 @@ fn update_orbit_lines(
     states: Option<Res<BodyStates>>,
     camera: Res<CameraController>,
     clock: Res<SimulationClock>,
-    brightness: Res<OrbitLineBrightness>,
+    options: OrbitLineRenderOptions,
     mut gizmo_assets: ResMut<Assets<GizmoAsset>>,
     mut lines: Query<(&mut OrbitLine, &mut Transform, &Gizmo)>,
 ) {
@@ -324,8 +344,7 @@ fn update_orbit_lines(
     };
     let focus_position_km = camera.focus_position_km();
     let camera_position_km = camera.camera_position_km();
-    let brightness = brightness.sanitized();
-
+    let brightness = options.brightness.sanitized();
     for (mut line, mut transform, gizmo) in &mut lines {
         let Some(parent_state) = states.0.get(line.parent_index) else {
             continue;
@@ -362,12 +381,21 @@ fn update_orbit_lines(
         } else {
             1.0
         };
-        let displayed_alpha = quantized_alpha(orbit_alpha(
-            line.palette.base_alpha,
-            camera_distance_km,
-            line.path.characteristic_radius_km,
-            view_angle_cos,
-        ));
+        let orbit_visible = options.view_options.as_ref().is_none_or(|options| {
+            options.local_orbit_visible(&body.id)
+                && (camera.selected_body_index() == line.body_index
+                    || body_passes_moon_visibility(body, options))
+        });
+        let displayed_alpha = if orbit_visible {
+            quantized_alpha(orbit_alpha(
+                line.palette.base_alpha,
+                camera_distance_km,
+                line.path.characteristic_radius_km,
+                view_angle_cos,
+            ))
+        } else {
+            0.0
+        };
         let color_changed =
             displayed_alpha != line.displayed_alpha || brightness != line.displayed_brightness;
         line.displayed_alpha = displayed_alpha;
@@ -726,6 +754,120 @@ mod tests {
             .unwrap();
         assert_eq!(line.path.vertices_parent_km, vertices_before);
         assert_eq!(transform.translation, expected_reanchored);
+    }
+
+    #[test]
+    fn local_orbit_setting_hides_only_the_selected_body_path() {
+        let catalog = catalog();
+        let t_s = t_from_jd_tdb(2_461_042.0);
+        let states = propagate_catalog(&catalog, t_s).unwrap();
+        let loaded = LoadedCatalog::new(catalog);
+        let neptune = loaded.index_of("neptune").unwrap();
+        let nereid = loaded.index_of("nereid").unwrap();
+        let mut options = ViewOptionsState::default();
+        options.set_local_orbit_visible("nereid", false);
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<Assets<GizmoAsset>>()
+            .insert_resource(loaded)
+            .insert_resource(states.clone())
+            .insert_resource(CameraController::new(
+                neptune,
+                states.0[neptune].position_km,
+                10_000.0,
+            ))
+            .insert_resource(SimulationClock(SimClock::new(
+                StartMode::FixedEpoch {
+                    jd_tdb: 2_461_042.0,
+                },
+                t_s,
+            )))
+            .insert_resource(OrbitLineBrightness::default())
+            .insert_resource(options)
+            .add_systems(Startup, spawn_orbit_lines)
+            .add_systems(Update, update_orbit_lines);
+        app.update();
+
+        let mut query = app.world_mut().query::<&OrbitLine>();
+        let nereid_line = query
+            .iter(app.world())
+            .find(|line| line.body_index == nereid)
+            .unwrap();
+        assert_eq!(nereid_line.displayed_alpha, 0.0);
+        assert!(query
+            .iter(app.world())
+            .any(|line| line.body_index != nereid && line.displayed_alpha > 0.0));
+
+        app.world_mut()
+            .resource_mut::<ViewOptionsState>()
+            .set_local_orbit_visible("nereid", true);
+        app.update();
+        let mut query = app.world_mut().query::<&OrbitLine>();
+        let nereid_line = query
+            .iter(app.world())
+            .find(|line| line.body_index == nereid)
+            .unwrap();
+        assert!(nereid_line.displayed_alpha > 0.0);
+    }
+
+    #[test]
+    fn major_mode_hides_unflagged_moon_orbits_and_all_restores_them() {
+        let catalog = catalog();
+        let t_s = t_from_jd_tdb(2_461_042.0);
+        let states = propagate_catalog(&catalog, t_s).unwrap();
+        let loaded = LoadedCatalog::new(catalog);
+        let jupiter = loaded.index_of("jupiter").unwrap();
+        let io = loaded.index_of("io").unwrap();
+        let himalia = loaded.index_of("himalia").unwrap();
+        let mut options = ViewOptionsState::default();
+        options.set_moon_visibility("jupiter", crate::MoonVisibilityMode::Major);
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<Assets<GizmoAsset>>()
+            .insert_resource(loaded)
+            .insert_resource(states.clone())
+            .insert_resource(CameraController::new(
+                jupiter,
+                states.0[jupiter].position_km,
+                10_000.0,
+            ))
+            .insert_resource(SimulationClock(SimClock::new(
+                StartMode::FixedEpoch {
+                    jd_tdb: 2_461_042.0,
+                },
+                t_s,
+            )))
+            .insert_resource(OrbitLineBrightness::default())
+            .insert_resource(options)
+            .add_systems(Startup, spawn_orbit_lines)
+            .add_systems(Update, update_orbit_lines);
+        app.update();
+
+        let mut query = app.world_mut().query::<&OrbitLine>();
+        assert!(query
+            .iter(app.world())
+            .find(|line| line.body_index == io)
+            .is_some_and(|line| line.displayed_alpha > 0.0));
+        assert_eq!(
+            query
+                .iter(app.world())
+                .find(|line| line.body_index == himalia)
+                .unwrap()
+                .displayed_alpha,
+            0.0
+        );
+
+        app.world_mut()
+            .resource_mut::<ViewOptionsState>()
+            .set_moon_visibility("jupiter", crate::MoonVisibilityMode::All);
+        app.update();
+        let mut query = app.world_mut().query::<&OrbitLine>();
+        assert!(query
+            .iter(app.world())
+            .find(|line| line.body_index == himalia)
+            .is_some_and(|line| line.displayed_alpha > 0.0));
     }
 
     #[test]

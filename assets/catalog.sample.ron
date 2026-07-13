@@ -2,10 +2,10 @@
 // Regenerate with: cargo run -p xtask -- gen-catalog --fixtures xtask/fixtures --epoch-jd 2461042
 // Frame: ECLIPJ2000. Units: km, degrees, Julian Date (TDB).
 // Per-body provenance is in each record's `source` field.
-// Generated: 2026-07-13T02:18:09Z
+// Generated: 2026-07-13T14:49:14Z
 Catalog(
   schema_version: 1,
-  generated_utc: "2026-07-13T02:18:09Z",
+  generated_utc: "2026-07-13T14:49:14Z",
   frame: "ECLIPJ2000",
   bodies: [
     BodyRecord(
@@ -17,13 +17,14 @@ Catalog(
       ],
       category: Star,
       parent: None,
-      gm_km3_s2: Some(132712440018.0),
+      is_major_moon: false,
+      gm_km3_s2: Some(132712440041.27942),
       radius_km: 695700.0,
       color_srgb: (255, 214, 140),
       texture: None,
       description: "The star at the center of the solar system, holding 99.8% of its mass. Every orbit in this catalog ultimately answers to it.",
       orbit: None,
-      source: "no orbit (heliocentric anchor); phys: curated (IAU/JPL references, review pending)",
+      source: "no orbit (heliocentric anchor); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
     ),
     BodyRecord(
       id: "earth",
@@ -32,7 +33,8 @@ Catalog(
       aliases: [],
       category: Planet,
       parent: Some("sun"),
-      gm_km3_s2: Some(398600.4418),
+      is_major_moon: false,
+      gm_km3_s2: Some(398600.435507),
       radius_km: 6371.0,
       color_srgb: (86, 141, 235),
       texture: None,
@@ -50,7 +52,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: Some(0.9855999999999767),
       )),
-      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); phys: curated (IAU/JPL references, review pending)",
+      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
     ),
     BodyRecord(
       id: "moon",
@@ -61,6 +63,7 @@ Catalog(
       ],
       category: Moon,
       parent: Some("earth"),
+      is_major_moon: true,
       gm_km3_s2: None,
       radius_km: 1737.4,
       color_srgb: (198, 189, 175),
@@ -79,7 +82,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated (IAU/JPL references, review pending)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "ceres",
@@ -90,6 +93,7 @@ Catalog(
       ],
       category: DwarfPlanet,
       parent: Some("sun"),
+      is_major_moon: false,
       gm_km3_s2: None,
       radius_km: 469.7,
       color_srgb: (186, 156, 255),
@@ -108,7 +112,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated (IAU/JPL references, review pending)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
     ),
     BodyRecord(
       id: "halley",
@@ -119,6 +123,7 @@ Catalog(
       ],
       category: Comet,
       parent: Some("sun"),
+      is_major_moon: false,
       gm_km3_s2: None,
       radius_km: 5.5,
       color_srgb: (166, 216, 232),
@@ -137,7 +142,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated (IAU/JPL references, review pending)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
     ),
     BodyRecord(
       id: "3i_atlas",
@@ -148,8 +153,9 @@ Catalog(
       ],
       category: Comet,
       parent: Some("sun"),
+      is_major_moon: false,
       gm_km3_s2: None,
-      radius_km: 2.5,
+      radius_km: 0.5,
       color_srgb: (166, 216, 232),
       texture: None,
       description: "The third known interstellar object, crossing the solar system on a hyperbolic path — the catalog\'s open-arc stress test.",
@@ -166,7 +172,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated (IAU/JPL references, review pending)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; nucleus radius adopted 0.5 km; HST constraint 0.16-2.8 km at pV=0.04 (NASA/HST 2025; arXiv:2512.22365); NGA-based estimates ~0.3 km; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
     ),
   ],
 )

@@ -164,6 +164,11 @@ pub struct BodyRecord {
     /// Parent body id. `None` only for the star.
     #[serde(default)]
     pub parent: Option<String>,
+    /// Curated WP10 visibility tier. Meaningful only for moons; false for
+    /// every other category. Missing values deserialize as false so schema-v1
+    /// audit fixtures captured before WP10 remain readable.
+    #[serde(default)]
+    pub is_major_moon: bool,
     /// Gravitational parameter, km³/s². Required for any body that is a parent.
     #[serde(default)]
     pub gm_km3_s2: Option<f64>,
@@ -292,6 +297,9 @@ pub enum CatalogError {
     MoonParentIsStar {
         id: String,
     },
+    NonMoonMarkedMajor {
+        id: String,
+    },
     ParentMissingGm {
         parent: String,
         child: String,
@@ -354,6 +362,9 @@ impl fmt::Display for CatalogError {
                 "'{id}' (heliocentric category) must orbit the star, not '{parent}'"
             ),
             MoonParentIsStar { id } => write!(f, "moon '{id}' must not orbit the star directly"),
+            NonMoonMarkedMajor { id } => {
+                write!(f, "'{id}' is marked as a major moon but is not a moon")
+            }
             ParentMissingGm { parent, child } => write!(
                 f,
                 "'{parent}' has child '{child}' but no gm_km3_s2 (mean motion needs it)"
@@ -502,6 +513,9 @@ impl Catalog {
                         child: child.id.clone(),
                     });
                 }
+            }
+            if b.is_major_moon && b.category != Category::Moon {
+                errs.push(CatalogError::NonMoonMarkedMajor { id: id() });
             }
 
             if b.category == Category::Star {
@@ -885,6 +899,17 @@ Catalog(
         assert!(errs
             .iter()
             .any(|e| matches!(e, CatalogError::MoonParentIsStar { .. })));
+    }
+
+    #[test]
+    fn major_moon_flag_defaults_false_and_rejects_non_moons() {
+        let mut c = sample();
+        assert!(!c.bodies[2].is_major_moon, "legacy RON defaults to false");
+        c.bodies[1].is_major_moon = true;
+        let errs = c.validate().unwrap_err();
+        assert!(errs
+            .iter()
+            .any(|e| matches!(e, CatalogError::NonMoonMarkedMajor { .. })));
     }
 
     #[test]

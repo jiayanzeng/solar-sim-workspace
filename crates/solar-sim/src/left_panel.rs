@@ -1,0 +1,1611 @@
+//! WP10 contextual body panel and render-only view options — Rev C §§4.1 and 9.2.
+//!
+//! The view model is derived exclusively from the validated catalog. UI state
+//! is local and snapshot-ready for WP14; body-size exaggeration touches only
+//! render transforms, while travel continues through `SimCommand`.
+
+use crate::control::{CameraController, SimCommand, SimCommandQueue};
+use crate::ui_kit::{
+    section_header, NavigationStack, UiTheme, WidgetSpec, WidgetVisualState, INTER_FONT_ASSET,
+    TOP_BAR_HEIGHT_PX,
+};
+use crate::{BodyVisual, LoadedCatalog, SimulationSet, KM_PER_RENDER_UNIT, TIME_BAR_HEIGHT_PX};
+use bevy::{
+    input_focus::tab_navigation::TabIndex,
+    prelude::*,
+    text::{Font, LetterSpacing, LineBreak, TextLayout},
+    ui_widgets::Activate,
+};
+use sim_core::catalog::{BodyRecord, Catalog, Category};
+use sim_core::time::JULIAN_YEAR_S;
+use std::collections::BTreeMap;
+use std::fmt;
+
+const PANEL_WIDTH_PX: f32 = 340.0;
+const PANEL_COLLAPSED_SIZE_PX: f32 = 44.0;
+const PANEL_MARGIN_PX: f32 = 16.0;
+const PANEL_Z_INDEX: i32 = 85;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LeftPanelTab {
+    Info,
+    Collection,
+    ViewOptions,
+}
+
+impl LeftPanelTab {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Info => "INFO",
+            Self::Collection => "MOONS",
+            Self::ViewOptions => "VIEW",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BodyLinkViewModel {
+    pub body_index: usize,
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum OrbitalPeriodViewModel {
+    NotApplicable,
+    Hyperbolic,
+    Elliptic { seconds: f64, label: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DescriptionViewModel {
+    Curated(String),
+    CatalogLint(String),
+}
+
+impl DescriptionViewModel {
+    pub fn text(&self) -> &str {
+        match self {
+            Self::Curated(text) | Self::CatalogLint(text) => text,
+        }
+    }
+
+    pub fn is_catalog_lint(&self) -> bool {
+        matches!(self, Self::CatalogLint(_))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MoonCollectionViewModel {
+    pub parent: BodyLinkViewModel,
+    pub label: String,
+    pub children: Vec<BodyLinkViewModel>,
+}
+
+impl MoonCollectionViewModel {
+    pub fn count(&self) -> usize {
+        self.children.len()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BodyInfoViewModel {
+    pub body: BodyLinkViewModel,
+    pub category: Category,
+    pub category_label: String,
+    pub category_color_srgb: (u8, u8, u8),
+    pub radius_km: f64,
+    pub radius_label: String,
+    pub orbital_period: OrbitalPeriodViewModel,
+    pub parent: Option<BodyLinkViewModel>,
+    pub description: DescriptionViewModel,
+    pub collection: Option<MoonCollectionViewModel>,
+    pub tabs: Vec<LeftPanelTab>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InfoViewModelError {
+    MissingBody { index: usize },
+    EmptyName { id: String },
+    MissingParent { id: String },
+    UnknownParent { id: String, parent: String },
+    MissingParentGm { id: String, parent: String },
+    MissingOrbit { id: String },
+    InvalidPeriod { id: String },
+    MissingDescriptionLint { id: String },
+}
+
+impl fmt::Display for InfoViewModelError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingBody { index } => write!(f, "catalog has no body at index {index}"),
+            Self::EmptyName { id } => write!(f, "'{id}' has an empty display name"),
+            Self::MissingParent { id } => write!(f, "'{id}' has no parent"),
+            Self::UnknownParent { id, parent } => {
+                write!(f, "'{id}' references unknown parent '{parent}'")
+            }
+            Self::MissingParentGm { id, parent } => {
+                write!(
+                    f,
+                    "'{id}' cannot derive a period because '{parent}' has no GM"
+                )
+            }
+            Self::MissingOrbit { id } => write!(f, "'{id}' has no orbit"),
+            Self::InvalidPeriod { id } => write!(f, "'{id}' derived an invalid orbital period"),
+            Self::MissingDescriptionLint { id } => {
+                write!(f, "'{id}' has no description and WP3 emitted no lint")
+            }
+        }
+    }
+}
+
+pub fn body_info_view_model(
+    catalog: &Catalog,
+    body_index: usize,
+) -> Result<BodyInfoViewModel, InfoViewModelError> {
+    let body = catalog
+        .bodies
+        .get(body_index)
+        .ok_or(InfoViewModelError::MissingBody { index: body_index })?;
+    if body.name.trim().is_empty() {
+        return Err(InfoViewModelError::EmptyName {
+            id: body.id.clone(),
+        });
+    }
+
+    let id_index = catalog.id_index();
+    let parent = match body.parent.as_deref() {
+        Some(parent_id) => {
+            let parent_index = id_index.get(parent_id).copied().ok_or_else(|| {
+                InfoViewModelError::UnknownParent {
+                    id: body.id.clone(),
+                    parent: parent_id.to_string(),
+                }
+            })?;
+            Some(body_link(catalog, parent_index)?)
+        }
+        None if body.category == Category::Star => None,
+        None => {
+            return Err(InfoViewModelError::MissingParent {
+                id: body.id.clone(),
+            });
+        }
+    };
+
+    let orbital_period = if body.category == Category::Star {
+        OrbitalPeriodViewModel::NotApplicable
+    } else {
+        let orbit = body
+            .orbit
+            .as_ref()
+            .ok_or_else(|| InfoViewModelError::MissingOrbit {
+                id: body.id.clone(),
+            })?;
+        if orbit.elements.is_hyperbolic() {
+            OrbitalPeriodViewModel::Hyperbolic
+        } else {
+            let parent_id =
+                body.parent
+                    .as_deref()
+                    .ok_or_else(|| InfoViewModelError::MissingParent {
+                        id: body.id.clone(),
+                    })?;
+            let parent_index = id_index.get(parent_id).copied().ok_or_else(|| {
+                InfoViewModelError::UnknownParent {
+                    id: body.id.clone(),
+                    parent: parent_id.to_string(),
+                }
+            })?;
+            let parent_gm = catalog.bodies[parent_index].gm_km3_s2.ok_or_else(|| {
+                InfoViewModelError::MissingParentGm {
+                    id: body.id.clone(),
+                    parent: parent_id.to_string(),
+                }
+            })?;
+            let seconds = orbit
+                .period_s(parent_gm)
+                .filter(|period| period.is_finite() && *period > 0.0)
+                .ok_or_else(|| InfoViewModelError::InvalidPeriod {
+                    id: body.id.clone(),
+                })?;
+            OrbitalPeriodViewModel::Elliptic {
+                seconds,
+                label: format_period(seconds),
+            }
+        }
+    };
+
+    let description = if body.description.trim().is_empty() {
+        let prefix = format!("'{}': description is empty", body.id);
+        let lint = catalog
+            .lint()
+            .into_iter()
+            .find(|lint| lint.starts_with(&prefix))
+            .ok_or_else(|| InfoViewModelError::MissingDescriptionLint {
+                id: body.id.clone(),
+            })?;
+        DescriptionViewModel::CatalogLint(lint)
+    } else {
+        DescriptionViewModel::Curated(body.description.trim().to_string())
+    };
+
+    let collection = moon_collection_for_parent(catalog, body_index)?;
+    let mut tabs = vec![LeftPanelTab::Info];
+    if collection.is_some() {
+        tabs.push(LeftPanelTab::Collection);
+    }
+    tabs.push(LeftPanelTab::ViewOptions);
+
+    Ok(BodyInfoViewModel {
+        body: body_link(catalog, body_index)?,
+        category: body.category,
+        category_label: body.category.to_string(),
+        category_color_srgb: body.color_srgb,
+        radius_km: body.radius_km,
+        radius_label: format!("{:.0} km", body.radius_km),
+        orbital_period,
+        parent,
+        description,
+        collection,
+        tabs,
+    })
+}
+
+pub fn moon_collections(
+    catalog: &Catalog,
+) -> Result<Vec<MoonCollectionViewModel>, InfoViewModelError> {
+    let mut collections = Vec::new();
+    for parent_index in 0..catalog.bodies.len() {
+        if let Some(collection) = moon_collection_for_parent(catalog, parent_index)? {
+            collections.push(collection);
+        }
+    }
+    Ok(collections)
+}
+
+fn moon_collection_for_parent(
+    catalog: &Catalog,
+    parent_index: usize,
+) -> Result<Option<MoonCollectionViewModel>, InfoViewModelError> {
+    let parent = catalog
+        .bodies
+        .get(parent_index)
+        .ok_or(InfoViewModelError::MissingBody {
+            index: parent_index,
+        })?;
+    let children: Vec<_> = catalog
+        .bodies
+        .iter()
+        .enumerate()
+        .filter(|(_, body)| {
+            body.category == Category::Moon && body.parent.as_deref() == Some(parent.id.as_str())
+        })
+        .map(|(index, _)| body_link(catalog, index))
+        .collect::<Result<_, _>>()?;
+    if children.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(MoonCollectionViewModel {
+        parent: body_link(catalog, parent_index)?,
+        label: format!("Moons of {} ({})", parent.name, children.len()),
+        children,
+    }))
+}
+
+fn body_link(
+    catalog: &Catalog,
+    body_index: usize,
+) -> Result<BodyLinkViewModel, InfoViewModelError> {
+    let body = catalog
+        .bodies
+        .get(body_index)
+        .ok_or(InfoViewModelError::MissingBody { index: body_index })?;
+    if body.name.trim().is_empty() {
+        return Err(InfoViewModelError::EmptyName {
+            id: body.id.clone(),
+        });
+    }
+    Ok(BodyLinkViewModel {
+        body_index,
+        id: body.id.clone(),
+        name: body.name.clone(),
+    })
+}
+
+fn format_period(seconds: f64) -> String {
+    let days = seconds / 86_400.0;
+    if days < 2.0 {
+        format!("{:.1} hours", seconds / 3_600.0)
+    } else if seconds < 2.0 * JULIAN_YEAR_S {
+        format!("{days:.1} days")
+    } else {
+        format!("{:.2} years", seconds / JULIAN_YEAR_S)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum BodySizeScale {
+    #[default]
+    X1,
+    X10,
+    X50,
+}
+
+impl BodySizeScale {
+    pub const ALL: [Self; 3] = [Self::X1, Self::X10, Self::X50];
+
+    pub const fn multiplier(self) -> f32 {
+        match self {
+            Self::X1 => 1.0,
+            Self::X10 => 10.0,
+            Self::X50 => 50.0,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::X1 => "×1",
+            Self::X10 => "×10",
+            Self::X50 => "×50",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum MoonVisibilityMode {
+    Major,
+    #[default]
+    All,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ViewOptionsSnapshot {
+    pub panel_collapsed: bool,
+    pub body_size: BodySizeScale,
+    pub moon_visibility_by_system: BTreeMap<String, MoonVisibilityMode>,
+    pub local_orbit_visibility: BTreeMap<String, bool>,
+}
+
+impl Default for ViewOptionsSnapshot {
+    fn default() -> Self {
+        Self {
+            panel_collapsed: false,
+            body_size: BodySizeScale::X1,
+            moon_visibility_by_system: BTreeMap::new(),
+            local_orbit_visibility: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Resource, Debug, Clone, Default, PartialEq, Eq)]
+pub struct ViewOptionsState {
+    snapshot: ViewOptionsSnapshot,
+}
+
+impl ViewOptionsState {
+    pub fn persistence_snapshot(&self) -> ViewOptionsSnapshot {
+        self.snapshot.clone()
+    }
+
+    pub fn restore_persistence_snapshot(&mut self, snapshot: ViewOptionsSnapshot) {
+        self.snapshot = snapshot;
+    }
+
+    pub fn panel_collapsed(&self) -> bool {
+        self.snapshot.panel_collapsed
+    }
+
+    pub fn set_panel_collapsed(&mut self, collapsed: bool) {
+        self.snapshot.panel_collapsed = collapsed;
+    }
+
+    pub fn body_size(&self) -> BodySizeScale {
+        self.snapshot.body_size
+    }
+
+    pub fn set_body_size(&mut self, scale: BodySizeScale) {
+        self.snapshot.body_size = scale;
+    }
+
+    pub fn moon_visibility(&self, system_id: &str) -> MoonVisibilityMode {
+        self.snapshot
+            .moon_visibility_by_system
+            .get(system_id)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    pub fn set_moon_visibility(&mut self, system_id: impl Into<String>, mode: MoonVisibilityMode) {
+        self.snapshot
+            .moon_visibility_by_system
+            .insert(system_id.into(), mode);
+    }
+
+    pub fn local_orbit_visible(&self, body_id: &str) -> bool {
+        self.snapshot
+            .local_orbit_visibility
+            .get(body_id)
+            .copied()
+            .unwrap_or(true)
+    }
+
+    pub fn set_local_orbit_visible(&mut self, body_id: impl Into<String>, visible: bool) {
+        self.snapshot
+            .local_orbit_visibility
+            .insert(body_id.into(), visible);
+    }
+}
+
+pub(crate) fn body_passes_moon_visibility(body: &BodyRecord, settings: &ViewOptionsState) -> bool {
+    if body.category != Category::Moon {
+        return true;
+    }
+    body.parent.as_deref().is_some_and(|system_id| {
+        settings.moon_visibility(system_id) == MoonVisibilityMode::All || body.is_major_moon
+    })
+}
+
+pub fn rendered_body_radius_units(radius_km: f64, scale: BodySizeScale) -> f32 {
+    (radius_km / KM_PER_RENDER_UNIT) as f32 * scale.multiplier()
+}
+
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub struct LeftPanelRoot;
+
+#[derive(Component, Debug, Clone, Copy, Default)]
+struct LeftPanelContent;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum ActivePanelPage {
+    #[default]
+    Info,
+    Collection,
+    ViewOptions,
+}
+
+#[derive(Resource, Debug, Default)]
+struct LeftPanelUiState {
+    selected_body_index: Option<usize>,
+    page: ActivePanelPage,
+    dirty: bool,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+enum PanelAction {
+    ToggleCollapsed,
+    SelectPage(ActivePanelPage),
+    TravelTo(usize),
+    SetBodySize(BodySizeScale),
+    SetMoonVisibility {
+        system_index: usize,
+        mode: MoonVisibilityMode,
+    },
+    ToggleLocalOrbit(usize),
+}
+
+pub struct LeftPanelPlugin;
+
+impl Plugin for LeftPanelPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<ViewOptionsState>()
+            .init_resource::<LeftPanelUiState>()
+            .add_systems(
+                Update,
+                (
+                    sync_left_panel_selection,
+                    rebuild_left_panel,
+                    apply_view_options,
+                )
+                    .chain()
+                    .in_set(SimulationSet::Render),
+            );
+    }
+}
+
+fn sync_left_panel_selection(
+    camera: Res<CameraController>,
+    loaded: Option<Res<LoadedCatalog>>,
+    mut state: ResMut<LeftPanelUiState>,
+    mut navigation: ResMut<NavigationStack>,
+) {
+    let Some(loaded) = loaded else {
+        return;
+    };
+    let selected = camera.selected_body_index();
+    if state.selected_body_index == Some(selected) {
+        return;
+    }
+    state.selected_body_index = Some(selected);
+    state.page = ActivePanelPage::Info;
+    state.dirty = true;
+    sync_navigation_to_body(&loaded, selected, &mut navigation);
+}
+
+fn sync_navigation_to_body(
+    loaded: &LoadedCatalog,
+    body_index: usize,
+    navigation: &mut NavigationStack,
+) {
+    navigation.truncate(1);
+    let Some(body) = loaded.catalog.bodies.get(body_index) else {
+        return;
+    };
+    if body.category == Category::Star {
+        return;
+    }
+    if body.category == Category::Moon {
+        if let Some(parent) = body
+            .parent
+            .as_deref()
+            .and_then(|parent_id| loaded.index_of(parent_id))
+            .and_then(|parent_index| loaded.catalog.bodies.get(parent_index))
+        {
+            navigation.push(parent.id.clone(), parent.name.clone());
+        }
+    }
+    navigation.push(body.id.clone(), body.name.clone());
+}
+
+fn rebuild_left_panel(
+    mut commands: Commands,
+    theme: Res<UiTheme>,
+    asset_server: Res<AssetServer>,
+    loaded: Option<Res<LoadedCatalog>>,
+    settings: Res<ViewOptionsState>,
+    mut state: ResMut<LeftPanelUiState>,
+    existing_roots: Query<Entity, With<LeftPanelRoot>>,
+) {
+    if !state.dirty && !settings.is_changed() {
+        return;
+    }
+    let (Some(loaded), Some(body_index)) = (loaded, state.selected_body_index) else {
+        return;
+    };
+    for root in &existing_roots {
+        commands.entity(root).despawn();
+    }
+
+    let font = asset_server.load(INTER_FONT_ASSET);
+    let root = spawn_panel_root(&mut commands, *theme, settings.panel_collapsed());
+    if settings.panel_collapsed() {
+        spawn_action_button(
+            &mut commands,
+            root,
+            *theme,
+            &font,
+            "›",
+            "Expand body information panel",
+            PanelAction::ToggleCollapsed,
+            true,
+        );
+        state.dirty = false;
+        return;
+    }
+
+    match body_info_view_model(&loaded.catalog, body_index) {
+        Ok(model) => spawn_expanded_panel(
+            &mut commands,
+            root,
+            *theme,
+            &font,
+            &model,
+            state.page,
+            &settings,
+            &loaded,
+        ),
+        Err(error) => spawn_panel_error(&mut commands, root, *theme, &font, &error.to_string()),
+    }
+    state.dirty = false;
+}
+
+fn spawn_panel_root(commands: &mut Commands, theme: UiTheme, collapsed: bool) -> Entity {
+    commands
+        .spawn((
+            Name::new("Contextual body panel"),
+            LeftPanelRoot,
+            AccessibleLabel::new("Contextual body information and view options"),
+            Node {
+                position_type: PositionType::Absolute,
+                top: px(TOP_BAR_HEIGHT_PX + PANEL_MARGIN_PX),
+                bottom: px(TIME_BAR_HEIGHT_PX + PANEL_MARGIN_PX),
+                left: px(PANEL_MARGIN_PX),
+                width: px(if collapsed {
+                    PANEL_COLLAPSED_SIZE_PX
+                } else {
+                    PANEL_WIDTH_PX
+                }),
+                height: if collapsed {
+                    px(PANEL_COLLAPSED_SIZE_PX)
+                } else {
+                    auto()
+                },
+                padding: if collapsed {
+                    UiRect::ZERO
+                } else {
+                    UiRect::all(px(theme.spacing.md_px))
+                },
+                border: UiRect::all(px(theme.spacing.hairline_px)),
+                border_radius: BorderRadius::all(px(theme.spacing.radius_px)),
+                flex_direction: FlexDirection::Column,
+                row_gap: px(theme.spacing.sm_px),
+                overflow: Overflow::clip(),
+                ..default()
+            },
+            BackgroundColor(theme.colors.panel.color()),
+            BorderColor::all(theme.colors.separator.color()),
+            GlobalZIndex(PANEL_Z_INDEX),
+        ))
+        .id()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_expanded_panel(
+    commands: &mut Commands,
+    root: Entity,
+    theme: UiTheme,
+    font: &Handle<Font>,
+    model: &BodyInfoViewModel,
+    page: ActivePanelPage,
+    settings: &ViewOptionsState,
+    loaded: &LoadedCatalog,
+) {
+    let header = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                min_height: px(34),
+                align_items: AlignItems::Center,
+                column_gap: px(theme.spacing.sm_px),
+                ..default()
+            },
+            ChildOf(root),
+        ))
+        .id();
+    spawn_text(
+        commands,
+        header,
+        font,
+        &model.body.name,
+        theme.type_scale.title_px,
+        theme.colors.text_primary.color(),
+        true,
+    );
+    spawn_action_button(
+        commands,
+        header,
+        theme,
+        font,
+        "‹",
+        "Collapse body information panel",
+        PanelAction::ToggleCollapsed,
+        false,
+    );
+
+    let tabs = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                height: px(34),
+                align_items: AlignItems::Center,
+                column_gap: px(theme.spacing.xs_px),
+                ..default()
+            },
+            ChildOf(root),
+        ))
+        .id();
+    for tab in &model.tabs {
+        let tab_page = match tab {
+            LeftPanelTab::Info => ActivePanelPage::Info,
+            LeftPanelTab::Collection => ActivePanelPage::Collection,
+            LeftPanelTab::ViewOptions => ActivePanelPage::ViewOptions,
+        };
+        spawn_action_button(
+            commands,
+            tabs,
+            theme,
+            font,
+            tab.label(),
+            &format!("Show {} for {}", tab.label(), model.body.name),
+            PanelAction::SelectPage(tab_page),
+            page == tab_page,
+        );
+    }
+
+    let content = commands
+        .spawn((
+            LeftPanelContent,
+            AccessibleLabel::new(format!("{} panel content", model.body.name)),
+            Node {
+                width: percent(100),
+                flex_grow: 1.0,
+                min_height: px(0),
+                flex_direction: FlexDirection::Column,
+                row_gap: px(theme.spacing.sm_px),
+                overflow: Overflow::scroll_y(),
+                ..default()
+            },
+            ChildOf(root),
+        ))
+        .id();
+
+    match page {
+        ActivePanelPage::Info => spawn_info_page(commands, content, theme, font, model),
+        ActivePanelPage::Collection => {
+            if let Some(collection) = &model.collection {
+                spawn_collection_page(commands, content, theme, font, collection);
+            } else {
+                spawn_info_page(commands, content, theme, font, model);
+            }
+        }
+        ActivePanelPage::ViewOptions => {
+            spawn_view_options_page(commands, content, theme, font, model, settings, loaded);
+        }
+    }
+}
+
+fn spawn_info_page(
+    commands: &mut Commands,
+    content: Entity,
+    theme: UiTheme,
+    font: &Handle<Font>,
+    model: &BodyInfoViewModel,
+) {
+    let category = commands
+        .spawn((
+            Node {
+                height: px(28),
+                padding: UiRect::horizontal(px(theme.spacing.sm_px)),
+                border: UiRect::all(px(theme.spacing.hairline_px)),
+                border_radius: BorderRadius::MAX,
+                align_items: AlignItems::Center,
+                column_gap: px(theme.spacing.sm_px),
+                ..default()
+            },
+            AccessibleLabel::new(format!("Category: {}", model.category_label)),
+            BackgroundColor(theme.colors.panel_elevated.color()),
+            BorderColor::all(theme.colors.separator.color()),
+            ChildOf(content),
+        ))
+        .id();
+    let (red, green, blue) = model.category_color_srgb;
+    commands.spawn((
+        Node {
+            width: px(8),
+            height: px(8),
+            border_radius: BorderRadius::MAX,
+            ..default()
+        },
+        BackgroundColor(Color::srgb_u8(red, green, blue)),
+        ChildOf(category),
+    ));
+    spawn_text(
+        commands,
+        category,
+        font,
+        &model.category_label.to_uppercase(),
+        theme.type_scale.caption_px,
+        theme.colors.text_primary.color(),
+        false,
+    );
+
+    spawn_detail_row(
+        commands,
+        content,
+        theme,
+        font,
+        "RADIUS",
+        &model.radius_label,
+    );
+    if let OrbitalPeriodViewModel::Elliptic { label, .. } = &model.orbital_period {
+        spawn_detail_row(commands, content, theme, font, "ORBITAL PERIOD", label);
+    }
+    if let Some(parent) = &model.parent {
+        let row = spawn_detail_row_container(commands, content, theme, font, "PARENT");
+        spawn_action_button(
+            commands,
+            row,
+            theme,
+            font,
+            &parent.name,
+            &format!("Travel to parent {}", parent.name),
+            PanelAction::TravelTo(parent.body_index),
+            false,
+        );
+    }
+
+    commands
+        .spawn_scene(section_header(
+            theme,
+            WidgetSpec::new(
+                "DESCRIPTION",
+                format!("Description of {}", model.body.name),
+                WidgetVisualState::Default,
+            ),
+        ))
+        .insert(ChildOf(content));
+    let description_color = if model.description.is_catalog_lint() {
+        theme.colors.accent.color()
+    } else {
+        theme.colors.text_muted.color()
+    };
+    spawn_wrapped_text(
+        commands,
+        content,
+        font,
+        model.description.text(),
+        theme.type_scale.body_px,
+        description_color,
+    );
+
+    if let Some(collection) = &model.collection {
+        spawn_action_button(
+            commands,
+            content,
+            theme,
+            font,
+            &format!("{}  →", collection.label),
+            &format!("Open {}", collection.label),
+            PanelAction::SelectPage(ActivePanelPage::Collection),
+            false,
+        );
+    }
+}
+
+fn spawn_collection_page(
+    commands: &mut Commands,
+    content: Entity,
+    theme: UiTheme,
+    font: &Handle<Font>,
+    collection: &MoonCollectionViewModel,
+) {
+    commands
+        .spawn_scene(section_header(
+            theme,
+            WidgetSpec::new(
+                collection.label.to_uppercase(),
+                collection.label.clone(),
+                WidgetVisualState::Active,
+            ),
+        ))
+        .insert(ChildOf(content));
+    for child in &collection.children {
+        spawn_action_button(
+            commands,
+            content,
+            theme,
+            font,
+            &format!("{}  →", child.name),
+            &format!("Select and travel to {}", child.name),
+            PanelAction::TravelTo(child.body_index),
+            false,
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_view_options_page(
+    commands: &mut Commands,
+    content: Entity,
+    theme: UiTheme,
+    font: &Handle<Font>,
+    model: &BodyInfoViewModel,
+    settings: &ViewOptionsState,
+    loaded: &LoadedCatalog,
+) {
+    commands
+        .spawn_scene(section_header(
+            theme,
+            WidgetSpec::new(
+                "BODY SIZE",
+                "Visual body size exaggeration",
+                WidgetVisualState::Default,
+            ),
+        ))
+        .insert(ChildOf(content));
+    let sizes = spawn_button_group(commands, content, theme);
+    for scale in BodySizeScale::ALL {
+        spawn_action_button(
+            commands,
+            sizes,
+            theme,
+            font,
+            scale.label(),
+            &format!("Set visual body sizes to {}", scale.label()),
+            PanelAction::SetBodySize(scale),
+            settings.body_size() == scale,
+        );
+    }
+    spawn_wrapped_text(
+        commands,
+        content,
+        font,
+        "Visual scale only. Propagation and picking remain true-radius.",
+        theme.type_scale.caption_px,
+        theme.colors.text_muted.color(),
+    );
+
+    if let Some((system_index, system)) =
+        moon_system_index(loaded, model.body.body_index).and_then(|system_index| {
+            loaded
+                .catalog
+                .bodies
+                .get(system_index)
+                .map(|system| (system_index, system))
+        })
+    {
+        commands
+            .spawn_scene(section_header(
+                theme,
+                WidgetSpec::new(
+                    "MOON VISIBILITY",
+                    format!("Moon visibility for {}", system.name),
+                    WidgetVisualState::Default,
+                ),
+            ))
+            .insert(ChildOf(content));
+        let modes = spawn_button_group(commands, content, theme);
+        spawn_action_button(
+            commands,
+            modes,
+            theme,
+            font,
+            "MAJOR",
+            &format!("Show the curated major moons of {}", system.name),
+            PanelAction::SetMoonVisibility {
+                system_index,
+                mode: MoonVisibilityMode::Major,
+            },
+            settings.moon_visibility(&system.id) == MoonVisibilityMode::Major,
+        );
+        spawn_action_button(
+            commands,
+            modes,
+            theme,
+            font,
+            "ALL",
+            &format!("Show all modeled moons of {}", system.name),
+            PanelAction::SetMoonVisibility {
+                system_index,
+                mode: MoonVisibilityMode::All,
+            },
+            settings.moon_visibility(&system.id) == MoonVisibilityMode::All,
+        );
+    }
+
+    commands
+        .spawn_scene(section_header(
+            theme,
+            WidgetSpec::new(
+                "LOCAL ORBIT",
+                format!("Orbit line for {}", model.body.name),
+                WidgetVisualState::Default,
+            ),
+        ))
+        .insert(ChildOf(content));
+    if model.category == Category::Star {
+        spawn_disabled_button(
+            commands,
+            content,
+            theme,
+            font,
+            "NO LOCAL ORBIT",
+            "The central star has no parent orbit",
+        );
+    } else {
+        let visible = settings.local_orbit_visible(&model.body.id);
+        spawn_action_button(
+            commands,
+            content,
+            theme,
+            font,
+            if visible {
+                "✓ ORBIT VISIBLE"
+            } else {
+                "ORBIT HIDDEN"
+            },
+            &format!("Toggle the local orbit line for {}", model.body.name),
+            PanelAction::ToggleLocalOrbit(model.body.body_index),
+            visible,
+        );
+    }
+}
+
+fn moon_system_index(loaded: &LoadedCatalog, body_index: usize) -> Option<usize> {
+    let body = loaded.catalog.bodies.get(body_index)?;
+    if body.category == Category::Moon {
+        body.parent
+            .as_deref()
+            .and_then(|parent_id| loaded.index_of(parent_id))
+    } else {
+        loaded
+            .catalog
+            .bodies
+            .iter()
+            .any(|candidate| {
+                candidate.category == Category::Moon
+                    && candidate.parent.as_deref() == Some(body.id.as_str())
+            })
+            .then_some(body_index)
+    }
+}
+
+fn spawn_panel_error(
+    commands: &mut Commands,
+    root: Entity,
+    theme: UiTheme,
+    font: &Handle<Font>,
+    error: &str,
+) {
+    spawn_wrapped_text(
+        commands,
+        root,
+        font,
+        &format!("INFO MODEL ERROR\n{error}"),
+        theme.type_scale.body_px,
+        theme.colors.accent.color(),
+    );
+}
+
+fn spawn_detail_row(
+    commands: &mut Commands,
+    parent: Entity,
+    theme: UiTheme,
+    font: &Handle<Font>,
+    label: &str,
+    value: &str,
+) {
+    let row = spawn_detail_row_container(commands, parent, theme, font, label);
+    spawn_text(
+        commands,
+        row,
+        font,
+        value,
+        theme.type_scale.body_px,
+        theme.colors.text_primary.color(),
+        false,
+    );
+}
+
+fn spawn_detail_row_container(
+    commands: &mut Commands,
+    parent: Entity,
+    theme: UiTheme,
+    font: &Handle<Font>,
+    label: &str,
+) -> Entity {
+    let row = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                min_height: px(30),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::SpaceBetween,
+                column_gap: px(theme.spacing.sm_px),
+                ..default()
+            },
+            ChildOf(parent),
+        ))
+        .id();
+    spawn_text(
+        commands,
+        row,
+        font,
+        label,
+        theme.type_scale.caption_px,
+        theme.colors.text_muted.color(),
+        false,
+    );
+    row
+}
+
+fn spawn_button_group(commands: &mut Commands, parent: Entity, theme: UiTheme) -> Entity {
+    commands
+        .spawn((
+            Node {
+                width: percent(100),
+                min_height: px(34),
+                align_items: AlignItems::Center,
+                column_gap: px(theme.spacing.xs_px),
+                ..default()
+            },
+            ChildOf(parent),
+        ))
+        .id()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_action_button(
+    commands: &mut Commands,
+    parent: Entity,
+    theme: UiTheme,
+    font: &Handle<Font>,
+    text: &str,
+    accessible_label: &str,
+    action: PanelAction,
+    active: bool,
+) -> Entity {
+    let compact = matches!(action, PanelAction::ToggleCollapsed);
+    let entity = commands
+        .spawn((
+            bevy::ui_widgets::Button,
+            action,
+            AccessibleLabel::new(accessible_label),
+            TabIndex(20),
+            Node {
+                min_width: px(34),
+                max_width: if compact { px(44) } else { auto() },
+                height: px(32),
+                max_height: px(34),
+                min_height: px(30),
+                padding: UiRect::horizontal(px(theme.spacing.sm_px)),
+                border: UiRect::all(px(theme.spacing.hairline_px)),
+                border_radius: BorderRadius::all(px(theme.spacing.radius_px)),
+                flex_grow: 1.0,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(if active {
+                Color::srgba_u8(
+                    theme.colors.accent.0[0],
+                    theme.colors.accent.0[1],
+                    theme.colors.accent.0[2],
+                    38,
+                )
+            } else {
+                theme.colors.panel_elevated.color()
+            }),
+            BorderColor::all(if active {
+                theme.colors.accent.color()
+            } else {
+                theme.colors.separator.color()
+            }),
+            ChildOf(parent),
+        ))
+        .observe(activate_panel_action)
+        .id();
+    spawn_text(
+        commands,
+        entity,
+        font,
+        text,
+        theme.type_scale.caption_px,
+        if active {
+            theme.colors.text_primary.color()
+        } else {
+            theme.colors.text_muted.color()
+        },
+        false,
+    );
+    entity
+}
+
+fn spawn_disabled_button(
+    commands: &mut Commands,
+    parent: Entity,
+    theme: UiTheme,
+    font: &Handle<Font>,
+    text: &str,
+    accessible_label: &str,
+) -> Entity {
+    let entity = commands
+        .spawn((
+            AccessibleLabel::new(accessible_label),
+            Node {
+                min_height: px(30),
+                padding: UiRect::horizontal(px(theme.spacing.sm_px)),
+                border: UiRect::all(px(theme.spacing.hairline_px)),
+                border_radius: BorderRadius::all(px(theme.spacing.radius_px)),
+                flex_grow: 1.0,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(theme.colors.background.color()),
+            BorderColor::all(theme.colors.separator.color()),
+            ChildOf(parent),
+        ))
+        .id();
+    spawn_text(
+        commands,
+        entity,
+        font,
+        text,
+        theme.type_scale.caption_px,
+        theme.colors.text_disabled.color(),
+        false,
+    );
+    entity
+}
+
+fn spawn_text(
+    commands: &mut Commands,
+    parent: Entity,
+    font: &Handle<Font>,
+    text: &str,
+    size: f32,
+    color: Color,
+    grow: bool,
+) -> Entity {
+    commands
+        .spawn((
+            Text::new(text),
+            TextFont {
+                font: font.clone().into(),
+                font_size: size.into(),
+                ..default()
+            },
+            TextColor(color),
+            LetterSpacing::Px(0.0),
+            Node {
+                flex_grow: if grow { 1.0 } else { 0.0 },
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(parent),
+        ))
+        .id()
+}
+
+fn spawn_wrapped_text(
+    commands: &mut Commands,
+    parent: Entity,
+    font: &Handle<Font>,
+    text: &str,
+    size: f32,
+    color: Color,
+) -> Entity {
+    commands
+        .spawn((
+            Text::new(text),
+            TextFont {
+                font: font.clone().into(),
+                font_size: size.into(),
+                ..default()
+            },
+            TextColor(color),
+            TextLayout {
+                linebreak: LineBreak::WordBoundary,
+                ..default()
+            },
+            Node {
+                width: percent(100),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(parent),
+        ))
+        .id()
+}
+
+fn activate_panel_action(
+    activate: On<Activate>,
+    actions: Query<&PanelAction>,
+    loaded: Res<LoadedCatalog>,
+    mut state: ResMut<LeftPanelUiState>,
+    mut settings: ResMut<ViewOptionsState>,
+    mut navigation: ResMut<NavigationStack>,
+    mut sim_commands: ResMut<SimCommandQueue>,
+) {
+    let Ok(action) = actions.get(activate.entity) else {
+        return;
+    };
+    match *action {
+        PanelAction::ToggleCollapsed => {
+            let collapsed = !settings.panel_collapsed();
+            settings.set_panel_collapsed(collapsed);
+            state.dirty = true;
+        }
+        PanelAction::SelectPage(page) => {
+            state.page = page;
+            state.dirty = true;
+            if page == ActivePanelPage::Collection {
+                if let Some(body) = state
+                    .selected_body_index
+                    .and_then(|body_index| loaded.catalog.bodies.get(body_index))
+                {
+                    navigation.truncate(1);
+                    navigation.push(body.id.clone(), body.name.clone());
+                    navigation.push(format!("{}_moons", body.id), "Moons");
+                }
+            }
+        }
+        PanelAction::TravelTo(body_index) => {
+            if let Some(body) = loaded.catalog.bodies.get(body_index) {
+                sim_commands.push(SimCommand::TravelToBody(body.id.clone()));
+            }
+        }
+        PanelAction::SetBodySize(scale) => {
+            settings.set_body_size(scale);
+            state.dirty = true;
+        }
+        PanelAction::SetMoonVisibility { system_index, mode } => {
+            if let Some(system) = loaded.catalog.bodies.get(system_index) {
+                settings.set_moon_visibility(system.id.clone(), mode);
+                state.dirty = true;
+            }
+        }
+        PanelAction::ToggleLocalOrbit(body_index) => {
+            if let Some(body) = loaded.catalog.bodies.get(body_index) {
+                let visible = !settings.local_orbit_visible(&body.id);
+                settings.set_local_orbit_visible(body.id.clone(), visible);
+                state.dirty = true;
+            }
+        }
+    }
+}
+
+fn apply_view_options(
+    settings: Res<ViewOptionsState>,
+    camera: Option<Res<CameraController>>,
+    loaded: Option<Res<LoadedCatalog>>,
+    mut bodies: Query<(&BodyVisual, &mut Transform, Option<&mut Visibility>)>,
+) {
+    if !settings.is_changed() && camera.as_ref().is_none_or(|camera| !camera.is_changed()) {
+        return;
+    }
+    let Some(loaded) = loaded else {
+        return;
+    };
+    let selected = camera.as_ref().map(|camera| camera.selected_body_index());
+    for (visual, mut transform, visibility) in &mut bodies {
+        if let Some(body) = loaded.catalog.bodies.get(visual.index) {
+            transform.scale = Vec3::splat(rendered_body_radius_units(
+                body.radius_km,
+                settings.body_size(),
+            ));
+            if let Some(mut visibility) = visibility {
+                *visibility = if selected == Some(visual.index)
+                    || body_passes_moon_visibility(body, &settings)
+                {
+                    Visibility::Visible
+                } else {
+                    Visibility::Hidden
+                };
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::labels::{inflated_pick_radius, ray_sphere_hit_distance};
+    use crate::{load_catalog_text, propagate_catalog, BodyStates};
+    use bevy::camera::PerspectiveProjection;
+
+    const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
+
+    fn catalog() -> Catalog {
+        load_catalog_text(REAL_CATALOG).unwrap()
+    }
+
+    #[test]
+    fn all_sixty_six_info_models_are_render_ready() {
+        let catalog = catalog();
+        let lints = catalog.lint();
+        assert_eq!(catalog.bodies.len(), 66);
+
+        for (index, body) in catalog.bodies.iter().enumerate() {
+            let model = body_info_view_model(&catalog, index)
+                .unwrap_or_else(|error| panic!("{} failed: {error}", body.id));
+            assert!(!model.body.name.trim().is_empty());
+            assert!(!model.category_label.trim().is_empty());
+            assert!(model.radius_km > 0.0);
+            assert!(!model.radius_label.trim().is_empty());
+            match (&body.orbit, &model.orbital_period) {
+                (None, OrbitalPeriodViewModel::NotApplicable) => {}
+                (Some(orbit), OrbitalPeriodViewModel::Hyperbolic)
+                    if orbit.elements.is_hyperbolic() => {}
+                (Some(orbit), OrbitalPeriodViewModel::Elliptic { seconds, label })
+                    if !orbit.elements.is_hyperbolic() =>
+                {
+                    assert!(seconds.is_finite() && *seconds > 0.0);
+                    assert!(!label.trim().is_empty());
+                }
+                combination => panic!("{} has mismatched period {combination:?}", body.id),
+            }
+            assert!(!model.description.text().trim().is_empty());
+            if body.description.trim().is_empty() {
+                assert!(model.description.is_catalog_lint());
+                assert!(lints.iter().any(|lint| lint == model.description.text()));
+            } else {
+                assert_eq!(model.description.text(), body.description.trim());
+            }
+        }
+    }
+
+    #[test]
+    fn moon_collection_counts_match_catalog_topology_for_every_parent() {
+        let catalog = catalog();
+        let collections = moon_collections(&catalog).unwrap();
+        let expected_parent_count = catalog
+            .bodies
+            .iter()
+            .filter(|parent| {
+                catalog.bodies.iter().any(|body| {
+                    body.category == Category::Moon
+                        && body.parent.as_deref() == Some(parent.id.as_str())
+                })
+            })
+            .count();
+        assert_eq!(collections.len(), expected_parent_count);
+
+        for collection in collections {
+            let actual: Vec<_> = catalog
+                .bodies
+                .iter()
+                .filter(|body| {
+                    body.category == Category::Moon
+                        && body.parent.as_deref() == Some(collection.parent.id.as_str())
+                })
+                .map(|body| body.id.as_str())
+                .collect();
+            let modeled: Vec<_> = collection
+                .children
+                .iter()
+                .map(|body| body.id.as_str())
+                .collect();
+            assert_eq!(modeled, actual);
+            assert_eq!(collection.count(), actual.len());
+            assert_eq!(
+                collection.label,
+                format!("Moons of {} ({})", collection.parent.name, actual.len())
+            );
+        }
+    }
+
+    #[test]
+    fn fifty_x_size_changes_only_render_scale_not_propagation_or_picking_truth() {
+        let catalog = catalog();
+        let earth = catalog
+            .bodies
+            .iter()
+            .position(|body| body.id == "earth")
+            .unwrap();
+        let states = propagate_catalog(&catalog, 0.0).unwrap();
+        let truth_before = states.0.clone();
+        let true_radius_units = catalog.bodies[earth].radius_km / KM_PER_RENDER_UNIT;
+
+        let mut app = App::new();
+        let mut settings = ViewOptionsState::default();
+        settings.set_body_size(BodySizeScale::X50);
+        app.insert_resource(LoadedCatalog::new(catalog))
+            .insert_resource(states)
+            .insert_resource(settings)
+            .add_systems(Update, apply_view_options);
+        let entity = app
+            .world_mut()
+            .spawn((BodyVisual { index: earth }, Transform::default()))
+            .id();
+        app.update();
+
+        let transform = app.world().entity(entity).get::<Transform>().unwrap();
+        assert_eq!(
+            transform.scale,
+            Vec3::splat((true_radius_units * 50.0) as f32)
+        );
+        assert_eq!(app.world().resource::<BodyStates>().0, truth_before);
+
+        let projection = Projection::Perspective(PerspectiveProjection::default());
+        let pick_radius = inflated_pick_radius(true_radius_units, 100.0, &projection, 720.0);
+        assert_eq!(pick_radius, true_radius_units);
+        let ray_inside_exaggerated_visual = [10.0, 0.0, -100.0];
+        assert!(10.0 < true_radius_units * 50.0);
+        assert_eq!(
+            ray_sphere_hit_distance(
+                [0.0; 3],
+                ray_inside_exaggerated_visual,
+                [0.0, 0.0, -100.0],
+                pick_radius,
+            ),
+            None,
+            "the ×50 visual silhouette must not expand picking truth"
+        );
+    }
+
+    #[test]
+    fn major_mode_hides_only_unflagged_moons_and_all_restores_them() {
+        let catalog = catalog();
+        let io = catalog
+            .bodies
+            .iter()
+            .position(|body| body.id == "io")
+            .unwrap();
+        let himalia = catalog
+            .bodies
+            .iter()
+            .position(|body| body.id == "himalia")
+            .unwrap();
+        assert!(catalog.bodies[io].is_major_moon);
+        assert!(!catalog.bodies[himalia].is_major_moon);
+
+        let mut settings = ViewOptionsState::default();
+        settings.set_moon_visibility("jupiter", MoonVisibilityMode::Major);
+        let mut app = App::new();
+        app.insert_resource(LoadedCatalog::new(catalog))
+            .insert_resource(settings)
+            .add_systems(Update, apply_view_options);
+        let io_entity = app
+            .world_mut()
+            .spawn((
+                BodyVisual { index: io },
+                Transform::default(),
+                Visibility::Visible,
+            ))
+            .id();
+        let himalia_entity = app
+            .world_mut()
+            .spawn((
+                BodyVisual { index: himalia },
+                Transform::default(),
+                Visibility::Visible,
+            ))
+            .id();
+        app.update();
+
+        assert_eq!(
+            app.world().entity(io_entity).get::<Visibility>(),
+            Some(&Visibility::Visible)
+        );
+        assert_eq!(
+            app.world().entity(himalia_entity).get::<Visibility>(),
+            Some(&Visibility::Hidden)
+        );
+
+        app.world_mut()
+            .resource_mut::<ViewOptionsState>()
+            .set_moon_visibility("jupiter", MoonVisibilityMode::All);
+        app.update();
+        assert_eq!(
+            app.world().entity(himalia_entity).get::<Visibility>(),
+            Some(&Visibility::Visible)
+        );
+    }
+
+    #[test]
+    fn view_options_snapshot_round_trips_for_wp14_without_loss() {
+        let mut state = ViewOptionsState::default();
+        state.set_panel_collapsed(true);
+        state.set_body_size(BodySizeScale::X10);
+        state.set_moon_visibility("jupiter", MoonVisibilityMode::All);
+        state.set_local_orbit_visible("io", false);
+        let snapshot = state.persistence_snapshot();
+
+        let mut restored = ViewOptionsState::default();
+        restored.restore_persistence_snapshot(snapshot.clone());
+        assert_eq!(restored.persistence_snapshot(), snapshot);
+    }
+
+    #[test]
+    fn collection_action_navigates_to_the_catalog_derived_moons_page() {
+        let loaded = LoadedCatalog::new(catalog());
+        let jupiter = loaded.index_of("jupiter").unwrap();
+        let mut app = App::new();
+        app.insert_resource(loaded)
+            .insert_resource(LeftPanelUiState {
+                selected_body_index: Some(jupiter),
+                page: ActivePanelPage::Info,
+                dirty: false,
+            })
+            .insert_resource(ViewOptionsState::default())
+            .insert_resource(NavigationStack::root())
+            .insert_resource(SimCommandQueue::default());
+        let button = app
+            .world_mut()
+            .spawn(PanelAction::SelectPage(ActivePanelPage::Collection))
+            .observe(activate_panel_action)
+            .id();
+
+        app.world_mut().trigger(Activate { entity: button });
+
+        assert_eq!(
+            app.world().resource::<LeftPanelUiState>().page,
+            ActivePanelPage::Collection
+        );
+        assert_eq!(
+            app.world().resource::<NavigationStack>().label(),
+            "Solar System › Jupiter › Moons"
+        );
+    }
+}
