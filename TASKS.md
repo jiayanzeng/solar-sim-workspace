@@ -711,6 +711,26 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-14** — CI-1 complete: split the public-repository gates into
+  `.github/workflows/ci.yml` (push to `main` plus pull requests) and the
+  dispatch-only `.github/workflows/goldens.yml`; added the full hosted
+  Linux/macOS/Windows lanes, scoped cancellation to `ci.yml`, restricted both
+  workflows to `contents: read`, pinned every third-party action to a commit
+  SHA, and retained the unchanged purity/offline/online-feature guards. Hosted
+  run [#24](https://github.com/jiayanzeng/solar-sim-workspace/actions/runs/29323761630)
+  found the Linux Bevy build also requires `libwayland-dev` (`wayland-client.pc`
+  was absent); after adding that package to `lint` and `test-linux`, hosted run
+  [#25](https://github.com/jiayanzeng/solar-sim-workspace/actions/runs/29323939171)
+  passed: `lint` 4m58s, `test-linux` 19m48s, `invariants` 27s,
+  `platform (macos-14)` 30m25s, and `platform (windows-latest)` 58m37s. No
+  headless test failed. Local evidence: `cargo test` and `cargo nextest run
+  --workspace` each pass all 196 tests; `cargo fmt --all -- --check`, `cargo
+  clippy --workspace --all-targets -- -D warnings`,
+  `scripts/check-texture-metadata.sh`, the fixtures `gen-catalog` smoke, `cargo
+  build -p solar-sim --release`, the standalone Cargo 1.75 `sim-core` check,
+  and the unchanged workflow purity/offline/online-feature scans pass. No
+  dependency, read-only file, generated catalog, curated route, catalog
+  composition, or WP15 acceptance checkbox changed.
 - **2026-07-14** — Repaired the WP15 CI run #21 golden-capture failure without
   weakening its gate. `cargo run -p xtask` exported xtask's
   `CARGO_MANIFEST_DIR` into each `solar-sim` child, so Bevy resolved
