@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 191 passing** (53 `sim-core` · 96 `solar-sim` · 39 `xtask`
+**Test baseline: 194 passing** (53 `sim-core` · 98 `solar-sim` · 40 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -711,6 +711,25 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-14** — Repaired the WP15 CI run #21 golden-capture failure without
+  weakening its gate. `cargo run -p xtask` exported xtask's
+  `CARGO_MANIFEST_DIR` into each `solar-sim` child, so Bevy resolved
+  `../../assets` from `xtask/` and rejected every texture plus the Inter font.
+  The launcher now pins the child environment to the `solar-sim` manifest;
+  a regression test independently resolves that inherited path to the
+  workspace asset root. Golden cameras now render to a fixed 960×600 sRGB
+  image target instead of reading a window swapchain, eliminating the
+  repeatable all-black Metal readback while still exercising the selected
+  Metal/DX12 backend. HUD-free views hide their surfaces rather than queuing
+  overlapping hierarchy despawns. Two complete local Metal runs each captured
+  all six canonical views, and the CI-equivalent comparator reports maximum
+  mean Delta E = 0.0050 and p99 Delta E = 0.0000 across the final set, far
+  inside the 1.25/4.0 gate. Evidence: `cargo test` passes all 194 tests (53
+  `sim-core`, 98 `solar-sim`, 40 `xtask` lib, two smoke, one active
+  spot-check); `cargo fmt --all -- --check`, `cargo clippy --workspace
+  --all-targets -- -D warnings`, and the release build pass. WP15 and its final
+  acceptance box remain **in-progress** until the repaired commit produces two
+  consecutive passing hosted Metal/DX12 runs on the same platform.
 - **2026-07-14** — WP15 implementation complete; hosted golden stability
   verification remains. Added 15 catalog-driven 2048×1024 sphere KTX2 assets
   plus Saturn's 2048-pixel translucent ring strip, with byte-exact public-domain

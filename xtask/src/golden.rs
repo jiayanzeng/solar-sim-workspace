@@ -136,6 +136,34 @@ fn display_names(names: &[String]) -> String {
     }
 }
 
+fn solar_sim_manifest_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../crates/solar-sim")
+}
+
+fn golden_application_command(
+    application: &Path,
+    backend: &str,
+    view: &str,
+    output: &Path,
+) -> Command {
+    let mut command = Command::new(application);
+    command
+        // `cargo run -p xtask` exports xtask's manifest directory to this
+        // process. Do not let the child inherit it: Bevy uses the variable as
+        // its base when resolving solar-sim's `../../assets` source.
+        .env("CARGO_MANIFEST_DIR", solar_sim_manifest_dir())
+        .env("WGPU_BACKEND", backend)
+        .args([
+            "--golden-view",
+            view,
+            "--golden-backend",
+            backend,
+            "--golden-capture",
+        ])
+        .arg(output);
+    command
+}
+
 /// Launch the already-built application once per canonical view.
 pub fn capture_golden_views(
     application: &Path,
@@ -170,16 +198,7 @@ pub fn capture_golden_views(
                 message: error.to_string(),
             })?;
         }
-        let status = Command::new(application)
-            .env("WGPU_BACKEND", backend)
-            .args([
-                "--golden-view",
-                view,
-                "--golden-backend",
-                backend,
-                "--golden-capture",
-            ])
-            .arg(&path)
+        let status = golden_application_command(application, backend, view, &path)
             .status()
             .map_err(|error| GoldenError::Launch {
                 view: view.into(),
@@ -409,6 +428,31 @@ mod tests {
             }
             fs::write(directory.join(format!("{view}.ppm")), ppm).unwrap();
         }
+    }
+
+    #[test]
+    fn golden_child_anchors_bevy_assets_to_the_solar_sim_manifest() {
+        let command = golden_application_command(
+            Path::new("solar-sim-test"),
+            "metal",
+            "full-system",
+            Path::new("capture.ppm"),
+        );
+        let child_manifest = command
+            .get_envs()
+            .find_map(|(key, value)| {
+                (key == "CARGO_MANIFEST_DIR").then(|| value.unwrap().to_owned())
+            })
+            .expect("golden child must override Cargo's xtask manifest directory");
+        let child_asset_root = Path::new(&child_manifest)
+            .join("../../assets")
+            .canonicalize()
+            .unwrap();
+        let workspace_asset_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../assets")
+            .canonicalize()
+            .unwrap();
+        assert_eq!(child_asset_root, workspace_asset_root);
     }
 
     #[test]

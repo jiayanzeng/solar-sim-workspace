@@ -4,7 +4,10 @@ The renderer owns six canonical views at a fixed 960 × 600 logical-pixel
 window and a 1.0 scale factor. `crates/solar-sim/src/golden.rs` is the source of
 truth for camera poses and layer profiles; this document gives reviewers the
 intent behind those values. The persisted user settings file is ignored while
-capturing. Simulation time starts at the catalog's fixed default epoch.
+capturing. Simulation time starts at the catalog's fixed default epoch. The 3D
+camera renders to a fixed-size sRGB image target so capture does not depend on
+swapchain visibility or window-surface state; Metal/DX12 still render every
+pixel through their normal backend pipelines.
 
 | View | Focus | Review target |
 | --- | --- | --- |
@@ -40,6 +43,11 @@ The application writes strict binary PPM (`P6`) files so comparison needs no
 image-codec dependency. The default gate computes CIE Lab Delta E 76 and
 requires mean Delta E ≤ 1.25 and the 99th percentile ≤ 4.0 for every view.
 Both capture directories must contain exactly the six names above.
+
+The launcher replaces Cargo's inherited `CARGO_MANIFEST_DIR` with the
+`solar-sim` crate directory before starting the app. This keeps Bevy's
+`../../assets` root anchored to the workspace assets when the launcher itself
+is executed through `cargo run -p xtask`.
 
 CI captures two independent application launches per backend, compares them,
 and uploads the second set as the reviewed backend artifact. A deliberately

@@ -86,12 +86,14 @@ pub use ui_kit::{
 #[cfg(debug_assertions)]
 pub use ui_kit::{WidgetGalleryCell, WidgetGalleryRoot};
 
+use bevy::camera::{RenderTarget, ShadowLodOrigin};
 #[cfg(debug_assertions)]
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::ecs::system::SystemParam;
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
 use bevy::settings::SettingsPlugin;
+use bevy::ui::IsDefaultUiCamera;
 use bevy::window::ExitCondition;
 use control::{
     advance_camera_controller, consume_presentation_command, consume_sim_command,
@@ -875,6 +877,7 @@ fn spawn_camera(
     mut commands: Commands,
     loaded: Option<Res<LoadedCatalog>>,
     camera: Res<CameraController>,
+    golden_target: Option<Res<golden::GoldenRenderTarget>>,
 ) {
     if loaded.is_none() {
         return;
@@ -888,8 +891,14 @@ fn spawn_camera(
             Visibility::default(),
         ))
         .id();
-    commands.spawn((
+    let render_target = golden_target
+        .as_ref()
+        .map_or_else(RenderTarget::default, |target| {
+            RenderTarget::Image(target.0.clone().into())
+        });
+    let mut camera_entity = commands.spawn((
         Camera3d::default(),
+        render_target,
         Bloom::NATURAL,
         Projection::Perspective(PerspectiveProjection {
             near: 1.0e-6,
@@ -899,6 +908,11 @@ fn spawn_camera(
         ChildOf(focus_anchor),
         Transform::from_translation(translation).looking_at(Vec3::ZERO, Vec3::Y),
     ));
+    if golden_target.is_some() {
+        // Offscreen cameras are not auto-selected for shadow LOD. Pin the
+        // origin explicitly so the render path stays warning-free and stable.
+        camera_entity.insert((ShadowLodOrigin, IsDefaultUiCamera));
+    }
 }
 
 fn spawn_catalog_error(mut commands: Commands, failure: Option<Res<CatalogFailure>>) {
@@ -1223,6 +1237,35 @@ mod tests {
         assert_eq!(perspective.near, 1.0e-6);
         assert_eq!(perspective.far, 1.0e9);
         assert_eq!(bloom.intensity, Bloom::NATURAL.intensity);
+    }
+
+    #[test]
+    fn golden_camera_targets_the_offscreen_image_and_owns_the_ui() {
+        let catalog = catalog();
+        let states = propagate_catalog(&catalog, t_from_jd_tdb(2_461_042.0)).unwrap();
+        let loaded = LoadedCatalog::new(catalog);
+        let sun = loaded.index_of("sun").unwrap();
+        let camera = CameraController::new(
+            sun,
+            states.0[sun].position_km,
+            DEFAULT_CAMERA_DISTANCE_UNITS,
+        );
+        let target = Handle::<Image>::default();
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(loaded)
+            .insert_resource(camera)
+            .insert_resource(golden::GoldenRenderTarget(target.clone()))
+            .add_systems(Startup, spawn_camera);
+        app.update();
+
+        let mut query = app.world_mut().query_filtered::<
+            (&RenderTarget, &ShadowLodOrigin, &IsDefaultUiCamera),
+            With<Camera3d>,
+        >();
+        let cameras: Vec<_> = query.iter(app.world()).collect();
+        assert_eq!(cameras.len(), 1);
+        assert_eq!(cameras[0].0.as_image(), Some(&target));
     }
 
     #[derive(Resource, Default)]

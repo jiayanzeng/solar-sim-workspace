@@ -8,12 +8,15 @@ use bevy::{
     app::AppExit,
     asset::LoadState,
     prelude::*,
+    render::render_resource::TextureFormat,
     render::view::screenshot::{Screenshot, ScreenshotCaptured},
 };
 use std::{fs, path::PathBuf, time::Instant};
 
 use crate::layers::{HudSurface, UiRestoreAffordance};
 use crate::{LayerId, LayerState, SimulationSet};
+
+type GoldenHudFilter = Or<(With<HudSurface>, With<UiRestoreAffordance>)>;
 
 pub const GOLDEN_WIDTH: u32 = 960;
 pub const GOLDEN_HEIGHT: u32 = 600;
@@ -29,6 +32,9 @@ pub struct GoldenCaptureOptions {
     pub backend: String,
     pub output: PathBuf,
 }
+
+#[derive(Resource)]
+pub(crate) struct GoldenRenderTarget(pub Handle<Image>);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GoldenViewSpec {
@@ -160,31 +166,37 @@ struct GoldenCaptureState {
 
 pub(crate) fn configure_golden_capture(app: &mut App, options: GoldenCaptureOptions) {
     let hide_hud = golden_view(&options.view).is_some_and(|view| !view.show_ui);
-    app.insert_resource(GoldenCaptureState {
-        options,
-        frames: 0,
-        started: None,
-        attempts: 0,
-        requested: false,
-    })
-    .add_systems(Update, request_golden_capture.in_set(SimulationSet::Render));
+    let target = app
+        .world_mut()
+        .resource_mut::<Assets<Image>>()
+        .add(Image::new_target_texture(
+            GOLDEN_WIDTH,
+            GOLDEN_HEIGHT,
+            TextureFormat::Rgba8UnormSrgb,
+            None,
+        ));
+    app.insert_resource(GoldenRenderTarget(target))
+        .insert_resource(GoldenCaptureState {
+            options,
+            frames: 0,
+            started: None,
+            attempts: 0,
+            requested: false,
+        })
+        .add_systems(Update, request_golden_capture.in_set(SimulationSet::Render));
     if hide_hud {
         app.add_systems(
             Update,
-            remove_golden_hud
+            hide_golden_hud
                 .in_set(SimulationSet::Render)
                 .before(request_golden_capture),
         );
     }
 }
 
-fn remove_golden_hud(
-    mut commands: Commands,
-    hud: Query<Entity, With<HudSurface>>,
-    restore: Query<Entity, With<UiRestoreAffordance>>,
-) {
-    for entity in hud.iter().chain(restore.iter()) {
-        commands.entity(entity).despawn();
+fn hide_golden_hud(mut surfaces: Query<&mut Visibility, GoldenHudFilter>) {
+    for mut visibility in &mut surfaces {
+        *visibility = Visibility::Hidden;
     }
 }
 
@@ -194,6 +206,7 @@ fn request_golden_capture(
     asset_server: Res<AssetServer>,
     materials: Res<Assets<StandardMaterial>>,
     material_handles: Query<&MeshMaterial3d<StandardMaterial>>,
+    target: Res<GoldenRenderTarget>,
     mut exit: MessageWriter<AppExit>,
 ) {
     if state.requested {
@@ -251,7 +264,7 @@ fn request_golden_capture(
         state.options.output.display()
     );
     commands
-        .spawn(Screenshot::primary_window())
+        .spawn(Screenshot::image(target.0.clone()))
         .observe(save_ppm_and_exit(state.options.output.clone()));
     state.attempts += 1;
     state.requested = true;
@@ -334,6 +347,33 @@ mod tests {
             assert!(view.distance_units.is_none_or(|distance| distance > 0.0));
         }
         assert!(golden_view("not-a-view").is_none());
+    }
+
+    #[test]
+    fn golden_render_target_is_fixed_size_srgb_and_cpu_readable() {
+        let mut app = App::new();
+        app.insert_resource(Assets::<Image>::default());
+        configure_golden_capture(
+            &mut app,
+            GoldenCaptureOptions {
+                view: "earth-texture".into(),
+                backend: "test".into(),
+                output: PathBuf::from("ignored.ppm"),
+            },
+        );
+        let target = app.world().resource::<GoldenRenderTarget>();
+        let image = app
+            .world()
+            .resource::<Assets<Image>>()
+            .get(&target.0)
+            .unwrap();
+        assert_eq!(image.width(), GOLDEN_WIDTH);
+        assert_eq!(image.height(), GOLDEN_HEIGHT);
+        assert_eq!(
+            image.texture_descriptor.format,
+            TextureFormat::Rgba8UnormSrgb
+        );
+        assert!(image.data.is_some());
     }
 
     #[test]
