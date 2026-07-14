@@ -46,7 +46,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 12 | Search (alias-aware) + Menu browse with live counts | **✅ done** |
 | 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | **✅ done** |
 | 14 | Settings screen + render-recovery policies | **✅ done** |
-| 15 | Texture pass (2K KTX2) + visual polish + golden screenshots | **in-progress** |
+| 15 | Texture pass (2K KTX2) + visual polish + golden screenshots | **✅ done** |
 | 16 | Steam: Steamworks init, overlay spike, packaging/signing/depots | todo |
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
@@ -613,7 +613,7 @@ attribution, no NASA branding).
   fails on a metadata-less asset (prove by adding one in a scratch branch).
 - [x] Untextured bodies still render with catalog colors (texturing stays
   polish, not a dependency).
-- [ ] Goldens are stable across two consecutive CI runs on the same
+- [x] Goldens are stable across two consecutive CI runs on the same
   platform.
 
 **Tests required.** The metadata CI check itself; golden harness with the
@@ -736,6 +736,29 @@ numbering.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-14** — CI-5 closed WP15 on clean, pushed `main` commit
+  `887a2c60bf2cc04f0817bcd215eda9fa9075601b`. Two separate
+  `workflow_dispatch` executions used `backend=metal`, job label
+  `goldens (metal)`, and runner label `macos-14` at that exact SHA:
+  [goldens #1 / run 29335082428](https://github.com/jiayanzeng/solar-sim-workspace/actions/runs/29335082428)
+  passed in 2m10s, then
+  [goldens #2 / run 29335434467](https://github.com/jiayanzeng/solar-sim-workspace/actions/runs/29335434467)
+  passed in 2m48s with no intervening code or workflow configuration change.
+  Per-view results below are `(mean Delta E, p99 Delta E, run-a/run-b
+  attempts)`. Run 29335082428: `full-system` (0.0048, 0.0000, 1/1),
+  `inner-orbits` (0.0000, 0.0000, 1/1), `earth-texture` (0.0000, 0.0000,
+  1/1), `jupiter-system` (0.0050, 0.0000, 1/1), `saturn-rings` (0.0000,
+  0.0000, 1/1), and `sun-bloom` (0.0000, 0.0000, 1/1). Run 29335434467:
+  `full-system` (0.0053, 0.0000, 1/1), `inner-orbits` (0.0000, 0.0000,
+  1/1), `earth-texture` (0.0000, 0.0000, 1/1), `jupiter-system` (0.0000,
+  0.0000, 1/1), `saturn-rings` (0.0000, 0.0000, 1/1), and `sun-bloom`
+  (0.0000, 0.0000, 1/1). Neither execution used `--allow-retries`.
+  `git status --short --branch` and `git rev-parse HEAD main origin/main`
+  confirmed clean synchronized `main`; pre-merge hosted CI
+  [#33](https://github.com/jiayanzeng/solar-sim-workspace/actions/runs/29334369406)
+  passed all five jobs, and the post-golden local `cargo test` passed all 200
+  tests. This evidence satisfies the unchanged final WP15 acceptance criterion;
+  WP15 is now **✅ done**.
 - **2026-07-14** — CI-4 complete: successful golden captures now print
   `golden-attempts view=<slug> attempts=<n>`; `xtask capture-goldens` validates
   one record per canonical view, writes the six counts to
