@@ -734,6 +734,27 @@ commands for any of those six tasks. Provide the exact CI-1 through CI-6 briefs;
 agents must not infer them from the superseded private-repository Task 1/Task 2
 numbering.
 
+Q13 — OPEN. Hosted-only CI (the standing decision as of 2026-07-14: no
+self-hosted runners, no local VMs) cannot satisfy three acceptance items. They
+require physical hardware and a human purchasing decision:
+
+1. WP16 — "Overlay spike results documented in docs/ for both OSes."
+   Needs a real Steam client on a real desktop session on each OS.
+2. WP16 — "a dev-branch SteamPipe install launches on both OSes."
+   Hosted windows-latest has no GPU (WARP fallback); that is not a launch
+   verification. The macOS half is satisfiable on the developer's own Mac.
+3. WP17 — "Perf numbers recorded for both reference machines; both >= 60 fps
+   all-layers", on an M1 MacBook Air and a GTX 1650-class laptop. No hosted
+   runner can produce a credible frame-time measurement, and neither reference
+   machine is currently owned.
+
+Decision required from the human, before WP16 packaging begins: acquire the
+reference hardware, or amend WP17's reference machines with a signed change.
+
+WP16 will need Apple Developer ID and Steam credentials as repository secrets.
+On a public repo, those MUST live in a protected environment that no
+fork-triggered workflow can reach.
+
 ## Change log (append-only; newest first)
 
 - **2026-07-14** — CI-5 closed WP15 on clean, pushed `main` commit
