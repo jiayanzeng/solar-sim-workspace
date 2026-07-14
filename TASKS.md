@@ -714,7 +714,10 @@ Optional post-beta. No brief until un-deferred by the human.
 | Q7 | **Approve the general Sun/planet GM audit?** Adopt the exact JPL DE440 set in `docs/wp3-gm-audit-2026-07-13.md`: eight numeric replacements, with Venus verified unchanged; Mars–Neptune use DE440 system GMs. | 2026-07-13 | **closed 2026-07-13** — human approved all nine rows. The eight replacements and verified Venus value are applied with DE440 provenance; both catalogs were regenerated from captured responses and the active position gate remains green. |
 | Q8 | **What defines “Major” in WP10's per-system Major/All moon visibility option?** The frozen catalog has no major-moon flag and ARCHITECTURE gives no membership list or physical cutoff. Recommend an additive curated boolean in the generator manifest/schema so the choice is reviewable; alternatives are a human-approved id set or a specified radius rule. | 2026-07-13 | **closed 2026-07-13** — human approved the recommended additive, catalog-backed curated boolean. The manifest's explicit 24-id membership list is the source of truth and covers every modeled moon system. |
 | Q9 | **Approve NASA HEASARC BSC5P as WP13's license-clean Bright Star Catalog source?** The authoritative NASA Open Data Portal identifies `ivo://nasa.heasarc/bsc5p`, marks access public, and links its license to the U.S. government-works policy. The table is HEASARC's 1995 derivative of ADC/CDS V/50 with later position corrections. Recommend the NASA export rather than redistributing CDS V/50 directly; retain Hoffleit & Warren, HEASARC, NASA Open Data, and V/50 provenance in the audit sidecar. | 2026-07-14 | **closed 2026-07-14** — human approved NASA HEASARC BSC5P. The derived 5,000-star asset and `assets/starfield-SOURCE.md` record the exact TAP query, hashes, government-works license route, catalog references, exclusions, and bake transform. |
-Q10 — CLOSED (human, 2026-07-14). WP15's "stable across two consecutive CI runs
+
+### Q10 — CLOSED (human, 2026-07-14).
+
+WP15's "stable across two consecutive CI runs
 on the same platform" is scoped to a SINGLE platform, and that platform is
 macOS/Metal. Rationale: hosted windows-latest has no GPU, so wgpu falls back to
 the WARP software rasterizer. Proving WARP is deterministic across two runs is
@@ -723,18 +726,24 @@ validation is deferred to WP16/WP17 bring-up on real hardware. DX12 captures sta
 in the golden workflow as a non-blocking code-path check. No acceptance text is
 reworded; this records how the existing text is read.
 
-Q11 — CLOSED (human, 2026-07-14). Yes, create the platform matrix. Docker is not
+### Q11 — CLOSED (human, 2026-07-14).
+
+Yes, create the platform matrix. Docker is not
 required: the repository is public, so GitHub-hosted standard runners are free
 and unlimited. Validate the Linux lane on hosted CI by pushing a branch and
 reading the run. Self-hosted runners and local VMs are OFF the table.
 
-Q12 — OPEN. The 2026-07-14 CI follow-up instructs agents to work tasks CI-1
+### Q12 — OPEN.
+
+The 2026-07-14 CI follow-up instructs agents to work tasks CI-1
 through CI-6 in order, but does not define the scope, acceptance evidence, or
 commands for any of those six tasks. Provide the exact CI-1 through CI-6 briefs;
 agents must not infer them from the superseded private-repository Task 1/Task 2
 numbering.
 
-Q13 — OPEN. Hosted-only CI (the standing decision as of 2026-07-14: no
+### Q13 — OPEN.
+
+Hosted-only CI (the standing decision as of 2026-07-14: no
 self-hosted runners, no local VMs) cannot satisfy three acceptance items. They
 require physical hardware and a human purchasing decision:
 
