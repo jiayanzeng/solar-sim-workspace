@@ -47,11 +47,11 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | **✅ done** |
 | 14 | Settings screen + render-recovery policies | **✅ done** |
 | 15 | Texture pass (2K KTX2) + visual polish + golden screenshots | **✅ done** |
-| 16 | Steam: Steamworks init, overlay spike, packaging/signing/depots | todo |
+| 16 | Steam: Steamworks init, overlay spike, packaging/signing/depots | in-progress |
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 196 passing** (53 `sim-core` · 100 `solar-sim` · 40 `xtask`
+**Test baseline: 201 passing** (53 `sim-core` · 102 `solar-sim` · 43 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -714,7 +714,10 @@ Optional post-beta. No brief until un-deferred by the human.
 | Q7 | **Approve the general Sun/planet GM audit?** Adopt the exact JPL DE440 set in `docs/wp3-gm-audit-2026-07-13.md`: eight numeric replacements, with Venus verified unchanged; Mars–Neptune use DE440 system GMs. | 2026-07-13 | **closed 2026-07-13** — human approved all nine rows. The eight replacements and verified Venus value are applied with DE440 provenance; both catalogs were regenerated from captured responses and the active position gate remains green. |
 | Q8 | **What defines “Major” in WP10's per-system Major/All moon visibility option?** The frozen catalog has no major-moon flag and ARCHITECTURE gives no membership list or physical cutoff. Recommend an additive curated boolean in the generator manifest/schema so the choice is reviewable; alternatives are a human-approved id set or a specified radius rule. | 2026-07-13 | **closed 2026-07-13** — human approved the recommended additive, catalog-backed curated boolean. The manifest's explicit 24-id membership list is the source of truth and covers every modeled moon system. |
 | Q9 | **Approve NASA HEASARC BSC5P as WP13's license-clean Bright Star Catalog source?** The authoritative NASA Open Data Portal identifies `ivo://nasa.heasarc/bsc5p`, marks access public, and links its license to the U.S. government-works policy. The table is HEASARC's 1995 derivative of ADC/CDS V/50 with later position corrections. Recommend the NASA export rather than redistributing CDS V/50 directly; retain Hoffleit & Warren, HEASARC, NASA Open Data, and V/50 provenance in the audit sidecar. | 2026-07-14 | **closed 2026-07-14** — human approved NASA HEASARC BSC5P. The derived 5,000-star asset and `assets/starfield-SOURCE.md` record the exact TAP query, hashes, government-works license route, catalog references, exclusions, and bake transform. |
-Q10 — CLOSED (human, 2026-07-14). WP15's "stable across two consecutive CI runs
+
+### Q10 — CLOSED (human, 2026-07-14).
+
+WP15's "stable across two consecutive CI runs
 on the same platform" is scoped to a SINGLE platform, and that platform is
 macOS/Metal. Rationale: hosted windows-latest has no GPU, so wgpu falls back to
 the WARP software rasterizer. Proving WARP is deterministic across two runs is
@@ -723,19 +726,72 @@ validation is deferred to WP16/WP17 bring-up on real hardware. DX12 captures sta
 in the golden workflow as a non-blocking code-path check. No acceptance text is
 reworded; this records how the existing text is read.
 
-Q11 — CLOSED (human, 2026-07-14). Yes, create the platform matrix. Docker is not
+### Q11 — CLOSED (human, 2026-07-14).
+
+Yes, create the platform matrix. Docker is not
 required: the repository is public, so GitHub-hosted standard runners are free
 and unlimited. Validate the Linux lane on hosted CI by pushing a branch and
 reading the run. Self-hosted runners and local VMs are OFF the table.
 
-Q12 — OPEN. The 2026-07-14 CI follow-up instructs agents to work tasks CI-1
+### Q12 — OPEN.
+
+The 2026-07-14 CI follow-up instructs agents to work tasks CI-1
 through CI-6 in order, but does not define the scope, acceptance evidence, or
 commands for any of those six tasks. Provide the exact CI-1 through CI-6 briefs;
 agents must not infer them from the superseded private-repository Task 1/Task 2
 numbering.
 
+### Q13 — OPEN.
+
+Hosted-only CI (the standing decision as of 2026-07-14: no
+self-hosted runners, no local VMs) cannot satisfy three acceptance items. They
+require physical hardware and a human purchasing decision:
+
+1. WP16 — "Overlay spike results documented in docs/ for both OSes."
+   Needs a real Steam client on a real desktop session on each OS.
+2. WP16 — "a dev-branch SteamPipe install launches on both OSes."
+   Hosted windows-latest has no GPU (WARP fallback); that is not a launch
+   verification. The macOS half is satisfiable on the developer's own Mac.
+3. WP17 — "Perf numbers recorded for both reference machines; both >= 60 fps
+   all-layers", on an M1 MacBook Air and a GTX 1650-class laptop. No hosted
+   runner can produce a credible frame-time measurement, and neither reference
+   machine is currently owned.
+
+Decision required from the human, before WP16 packaging begins: acquire the
+reference hardware, or amend WP17's reference machines with a signed change.
+
+WP16 will need Apple Developer ID and Steam credentials as repository secrets.
+On a public repo, those MUST live in a protected environment that no
+fork-triggered workflow can reach.
+
+### Q14 — OPEN.
+
+WP16 requires a new `steamworks` dependency, while the root `AGENTS.md` requires
+an Open question before any dependency is added. The current stable release is
+`steamworks` 0.13.1, whose documented `Client::init_app` API takes the numeric
+App ID required by ARCHITECTURE §11
+([crate documentation](https://docs.rs/steamworks/0.13.1/steamworks/struct.Client.html#method.init_app)).
+Decision required: approve `steamworks = "0.13.1"` as an optional dependency
+behind the `steam` feature, provide Solar Sim's numeric Steamworks App ID, and
+choose whether that ID is committed as build metadata or supplied through a
+named runtime input. Recommendation: commit the approved App ID and use no
+fallback ID, so local, CI, and SteamPipe builds cannot silently target different
+applications.
+
 ## Change log (append-only; newest first)
 
+- **2026-07-14** — WP16 moved to **in-progress** with the dependency-free
+  platform boundary completed before the hardware overlay spike. The app now
+  installs `PlatformServicesPlugin` with an overlay-unavailable no-op default;
+  application lifecycle code sees only the `PlatformServices` trait and shuts
+  an injected implementation down once on `AppExit`. The new mock test
+  `platform::tests::app_lifecycle_uses_the_mock_and_does_not_require_an_overlay`
+  passes both alone and in `cargo test`; the full command passes all 201 tests
+  (53 `sim-core`, 102 `solar-sim`, 43 `xtask` lib, two xtask smoke, one active
+  spot-check). `cargo clippy -p solar-sim --all-targets -- -D warnings` and the
+  exact default-tree guard command from `.github/workflows/ci.yml` pass. Q14
+  records the required dependency approval, App ID, and injection decision; no
+  dependency was added and no WP16 acceptance box was checked.
 - **2026-07-14** — CI-5 closed WP15 on clean, pushed `main` commit
   `887a2c60bf2cc04f0817bcd215eda9fa9075601b`. Two separate
   `workflow_dispatch` executions used `backend=metal`, job label

@@ -15,6 +15,7 @@ mod labels;
 mod layers;
 mod left_panel;
 mod orbit_lines;
+mod platform;
 mod scene_polish;
 mod search;
 mod settings;
@@ -49,6 +50,9 @@ pub use left_panel::{
 pub use orbit_lines::{
     orbit_vertex_count, sample_orbit, OrbitLineBrightness, OrbitLinesPlugin, OrbitPath,
     HYPERBOLIC_HALF_SPAN_S, MAX_ORBIT_VERTICES, MIN_ORBIT_VERTICES,
+};
+pub use platform::{
+    NoopPlatformServices, PlatformServices, PlatformServicesPlugin, PlatformStatus,
 };
 pub use scene_polish::{
     hysteresis_state, phase_step_rad, simulated_step_for_phase, BodyOrbitEmphasis,
@@ -748,6 +752,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
         }
     }
 
+    app.add_plugins(PlatformServicesPlugin::default());
     app.add_plugins((
         InputIntentPlugin,
         PropagationPlugin,

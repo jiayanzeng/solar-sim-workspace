@@ -106,6 +106,12 @@ jobs:
               exit 1
             fi
           done
+      - name: default build excludes Steamworks
+        run: |
+          if cargo tree -p solar-sim -e normal --prefix none | grep -Eqi '^steamworks( |$)'; then
+            echo '::error::default solar-sim build pulls Steamworks'
+            exit 1
+          fi
       - name: offline rule — CI never builds the online feature
         run: |
           pattern='--features[ =]+on''line|features:.*on''line'
