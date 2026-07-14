@@ -10,7 +10,10 @@ use crate::ui_kit::{
     section_header, NavigationStack, UiTheme, WidgetSpec, WidgetVisualState, INTER_FONT_ASSET,
     TOP_BAR_HEIGHT_PX,
 };
-use crate::{BodyVisual, LoadedCatalog, SimulationSet, KM_PER_RENDER_UNIT, TIME_BAR_HEIGHT_PX};
+use crate::{
+    format_distance_km, AppSettings, BodyVisual, DistanceUnit, LoadedCatalog, SimulationSet,
+    KM_PER_RENDER_UNIT, TIME_BAR_HEIGHT_PX,
+};
 use bevy::{
     input_focus::tab_navigation::TabIndex,
     prelude::*,
@@ -144,6 +147,14 @@ pub fn body_info_view_model(
     catalog: &Catalog,
     body_index: usize,
 ) -> Result<BodyInfoViewModel, InfoViewModelError> {
+    body_info_view_model_with_units(catalog, body_index, DistanceUnit::Kilometers)
+}
+
+pub fn body_info_view_model_with_units(
+    catalog: &Catalog,
+    body_index: usize,
+    units: DistanceUnit,
+) -> Result<BodyInfoViewModel, InfoViewModelError> {
     let body = catalog
         .bodies
         .get(body_index)
@@ -243,7 +254,7 @@ pub fn body_info_view_model(
         category_label: body.category.to_string(),
         category_color_srgb: body.color_srgb,
         radius_km: body.radius_km,
-        radius_label: format!("{:.0} km", body.radius_km),
+        radius_label: format_distance_km(body.radius_km, units),
         orbital_period,
         parent,
         description,
@@ -547,16 +558,18 @@ fn sync_navigation_to_body(
     navigation.push(body.id.clone(), body.name.clone());
 }
 
+#[allow(clippy::too_many_arguments)]
 fn rebuild_left_panel(
     mut commands: Commands,
     theme: Res<UiTheme>,
     asset_server: Res<AssetServer>,
     loaded: Option<Res<LoadedCatalog>>,
-    settings: Res<ViewOptionsState>,
+    view_options: Res<ViewOptionsState>,
+    app_settings: Res<AppSettings>,
     mut state: ResMut<LeftPanelUiState>,
     existing_roots: Query<Entity, With<LeftPanelRoot>>,
 ) {
-    if !state.dirty && !settings.is_changed() {
+    if !state.dirty && !view_options.is_changed() && !app_settings.is_changed() {
         return;
     }
     let (Some(loaded), Some(body_index)) = (loaded, state.selected_body_index) else {
@@ -567,8 +580,8 @@ fn rebuild_left_panel(
     }
 
     let font = asset_server.load(INTER_FONT_ASSET);
-    let root = spawn_panel_root(&mut commands, *theme, settings.panel_collapsed());
-    if settings.panel_collapsed() {
+    let root = spawn_panel_root(&mut commands, *theme, view_options.panel_collapsed());
+    if view_options.panel_collapsed() {
         spawn_action_button(
             &mut commands,
             root,
@@ -583,7 +596,7 @@ fn rebuild_left_panel(
         return;
     }
 
-    match body_info_view_model(&loaded.catalog, body_index) {
+    match body_info_view_model_with_units(&loaded.catalog, body_index, app_settings.units) {
         Ok(model) => spawn_expanded_panel(
             &mut commands,
             root,
@@ -591,7 +604,7 @@ fn rebuild_left_panel(
             &font,
             &model,
             state.page,
-            &settings,
+            &view_options,
             &loaded,
         ),
         Err(error) => spawn_panel_error(&mut commands, root, *theme, &font, &error.to_string()),
@@ -1381,7 +1394,13 @@ mod tests {
     use super::*;
     use crate::labels::{inflated_pick_radius, ray_sphere_hit_distance};
     use crate::{load_catalog_text, propagate_catalog, BodyStates};
-    use bevy::camera::PerspectiveProjection;
+    use bevy::{
+        app::TaskPoolPlugin,
+        asset::{AssetApp, AssetPlugin},
+        camera::PerspectiveProjection,
+        scene::ScenePlugin,
+        text::Font,
+    };
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
 
@@ -1422,6 +1441,41 @@ mod tests {
                 assert_eq!(model.description.text(), body.description.trim());
             }
         }
+    }
+
+    #[test]
+    fn units_change_rebuilds_every_visible_radius_within_one_update() {
+        let loaded = LoadedCatalog::new(catalog());
+        let earth = loaded.index_of("earth").unwrap();
+        let mut app = App::new();
+        app.add_plugins((
+            TaskPoolPlugin::default(),
+            AssetPlugin::default(),
+            ScenePlugin,
+        ))
+        .init_asset::<Font>()
+        .insert_resource(UiTheme::default())
+        .insert_resource(loaded)
+        .insert_resource(ViewOptionsState::default())
+        .insert_resource(AppSettings::default())
+        .insert_resource(LeftPanelUiState {
+            selected_body_index: Some(earth),
+            page: ActivePanelPage::Info,
+            dirty: true,
+        })
+        .add_systems(Update, rebuild_left_panel);
+        app.update();
+        assert!(visible_text_contains(&mut app, "6371 km"));
+
+        app.world_mut().resource_mut::<AppSettings>().units = DistanceUnit::Miles;
+        app.update();
+        assert!(visible_text_contains(&mut app, "3959 mi"));
+        assert!(!visible_text_contains(&mut app, "6371 km"));
+    }
+
+    fn visible_text_contains(app: &mut App, needle: &str) -> bool {
+        let mut text = app.world_mut().query::<&Text>();
+        text.iter(app.world()).any(|text| text.contains(needle))
     }
 
     #[test]

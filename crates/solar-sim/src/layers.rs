@@ -211,6 +211,13 @@ pub struct PresentationState {
 }
 
 impl PresentationState {
+    pub(crate) const fn with_fullscreen(fullscreen: bool) -> Self {
+        Self {
+            fullscreen,
+            settings_requested: false,
+        }
+    }
+
     pub const fn is_fullscreen(self) -> bool {
         self.fullscreen
     }
@@ -454,7 +461,7 @@ fn rebuild_right_rail(mut commands: Commands, params: RailRenderParams) {
         &asset_server,
         RailButtonSpec {
             glyph: "S",
-            accessible_label: "Open settings (WP14)",
+            accessible_label: "Open settings",
             action: RailAction::OpenSettings,
             tab_index: 24,
         },

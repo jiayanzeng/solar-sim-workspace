@@ -5,7 +5,7 @@
 //! keyboard or mouse state; future UI widgets join at the command queue seam.
 
 use crate::control::{SimCommand, SimCommandQueue};
-use crate::SimulationSet;
+use crate::{AppSettings, SimulationSet};
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
 use sim_core::time::RateIndex;
@@ -18,6 +18,8 @@ enum KeyIntent {
     Play,
     Pause,
     TogglePlay,
+    #[cfg(debug_assertions)]
+    SimulateDeviceLoss,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -74,6 +76,11 @@ const KEY_BINDINGS: &[KeyBinding] = &[
         key: KeyCode::Space,
         intent: KeyIntent::TogglePlay,
     },
+    #[cfg(debug_assertions)]
+    KeyBinding {
+        key: KeyCode::F9,
+        intent: KeyIntent::SimulateDeviceLoss,
+    },
 ];
 
 #[derive(Resource, Default)]
@@ -121,9 +128,17 @@ fn collect_raw_intents(
     }
 }
 
-fn translate_intents(mut intents: ResMut<InputIntentQueue>, mut commands: ResMut<SimCommandQueue>) {
+fn translate_intents(
+    mut intents: ResMut<InputIntentQueue>,
+    settings: Res<AppSettings>,
+    mut commands: ResMut<SimCommandQueue>,
+) {
     for intent in intents.0.drain(..) {
-        commands.push(intent_to_command(intent));
+        commands.push(apply_axis_inversion(
+            intent_to_command(intent),
+            settings.invert_horizontal,
+            settings.invert_vertical,
+        ));
     }
 }
 
@@ -135,6 +150,8 @@ fn intent_to_command(intent: InputIntent) -> SimCommand {
         InputIntent::Key(KeyIntent::Play) => SimCommand::Play,
         InputIntent::Key(KeyIntent::Pause) => SimCommand::Pause,
         InputIntent::Key(KeyIntent::TogglePlay) => SimCommand::TogglePlay,
+        #[cfg(debug_assertions)]
+        InputIntent::Key(KeyIntent::SimulateDeviceLoss) => SimCommand::SimulateDeviceLoss,
         InputIntent::Orbit {
             delta_yaw,
             delta_pitch,
@@ -143,6 +160,31 @@ fn intent_to_command(intent: InputIntent) -> SimCommand {
             delta_pitch,
         },
         InputIntent::Dolly { delta } => dolly_command(delta),
+    }
+}
+
+fn apply_axis_inversion(
+    command: SimCommand,
+    invert_horizontal: bool,
+    invert_vertical: bool,
+) -> SimCommand {
+    match command {
+        SimCommand::Orbit {
+            delta_yaw,
+            delta_pitch,
+        } => SimCommand::Orbit {
+            delta_yaw: if invert_horizontal {
+                -delta_yaw
+            } else {
+                delta_yaw
+            },
+            delta_pitch: if invert_vertical {
+                -delta_pitch
+            } else {
+                delta_pitch
+            },
+        },
+        command => command,
     }
 }
 
@@ -187,6 +229,32 @@ mod tests {
                 delta: ZOOM_OUT_DOLLY_DELTA,
             }),
             dolly_command(ZOOM_OUT_DOLLY_DELTA)
+        );
+    }
+
+    #[test]
+    fn axis_preferences_only_invert_orbit_command_components() {
+        let orbit = SimCommand::Orbit {
+            delta_yaw: 4.0,
+            delta_pitch: -2.0,
+        };
+        assert_eq!(
+            apply_axis_inversion(orbit.clone(), true, false),
+            SimCommand::Orbit {
+                delta_yaw: -4.0,
+                delta_pitch: -2.0,
+            }
+        );
+        assert_eq!(
+            apply_axis_inversion(orbit, false, true),
+            SimCommand::Orbit {
+                delta_yaw: 4.0,
+                delta_pitch: 2.0,
+            }
+        );
+        assert_eq!(
+            apply_axis_inversion(SimCommand::Play, true, true),
+            SimCommand::Play
         );
     }
 }

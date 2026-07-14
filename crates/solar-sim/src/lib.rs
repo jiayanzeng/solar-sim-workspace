@@ -1,4 +1,4 @@
-//! WP4–WP13 — simulation rendering, camera control, reusable HUD, and discovery.
+//! WP4–WP14 — simulation rendering, camera control, reusable HUD, and settings.
 //!
 //! `sim-core` remains the f64 source of truth. This crate owns filesystem
 //! loading, parent-to-heliocentric composition, the one f64→f32 render rebase,
@@ -8,6 +8,7 @@
 //! supplies the headless replay gate.
 
 mod control;
+mod formatting;
 mod input_intent;
 mod labels;
 mod layers;
@@ -15,6 +16,7 @@ mod left_panel;
 mod orbit_lines;
 mod scene_polish;
 mod search;
+mod settings;
 mod starfield;
 mod time_bar;
 mod ui_kit;
@@ -23,6 +25,7 @@ pub use control::{
     replay_headless, CameraController, CommandRecording, HeadlessSimulation, ReplayParseError,
     ReplayRunError, ReplayStream, SimCommand, StampedCommand,
 };
+pub use formatting::format_distance_km;
 pub use labels::{
     declutter_labels, moon_label_is_contextually_visible, ray_sphere_hit_distance, BodyLabel,
     DeclutterCandidate, LabelPriority, LabelsPlugin, ScreenRect, SelectionPlugin,
@@ -32,10 +35,11 @@ pub use layers::{
     RightRailRoot, UiRestoreAffordance, ZOOM_IN_DOLLY_DELTA, ZOOM_OUT_DOLLY_DELTA,
 };
 pub use left_panel::{
-    body_info_view_model, moon_collections, rendered_body_radius_units, BodyInfoViewModel,
-    BodyLinkViewModel, BodySizeScale, DescriptionViewModel, InfoViewModelError, LeftPanelPlugin,
-    LeftPanelRoot, LeftPanelTab, MoonCollectionViewModel, MoonVisibilityMode,
-    OrbitalPeriodViewModel, ViewOptionsSnapshot, ViewOptionsState,
+    body_info_view_model, body_info_view_model_with_units, moon_collections,
+    rendered_body_radius_units, BodyInfoViewModel, BodyLinkViewModel, BodySizeScale,
+    DescriptionViewModel, InfoViewModelError, LeftPanelPlugin, LeftPanelRoot, LeftPanelTab,
+    MoonCollectionViewModel, MoonVisibilityMode, OrbitalPeriodViewModel, ViewOptionsSnapshot,
+    ViewOptionsState,
 };
 pub use orbit_lines::{
     orbit_vertex_count, sample_orbit, OrbitLineBrightness, OrbitLinesPlugin, OrbitPath,
@@ -50,6 +54,12 @@ pub use scene_polish::{
 pub use search::{
     search_catalog, BrowseColumn, BrowseColumnKind, BrowseCounts, BrowseEntry, BrowseMenuRoot,
     BrowseModel, SearchDropdownRoot, SearchHit, SearchMatchKind, SearchPlugin,
+};
+pub use settings::{
+    AppSettings, DisplayModeSetting, DistanceUnit, FrameCap, PersistedLayerState,
+    ProductSettingsPlugin, QualityPreset, RecoveryDirective, RenderErrorScreen, RenderFailureKind,
+    RenderRecoveryPhase, RenderRecoveryStatus, ResolutionSetting, SettingsScreenRoot,
+    StartModeSetting, SETTINGS_IDENTIFIER,
 };
 pub use starfield::{
     decode_starfield, load_starfield, StarfieldAssetError, StarfieldPlugin, StarfieldPoint,
@@ -76,14 +86,18 @@ use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::ecs::system::SystemParam;
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
+use bevy::settings::SettingsPlugin;
+use bevy::window::ExitCondition;
 use control::{
     advance_camera_controller, consume_presentation_command, consume_sim_command,
     framing_distance_units, full_system_framing_distance_units, SimCommandQueue, SimulationFrame,
 };
 use input_intent::InputIntentPlugin;
+#[cfg(debug_assertions)]
+use settings::{request_debug_device_loss, DebugDeviceLossRequest};
 use sim_core::catalog::{Catalog, CatalogError, Category};
 use sim_core::kepler::{state_at, KeplerError, StateVector};
-use sim_core::time::{t_from_unix_utc, SimClock, StartMode, TickReport};
+use sim_core::time::{t_from_unix_utc, SimClock, TickReport};
 use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -100,6 +114,9 @@ pub struct RunOptions {
     pub catalog_path: PathBuf,
     pub smoke_frames: Option<u32>,
     pub initial_focus_id: Option<String>,
+    /// Debug-only renderer recovery probe. It is translated through the same
+    /// recorded `SimCommand` path as the F9 binding.
+    pub simulate_device_loss: bool,
 }
 
 impl Default for RunOptions {
@@ -108,6 +125,7 @@ impl Default for RunOptions {
             catalog_path: PathBuf::from(DEFAULT_CATALOG_PATH),
             smoke_frames: None,
             initial_focus_id: None,
+            simulate_device_loss: false,
         }
     }
 }
@@ -144,6 +162,8 @@ impl RunOptions {
                         i += 1;
                     }
                 }
+                #[cfg(debug_assertions)]
+                "--simulate-device-loss" => options.simulate_device_loss = true,
                 _ => {}
             }
             i += 1;
@@ -449,29 +469,42 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
             })
             .set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: "Solar Sim — WP12 Search".into(),
+                    title: "Solar Sim".into(),
                     ..default()
                 }),
+                exit_condition: ExitCondition::DontExit,
                 ..default()
             }),
     );
+    app.register_type::<AppSettings>()
+        .add_plugins(SettingsPlugin::new(SETTINGS_IDENTIFIER));
+    let initial_settings = app.world().resource::<AppSettings>().clone().normalized();
+    app.insert_resource(initial_settings.clone())
+        .insert_resource(initial_settings.initial_layer_state())
+        .insert_resource(PresentationState::with_fullscreen(
+            initial_settings.display_mode.is_fullscreen(),
+        ));
     configure_frame_flow(&mut app);
 
     let wall_now_t = wall_now_t();
-    app.insert_resource(SimulationClock(SimClock::new(
-        StartMode::default(),
-        wall_now_t,
-    )))
-    .insert_resource(SimCommandQueue::default())
-    .insert_resource(CommandRecording::default())
-    .insert_resource(SimulationFrame::default())
-    .insert_resource(PropagationFault::default())
-    .insert_resource(SmokeFrames::new(options.smoke_frames))
-    .add_message::<ClockTickReport>();
+    let initial_clock = initial_settings.initial_clock(wall_now_t);
+    let initial_t_s = initial_clock.t();
+    let mut initial_commands = SimCommandQueue::default();
+    #[cfg(debug_assertions)]
+    if options.simulate_device_loss {
+        initial_commands.push(SimCommand::SimulateDeviceLoss);
+    }
+    app.insert_resource(SimulationClock(initial_clock))
+        .insert_resource(initial_commands)
+        .insert_resource(CommandRecording::default())
+        .insert_resource(SimulationFrame::default())
+        .insert_resource(PropagationFault::default())
+        .insert_resource(SmokeFrames::new(options.smoke_frames))
+        .add_message::<ClockTickReport>();
 
     match catalog.and_then(|catalog| {
-        let t_s = SimClock::new(StartMode::default(), wall_now_t).t();
-        let states = propagate_catalog(&catalog, t_s).map_err(CatalogLoadError::Propagation)?;
+        let states =
+            propagate_catalog(&catalog, initial_t_s).map_err(CatalogLoadError::Propagation)?;
         Ok((catalog, states))
     }) {
         Ok((catalog, states)) => {
@@ -517,6 +550,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
         LabelsPlugin,
         SelectionPlugin,
         LeftPanelPlugin,
+        ProductSettingsPlugin,
     ))
     .add_systems(
         Startup,
@@ -558,6 +592,8 @@ struct SimCommandGate<'w> {
     reports: MessageWriter<'w, ClockTickReport>,
     layers: ResMut<'w, LayerState>,
     presentation: ResMut<'w, PresentationState>,
+    #[cfg(debug_assertions)]
+    debug_device_loss: ResMut<'w, DebugDeviceLossRequest>,
 }
 
 fn apply_sim_commands(gate: SimCommandGate) {
@@ -571,6 +607,8 @@ fn apply_sim_commands(gate: SimCommandGate) {
         mut reports,
         mut layers,
         mut presentation,
+        #[cfg(debug_assertions)]
+        mut debug_device_loss,
     } = gate;
     let (Some(loaded), Some(mut camera)) = (loaded, camera) else {
         queue.drain().for_each(drop);
@@ -579,6 +617,10 @@ fn apply_sim_commands(gate: SimCommandGate) {
     let commands: Vec<_> = queue.drain().collect();
     for command in commands {
         recording.record(frame.0, clock.0.t(), command.clone());
+        #[cfg(debug_assertions)]
+        if matches!(command, SimCommand::SimulateDeviceLoss) {
+            request_debug_device_loss(&mut debug_device_loss);
+        }
         let layers_before = *layers;
         let presentation_before = *presentation;
         consume_presentation_command(

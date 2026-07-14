@@ -7,7 +7,12 @@ edition = "2021"
 sim-core = { path = "../sim-core" }
 # "0.19" + committed Cargo.lock = pinned to an exact 0.19.x patch,
 # patch upgrades are a deliberate `cargo update -p bevy` (ARCHITECTURE §8.1).
-bevy = "0.19"
+bevy = { version = "0.19", features = ["bevy_settings"] }
+
+[dev-dependencies]
+# Test-only proof that the complete reflected settings schema round-trips.
+serde = { version = "1", features = ["derive"] }
+ron = "0.8"
 
 [features]
 # Fast local iteration; NEVER enabled in CI or release builds.

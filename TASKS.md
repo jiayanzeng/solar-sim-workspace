@@ -45,13 +45,13 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 11 | Layers quick panel, right rail, Icons layer, UI-off mode | **✅ done** |
 | 12 | Search (alias-aware) + Menu browse with live counts | **✅ done** |
 | 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | **✅ done** |
-| 14 | Settings screen + render-recovery policies | todo |
+| 14 | Settings screen + render-recovery policies | **✅ done** |
 | 15 | Texture pass (2K KTX2) + visual polish + golden screenshots | todo |
 | 16 | Steam: Steamworks init, overlay spike, packaging/signing/depots | todo |
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 167 passing** (53 `sim-core` · 80 `solar-sim` · 31 `xtask`
+**Test baseline: 178 passing** (53 `sim-core` · 91 `solar-sim` · 31 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -573,11 +573,11 @@ policies), §4.2 (`StartMode`).
   module; no scattered conversions).
 
 **Acceptance.**
-- [ ] Every listed setting survives full quit + relaunch.
-- [ ] `StartMode::FixedEpoch` boots on the configured epoch;
+- [x] Every listed setting survives full quit + relaunch.
+- [x] `StartMode::FixedEpoch` boots on the configured epoch;
   `StartMode::Live` boots live — both verified.
-- [ ] Simulated device loss recovers to a rendering app without restart.
-- [ ] Units toggle updates every visible distance in one frame.
+- [x] Simulated device loss recovers to a rendering app without restart.
+- [x] Units toggle updates every visible distance in one frame.
 
 **Tests required.** Settings round-trip serde test over the full struct;
 formatter unit tests for all three unit modes; recovery state-machine test.
@@ -711,6 +711,40 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-14** — WP14 done. Enabled Bevy 0.19's native settings feature
+  under `com.github.jiayanzeng.solar-sim`; its reflected `AppSettings` schema
+  persists display mode, resolution, vsync/frame cap, quality, UI scale,
+  km/mi/AU units, fixed/live `StartMode`, both orbit-axis inversions, and all
+  nine layer switches. Loading happens before clock/catalog initialization;
+  deferred saves plus a synchronous window-close save cover normal quit paths.
+  The settings screen exposes all 38 controls through `ui_kit` scenes with
+  AccessKit labels and stages display changes until Apply; Revert is tested.
+  A child-process test writes the full non-default schema under an isolated
+  HOME and reloads it in a fresh process. Both start modes, layer restoration,
+  full serde round-trip, and a one-update km→mi radius repaint are covered.
+  `formatting.rs` is now the sole visible-distance conversion boundary and
+  uses the catalog's `AU_KM`. The native renderer policy returns `Recover` for
+  `DeviceLost` and `StopRendering` for OOM, with an error overlay and window
+  title fallback; F9 and `--simulate-device-loss` use the recorded
+  `SimCommand` path. A real destroyed-device probe recovered and completed all
+  180 smoke frames at 120.0 fps without restart; the ordinary 60-frame smoke
+  completed at 115.3 fps. Evidence: `cargo test` passes all 178 tests;
+  `cargo fmt --all -- --check` is clean; `cargo clippy --workspace
+  --all-targets` has zero warnings. The only added direct test dependencies
+  are `serde` and `ron`, used solely by the required settings round-trip test;
+  the production dependency change only enables the architecture-mandated
+  `bevy_settings` feature on the existing Bevy dependency. No read-only or
+  generated catalog files changed.
+- **2026-07-14** — Started WP14 from the green 167-test WP13 checkout after
+  reading ARCHITECTURE §§4.2 and 8.5. The implementation will use Bevy 0.19's
+  feature-gated `SettingsPlugin` with a reverse-domain identifier, load the
+  persisted resource before clock/catalog initialization, centralize every
+  user-visible length conversion, route the existing right-rail request into
+  a code-defined `ui_kit` settings surface, and model device-loss/OOM recovery
+  independently of backend event delivery so both paths are deterministic and
+  testable. Enabling the mandated `bevy_settings` feature on the already
+  approved Bevy dependency adds no direct dependency. Evidence: pre-change
+  `cargo test` passes all 167 tests; no read-only files changed.
 - **2026-07-14** — WP13 done after human approval of Q9's NASA HEASARC
   BSC5P route. Queried only `hr,ra,dec,vmag`, in HR order, from the official
   TAP endpoint; the source response is SHA-256

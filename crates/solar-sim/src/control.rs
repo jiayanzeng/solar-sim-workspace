@@ -1,4 +1,4 @@
-//! WP5/WP8/WP9 — deterministic command consumption, camera travel, time, and replay.
+//! WP5/WP8/WP9/WP14 — command consumption, camera travel, time, and replay.
 //!
 //! This module is the user-state mutation boundary. `CameraController` keeps
 //! its fields private, and `consume_sim_command` is the only function that
@@ -25,8 +25,13 @@ const ORBIT_RADIANS_PER_PIXEL: f64 = 0.005;
 pub enum SimCommand {
     SelectBody(String),
     TravelToBody(String),
-    Orbit { delta_yaw: f64, delta_pitch: f64 },
-    Dolly { delta: f64 },
+    Orbit {
+        delta_yaw: f64,
+        delta_pitch: f64,
+    },
+    Dolly {
+        delta: f64,
+    },
     SetTime(f64),
     SetRate(RateIndex),
     StepRate(i8),
@@ -34,9 +39,15 @@ pub enum SimCommand {
     Pause,
     TogglePlay,
     SnapToLive,
-    SetLayerVisibility { layer: LayerId, visible: bool },
+    SetLayerVisibility {
+        layer: LayerId,
+        visible: bool,
+    },
     ToggleFullscreen,
     OpenSettings,
+    /// Debug-only input requests a real renderer device-loss cycle. The
+    /// variant stays stable in recordings even though release input never emits it.
+    SimulateDeviceLoss,
 }
 
 #[derive(Resource, Default)]
@@ -201,7 +212,8 @@ pub(crate) fn consume_sim_command(
         SimCommand::SnapToLive => clock.snap_to_live(),
         SimCommand::SetLayerVisibility { .. }
         | SimCommand::ToggleFullscreen
-        | SimCommand::OpenSettings => {}
+        | SimCommand::OpenSettings
+        | SimCommand::SimulateDeviceLoss => {}
     }
     report
 }
@@ -219,6 +231,7 @@ pub(crate) fn consume_presentation_command(
         }
         SimCommand::ToggleFullscreen => presentation.toggle_fullscreen(),
         SimCommand::OpenSettings => presentation.request_settings(),
+        SimCommand::SimulateDeviceLoss => {}
         _ => {}
     }
 }
@@ -679,6 +692,7 @@ fn serialize_entry(entry: &StampedCommand) -> String {
         ),
         SimCommand::ToggleFullscreen => format!("{prefix}|toggle-fullscreen"),
         SimCommand::OpenSettings => format!("{prefix}|open-settings"),
+        SimCommand::SimulateDeviceLoss => format!("{prefix}|simulate-device-loss"),
     }
 }
 
@@ -731,6 +745,7 @@ fn parse_entry(line: &str) -> Result<StampedCommand, String> {
         }
         "toggle-fullscreen" if fields.len() == 3 => SimCommand::ToggleFullscreen,
         "open-settings" if fields.len() == 3 => SimCommand::OpenSettings,
+        "simulate-device-loss" if fields.len() == 3 => SimCommand::SimulateDeviceLoss,
         command => return Err(format!("unknown or malformed command '{command}'")),
     };
     Ok(StampedCommand {
@@ -1058,6 +1073,11 @@ mod tests {
                     frame: 10,
                     sim_time_s: T_MIN_S,
                     command: SimCommand::OpenSettings,
+                },
+                StampedCommand {
+                    frame: 11,
+                    sim_time_s: T_MIN_S,
+                    command: SimCommand::SimulateDeviceLoss,
                 },
             ],
         };
