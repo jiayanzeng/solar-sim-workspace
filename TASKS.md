@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 194 passing** (53 `sim-core` · 98 `solar-sim` · 40 `xtask`
+**Test baseline: 196 passing** (53 `sim-core` · 100 `solar-sim` · 40 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -711,6 +711,24 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-14** — CI-2 complete: landed the backend-checked smoke CLI and
+  wired 60-frame window launches after the `platform` release build, with both
+  macOS/Metal and Windows/DX12 steps kept `continue-on-error: true`. Hosted
+  run [#27](https://github.com/jiayanzeng/solar-sim-workspace/actions/runs/29328432241)
+  passed every job. macOS printed `smoke: completed 60 update frames; measured
+  48 after 12 warmup frames in 1.727s (27.8 fps)`, identified `Apple
+  Paravirtual device` on `metal`, and passed the Metal expectation. Windows
+  printed the same completion line with 38.986s (1.2 fps), identified
+  `Microsoft Basic Render Driver` on `dx12`, and passed the DX12 expectation;
+  Bevy also warned that the selected adapter is software-only and very slow,
+  matching the retained WARP comment. The smoke steps succeeded in 13s and
+  2m06s respectively, but remain non-blocking pending CI-3. Local evidence:
+  pre- and post-change `cargo test` pass all 196 tests; `cargo fmt --all --
+  --check`, `cargo clippy --workspace --all-targets -- -D warnings`, YAML
+  parsing, `git diff --check`, and the online-feature/self-hosted/
+  `pull_request_target` workflow scans pass. No dependency, read-only file,
+  generated catalog, curated route, catalog composition, or WP15 acceptance
+  checkbox changed.
 - **2026-07-14** — CI-1 complete: split the public-repository gates into
   `.github/workflows/ci.yml` (push to `main` plus pull requests) and the
   dispatch-only `.github/workflows/goldens.yml`; added the full hosted
