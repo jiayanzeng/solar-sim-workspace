@@ -53,3 +53,21 @@ CI captures two independent application launches per backend, compares them,
 and uploads the second set as the reviewed backend artifact. A deliberately
 approved visual change is promoted by downloading those artifacts after both
 backend jobs pass; thresholds are not loosened to accept a regression.
+
+## Window-surface smoke check
+
+Golden capture deliberately targets a fixed offscreen image, so it does not
+replace a shipped-window check. On local or real release hardware, opt into a
+primary-window readback after the smoke frame count:
+
+```sh
+cargo run -p solar-sim --release -- --smoke 60 --expect-backend metal --assert-nonblack
+```
+
+Use `dx12` on the Windows reference machine and `vulkan` for a Vulkan release
+target. `--expect-backend` rejects an unexpected wgpu adapter backend, while
+`--assert-nonblack` reads the primary window render target and fails if every
+RGB channel is zero. The nonblack assertion is intentionally not a hosted-CI
+gate: a hosted window surface may read back black even when the fixed offscreen
+golden target is valid. WP17 runs this opt-in check on both real reference
+machines before release closeout.

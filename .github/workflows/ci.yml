@@ -66,6 +66,17 @@ jobs:
       - uses: taiki-e/install-action@e658debeddbabf20b2b866d9235eb08a2375b1ad # nextest
       - run: cargo nextest run --workspace
       - run: cargo build -p solar-sim --release
+      - name: smoke launch (Metal)
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: cargo run -p solar-sim --release -- --smoke 60 --expect-backend metal
+      # Launch check on a GPU-less runner: wgpu falls back to a software
+      # DX12 adapter (WARP). Keep continue-on-error until proven stable,
+      # then promote to a hard gate.
+      - name: smoke launch (software adapter)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        run: cargo run -p solar-sim --release -- --smoke 60 --expect-backend dx12
 
   invariants:
     runs-on: ubuntu-latest
