@@ -8,6 +8,7 @@ pub mod lookup;
 pub mod manifest;
 pub mod normalize;
 pub mod sbdb;
+pub mod starfield;
 
 use anyhow::{anyhow, Context, Result};
 use fetch::Fetch;

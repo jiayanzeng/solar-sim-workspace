@@ -2,20 +2,68 @@
 //!   cargo run -p xtask -- gen-catalog --dry-run
 //!   cargo run -p xtask -- gen-catalog --fixtures xtask/fixtures --allow-partial --out assets/catalog.sample.ron
 //!   cargo run -p xtask --features online -- gen-catalog --online --capture xtask/fixtures/captured-YYYY-MM --out assets/catalog.ron
+//!   cargo run -p xtask -- bake-starfield --source bsc5p.vot --out assets/starfield.bsc
 
 use anyhow::{bail, Result};
 use std::path::PathBuf;
-use xtask::{emit, fetch, plan, GenOptions, DEFAULT_EPOCH_JD_TDB};
+use xtask::{emit, fetch, plan, starfield, GenOptions, DEFAULT_EPOCH_JD_TDB};
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("gen-catalog") => gen_catalog(&args[1..]),
+        Some("bake-starfield") => bake_starfield(&args[1..]),
         _ => {
-            eprintln!("usage: xtask gen-catalog [--out PATH] [--epoch-jd F] [--dry-run] [--fixtures DIR [--allow-partial]] [--online [--capture DIR]]");
+            eprintln!("usage:\n  xtask gen-catalog [--out PATH] [--epoch-jd F] [--dry-run] [--fixtures DIR [--allow-partial]] [--online [--capture DIR]]\n  xtask bake-starfield --source PATH --out PATH [--limit N]");
             std::process::exit(2);
         }
     }
+}
+
+fn bake_starfield(args: &[String]) -> Result<()> {
+    let mut source: Option<PathBuf> = None;
+    let mut out: Option<PathBuf> = None;
+    let mut limit = starfield::DEFAULT_STAR_LIMIT;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--source" => {
+                i += 1;
+                source = Some(PathBuf::from(
+                    args.get(i)
+                        .ok_or_else(|| anyhow::anyhow!("--source needs a path"))?,
+                ));
+            }
+            "--out" => {
+                i += 1;
+                out = Some(PathBuf::from(
+                    args.get(i)
+                        .ok_or_else(|| anyhow::anyhow!("--out needs a path"))?,
+                ));
+            }
+            "--limit" => {
+                i += 1;
+                limit = args
+                    .get(i)
+                    .ok_or_else(|| anyhow::anyhow!("--limit needs a value"))?
+                    .parse()?;
+            }
+            other => bail!("unknown flag: {other}"),
+        }
+        i += 1;
+    }
+    let source = source.ok_or_else(|| anyhow::anyhow!("--source is required"))?;
+    let out = out.ok_or_else(|| anyhow::anyhow!("--out is required"))?;
+    if limit == 0 {
+        bail!("--limit must be greater than zero");
+    }
+    let count = starfield::bake_catalog_file(&source, &out, limit)?;
+    println!(
+        "wrote {} ({count} brightest BSC stars from {})",
+        out.display(),
+        source.display()
+    );
+    Ok(())
 }
 
 fn gen_catalog(args: &[String]) -> Result<()> {

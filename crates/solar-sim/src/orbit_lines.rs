@@ -7,9 +7,11 @@
 //! which puts shorter chords near perihelion, while the hyperbolic branch is
 //! a strictly open ±25-Julian-year arc centered on perihelion (Rev C §10.2).
 
+use crate::scene_polish::OrbitEmphasisSet;
 use crate::{
     left_panel::body_passes_moon_visibility, rebase_position, BodyStates, CameraController,
-    LayerId, LayerState, LoadedCatalog, SimulationClock, SimulationSet, ViewOptionsState,
+    LayerId, LayerState, LoadedCatalog, OrbitEmphasisState, SimulationClock, SimulationSet,
+    ViewOptionsState,
 };
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -241,8 +243,19 @@ struct OrbitLine {
 #[derive(SystemParam)]
 struct OrbitLineRenderOptions<'w> {
     brightness: Res<'w, OrbitLineBrightness>,
+    emphasis: Option<Res<'w, OrbitEmphasisState>>,
     view_options: Option<Res<'w, ViewOptionsState>>,
     layers: Option<Res<'w, LayerState>>,
+}
+
+impl OrbitLineRenderOptions<'_> {
+    fn body_brightness(&self, body_index: usize) -> f32 {
+        self.brightness.sanitized()
+            * self
+                .emphasis
+                .as_ref()
+                .map_or(1.0, |emphasis| emphasis.orbit_brightness(body_index))
+    }
 }
 
 pub struct OrbitLinesPlugin;
@@ -251,7 +264,12 @@ impl Plugin for OrbitLinesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<OrbitLineBrightness>()
             .add_systems(Startup, spawn_orbit_lines)
-            .add_systems(Update, update_orbit_lines.in_set(SimulationSet::Render));
+            .add_systems(
+                Update,
+                update_orbit_lines
+                    .in_set(SimulationSet::Render)
+                    .after(OrbitEmphasisSet),
+            );
     }
 }
 
@@ -266,8 +284,6 @@ fn spawn_orbit_lines(
     let Some(loaded) = loaded else {
         return;
     };
-    let brightness = options.brightness.sanitized();
-
     for (body_index, body) in loaded.catalog.bodies.iter().enumerate() {
         let (Some(parent_id), Some(orbit)) = (body.parent.as_deref(), body.orbit.as_ref()) else {
             continue;
@@ -302,6 +318,7 @@ fn spawn_orbit_lines(
         } else {
             0.0
         };
+        let brightness = options.body_brightness(body_index);
         let mut asset = GizmoAsset::default();
         rebuild_asset(
             &mut asset,
@@ -349,7 +366,6 @@ fn update_orbit_lines(
     };
     let focus_position_km = camera.focus_position_km();
     let camera_position_km = camera.camera_position_km();
-    let brightness = options.brightness.sanitized();
     for (mut line, mut transform, gizmo) in &mut lines {
         let Some(parent_state) = states.0.get(line.parent_index) else {
             continue;
@@ -405,6 +421,7 @@ fn update_orbit_lines(
         } else {
             0.0
         };
+        let brightness = options.body_brightness(line.body_index);
         let color_changed =
             displayed_alpha != line.displayed_alpha || brightness != line.displayed_brightness;
         line.displayed_alpha = displayed_alpha;

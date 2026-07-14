@@ -7,7 +7,10 @@
 use crate::control::{SimCommand, SimCommandQueue};
 use crate::layers::HudSurface;
 use crate::ui_kit::{toast, UiColorToken, UiTheme, WidgetSpec, WidgetVisualState};
-use crate::{wall_now_t, ClockTickReport, SimulationClock, SimulationSet, INTER_FONT_ASSET};
+use crate::{
+    wall_now_t, ClockTickReport, OrbitEmphasisOnset, SimulationClock, SimulationSet,
+    INTER_FONT_ASSET,
+};
 use bevy::{
     input::{keyboard::KeyboardInput, ButtonState},
     input_focus::{
@@ -144,6 +147,7 @@ pub enum TimeToastKind {
     RangeMaximum,
     Extrapolation,
     SnappedLive,
+    OrbitEmphasis,
 }
 
 impl TimeToastKind {
@@ -153,6 +157,7 @@ impl TimeToastKind {
             Self::RangeMaximum => "TIME RANGE · CLAMPED AT 2300",
             Self::Extrapolation => "POSITIONS ARE EXTRAPOLATED OUTSIDE 1800–2050",
             Self::SnappedLive => "LIVE TIME RESTORED",
+            Self::OrbitEmphasis => "Inner orbits shown as paths at this speed",
         }
     }
 }
@@ -196,6 +201,7 @@ impl Plugin for TimeBarPlugin {
                     sync_live_chip,
                     update_slider_thumb,
                     consume_tick_reports,
+                    consume_orbit_emphasis_onsets,
                     expire_time_toasts,
                 )
                     .chain()
@@ -678,23 +684,42 @@ fn consume_tick_reports(
     };
     for report in reports.read() {
         for notice in toasts_for_tick_report(report.0) {
-            commands
-                .spawn_scene(toast(
-                    *theme,
-                    WidgetSpec::new(
-                        notice.text(),
-                        format!("Simulation notice: {}", notice.text()),
-                        WidgetVisualState::Default,
-                    ),
-                ))
-                .insert((
-                    ChildOf(stack),
-                    TimeToast {
-                        remaining_s: TOAST_LIFETIME_S,
-                    },
-                ));
+            spawn_time_toast(&mut commands, stack, *theme, notice);
         }
     }
+}
+
+fn consume_orbit_emphasis_onsets(
+    mut onsets: MessageReader<OrbitEmphasisOnset>,
+    stacks: Query<Entity, With<TimeToastStack>>,
+    theme: Res<UiTheme>,
+    mut commands: Commands,
+) {
+    let Ok(stack) = stacks.single() else {
+        onsets.clear();
+        return;
+    };
+    for _onset in onsets.read() {
+        spawn_time_toast(&mut commands, stack, *theme, TimeToastKind::OrbitEmphasis);
+    }
+}
+
+fn spawn_time_toast(commands: &mut Commands, stack: Entity, theme: UiTheme, notice: TimeToastKind) {
+    commands
+        .spawn_scene(toast(
+            theme,
+            WidgetSpec::new(
+                notice.text(),
+                format!("Simulation notice: {}", notice.text()),
+                WidgetVisualState::Default,
+            ),
+        ))
+        .insert((
+            ChildOf(stack),
+            TimeToast {
+                remaining_s: TOAST_LIFETIME_S,
+            },
+        ));
 }
 
 fn expire_time_toasts(

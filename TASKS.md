@@ -44,14 +44,14 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 10 | Left panel: Info tab, collection pages, View Options | **✅ done** |
 | 11 | Layers quick panel, right rail, Icons layer, UI-off mode | **✅ done** |
 | 12 | Search (alias-aware) + Menu browse with live counts | **✅ done** |
-| 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | todo |
+| 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | **✅ done** |
 | 14 | Settings screen + render-recovery policies | todo |
 | 15 | Texture pass (2K KTX2) + visual polish + golden screenshots | todo |
 | 16 | Steam: Steamworks init, overlay spike, packaging/signing/depots | todo |
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 156 passing** (53 `sim-core` · 72 `solar-sim` · 28 `xtask`
+**Test baseline: 167 passing** (53 `sim-core` · 80 `solar-sim` · 31 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -536,13 +536,13 @@ threshold), §10.4, §10.5.
   night-side legibility.
 
 **Acceptance.**
-- [ ] At +100 yr/s the inner system reads as glowing orbit paths (no
+- [x] At +100 yr/s the inner system reads as glowing orbit paths (no
   strobing planet dots) while Sedna and long-period comets still crawl as
   dots.
-- [ ] Emphasis engages/disengages per body at rates predicted from its
+- [x] Emphasis engages/disengages per body at rates predicted from its
   period (spot-check Mercury vs Neptune) with no flicker at the boundary.
-- [ ] Onset toast fires exactly once per onset.
-- [ ] Starfield tilt is correct (ecliptic pole star-field matches
+- [x] Onset toast fires exactly once per onset.
+- [x] Starfield tilt is correct (ecliptic pole star-field matches
   reality: Polaris sits ~23.4° off the ecliptic pole).
 
 **Tests required.** Threshold math unit test (rate × period → phase step);
@@ -707,9 +707,68 @@ Optional post-beta. No brief until un-deferred by the human.
 | Q6 | **Spot-check epoch semantics after real-vector calibration:** require all 10 bodies at both 2026 and 1986, or use the 2026 point for the full set plus the 1986 point only for Halley? The 20-point interpretation forces non-physical pass budgets (Earth is 144,450,813.9 km off in 1986 because the approved near-pair unwrapped-MA slope is 1.335394656°/day; Phoebe is 14,762,084.4 km off under the declared no-secular moon model). | 2026-07-13 | **closed 2026-07-13** — human approved the full 10-body gate at the catalog epoch plus Halley at its 1986 demo/perihelion epoch, retained all 20 vectors as audit data, and explicitly approved the 1 km planet / 10 km moon / 25,000 km dwarf / 30,000,000 km comet budgets. |
 | Q7 | **Approve the general Sun/planet GM audit?** Adopt the exact JPL DE440 set in `docs/wp3-gm-audit-2026-07-13.md`: eight numeric replacements, with Venus verified unchanged; Mars–Neptune use DE440 system GMs. | 2026-07-13 | **closed 2026-07-13** — human approved all nine rows. The eight replacements and verified Venus value are applied with DE440 provenance; both catalogs were regenerated from captured responses and the active position gate remains green. |
 | Q8 | **What defines “Major” in WP10's per-system Major/All moon visibility option?** The frozen catalog has no major-moon flag and ARCHITECTURE gives no membership list or physical cutoff. Recommend an additive curated boolean in the generator manifest/schema so the choice is reviewable; alternatives are a human-approved id set or a specified radius rule. | 2026-07-13 | **closed 2026-07-13** — human approved the recommended additive, catalog-backed curated boolean. The manifest's explicit 24-id membership list is the source of truth and covers every modeled moon system. |
+| Q9 | **Approve NASA HEASARC BSC5P as WP13's license-clean Bright Star Catalog source?** The authoritative NASA Open Data Portal identifies `ivo://nasa.heasarc/bsc5p`, marks access public, and links its license to the U.S. government-works policy. The table is HEASARC's 1995 derivative of ADC/CDS V/50 with later position corrections. Recommend the NASA export rather than redistributing CDS V/50 directly; retain Hoffleit & Warren, HEASARC, NASA Open Data, and V/50 provenance in the audit sidecar. | 2026-07-14 | **closed 2026-07-14** — human approved NASA HEASARC BSC5P. The derived 5,000-star asset and `assets/starfield-SOURCE.md` record the exact TAP query, hashes, government-works license route, catalog references, exclusions, and bake transform. |
 
 ## Change log (append-only; newest first)
 
+- **2026-07-14** — WP13 done after human approval of Q9's NASA HEASARC
+  BSC5P route. Queried only `hr,ra,dec,vmag`, in HR order, from the official
+  TAP endpoint; the source response is SHA-256
+  `e4f539290c7f6303695f6fafb07618d66a23ce55e5898cb1145769aaa0913b6f`.
+  The schema-pinned VOTable BINARY parser validates the query status, exact
+  four-field types/units, base64 stream, ranges, HR ordering, and the full
+  9,110-row/9,096-star composition. It explicitly excludes HEASARC's 14
+  historical non-stellar HR rows with null magnitudes. The deterministic bake
+  commits the brightest 5,000 stars as `assets/starfield.bsc` (SHA-256
+  `312d6b4a94f0fd62e4877f7c63d36ba8af7ac084537f05d07faead3ef6fd628b`)
+  with full source/license/transform metadata in `assets/starfield-SOURCE.md`;
+  a replay bake compares byte-identically. The app renders it as one retained,
+  camera-centered 20,000-vertex/30,000-index point-sprite mesh, so magnitude
+  sizes remain visible without per-star entities and the floating origin
+  cannot induce parallax jitter. The real-asset test verifies 5,000 finite
+  unit-sphere points and Polaris at ~23.4° from the ecliptic pole. At +100
+  yr/s/60 fps, catalog-period tests prove Mercury through Saturn fade fully to
+  bright paths while Uranus, Neptune, Sedna, Halley, and Hale–Bopp remain dots;
+  3I/ATLAS has no elliptic threshold. Hysteresis and onset tests prove no
+  boundary flicker and exactly one toast per onset. Sun emissive/PBR, the sole
+  point light, bloom, and low ambient are entity-tested. Evidence: `cargo test`
+  passes all 167 tests (53 + 80 + 31 + 2 + 1); `cargo fmt --all -- --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`, `git diff --check`,
+  the catalog dry-run, and deterministic starfield rebake pass. The 120-frame
+  GPU smoke rendered all bodies, orbits, and the retained starfield at 120.2
+  fps after warmup. No dependency or read-only-file changes.
+- **2026-07-14** — WP13 implementation is complete except for the Q9-gated
+  production star payload. Added catalog-load elliptic period thresholds,
+  per-frame parent-relative phase-step checks at the WP8 rate, 0.15/0.12 rad
+  hysteresis, wall-time dot/label cross-fades, per-body WP6 orbit brightening,
+  and a transition-only onset message consumed by the existing time-bar toast.
+  At +100 yr/s/60 fps the independent period cross-check engages Mercury but
+  leaves Neptune, Sedna, Halley, Hale–Bopp, and hyperbolic 3I/ATLAS as dots.
+  The Sun now has the sole point light and stronger emissive material; planets
+  use lit PBR materials, the camera carries Bevy bloom, and a low cool ambient
+  fill preserves night sides. Added the offline `xtask bake-starfield` fixed-
+  width parser, deterministic brightest-5,000 ecliptic-J2000 bake, validated
+  binary format, and one retained magnitude-scaled point-sprite mesh centered
+  on the camera for floating-origin stability. Synthetic tests cover corrupt
+  rows, exactly 5,000 finite unit-sphere records, binary round-trip, Polaris'
+  ~23.4° ecliptic-pole separation, and magnitude sizing. The matching runtime
+  loader is ready for `assets/starfield.bsc`; it remains deliberately absent
+  pending Q9. Evidence: `cargo test` passes all 165 tests (53 + 78 + 31 + 2 +
+  1); `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --
+  -D warnings`, and `git diff --check` pass. No dependencies or read-only files
+  changed. NASA Open Data records BSC5P as public and licenses it via the U.S.
+  government-works policy.
+- **2026-07-14** — Started WP13 from the green 156-test WP12 checkout after
+  reading ARCHITECTURE §§7 and 10.4–10.5. Orbit emphasis will derive elliptic
+  period thresholds at catalog load, use per-body hysteresis and wall-time
+  cross-fades, and emit one global onset transition into the existing toast
+  surface; dots, labels, and WP6 orbit brightness remain render-only. Sun
+  lighting will use Bevy's existing emissive/PBR/bloom stack with no new
+  dependency. Raised Q9 before importing BSC data because the authoritative
+  HEASARC/CDS distributions do not substantiate ARCHITECTURE's public-domain
+  label and NASA explicitly requires validation of third-party archive rights.
+  Evidence: pre-change `cargo test` passes all 156 tests; HEASARC BSC5P
+  provenance and NASA Science Data Portal licensing guidance.
 - **2026-07-14** — WP12 done. Added a deterministic catalog search layer that
   seeds exact matches through `Catalog::find`, then ranks name/designation
   prefixes, aliases, subsequences, and bounded edit-distance candidates while

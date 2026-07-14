@@ -9,11 +9,14 @@ use crate::control::{CameraController, SimCommand, SimCommandQueue};
 use crate::layers::{LayerId, LayerState};
 use crate::left_panel::{body_passes_moon_visibility, ViewOptionsState};
 use crate::ui_kit::{UiTheme, INTER_FONT_ASSET, TOP_BAR_HEIGHT_PX};
-use crate::{rebase_position, BodyStates, LoadedCatalog, KM_PER_RENDER_UNIT, TIME_BAR_HEIGHT_PX};
+use crate::{
+    rebase_position, BodyStates, LoadedCatalog, OrbitEmphasisState, KM_PER_RENDER_UNIT,
+    TIME_BAR_HEIGHT_PX,
+};
 use bevy::{
-    camera::CameraUpdateSystems, ecs::system::SystemParam, input_focus::tab_navigation::TabIndex,
-    prelude::*, text::LetterSpacing, transform::TransformSystems, ui::UiSystems,
-    ui_widgets::Activate,
+    camera::CameraUpdateSystems, color::Alpha, ecs::system::SystemParam,
+    input_focus::tab_navigation::TabIndex, prelude::*, text::LetterSpacing,
+    transform::TransformSystems, ui::UiSystems, ui_widgets::Activate,
 };
 use sim_core::catalog::Category;
 use std::collections::HashMap;
@@ -45,6 +48,12 @@ struct BodyReticle;
 
 #[derive(Component, Debug, Clone, Copy)]
 struct BodyLabelText;
+
+#[derive(Component, Debug, Clone, Copy)]
+struct LabelEmphasisColor {
+    body_index: usize,
+    base_color: Color,
+}
 
 #[derive(Component, Debug, Clone, Copy)]
 struct ViewportPickSurface;
@@ -213,7 +222,11 @@ impl Plugin for LabelsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_labels).add_systems(
             PostUpdate,
-            (sync_label_layer_children, project_and_declutter_labels)
+            (
+                sync_label_layer_children,
+                sync_label_emphasis_alpha,
+                project_and_declutter_labels,
+            )
                 .chain()
                 .after(TransformSystems::Propagate)
                 .after(CameraUpdateSystems)
@@ -279,6 +292,10 @@ fn spawn_labels(
             let (red, green, blue) = body.color_srgb;
             commands.spawn((
                 BodyReticle,
+                LabelEmphasisColor {
+                    body_index: index,
+                    base_color: Color::srgb_u8(red, green, blue),
+                },
                 Node {
                     width: px(RETICLE_SIZE_PX),
                     height: px(RETICLE_SIZE_PX),
@@ -293,9 +310,18 @@ fn spawn_labels(
             ));
         }
 
+        let text_color = if primary {
+            theme.colors.text_primary.color()
+        } else {
+            theme.colors.text_muted.color()
+        };
         commands.spawn((
             Text::new(text),
             BodyLabelText,
+            LabelEmphasisColor {
+                body_index: index,
+                base_color: text_color,
+            },
             TextFont {
                 font: font.clone().into(),
                 font_size: if primary {
@@ -305,11 +331,7 @@ fn spawn_labels(
                 },
                 ..default()
             },
-            TextColor(if primary {
-                theme.colors.text_primary.color()
-            } else {
-                theme.colors.text_muted.color()
-            }),
+            TextColor(text_color),
             LetterSpacing::Px(if primary {
                 theme.type_scale.uppercase_tracking_px
             } else {
@@ -378,6 +400,29 @@ struct LabelRenderResources<'w> {
     extents: Option<Res<'w, MoonSystemExtents>>,
     view_options: Option<Res<'w, ViewOptionsState>>,
     layers: Option<Res<'w, LayerState>>,
+    emphasis: Option<Res<'w, OrbitEmphasisState>>,
+}
+
+fn sync_label_emphasis_alpha(
+    emphasis: Option<Res<OrbitEmphasisState>>,
+    mut colors: Query<(
+        &LabelEmphasisColor,
+        Option<&mut TextColor>,
+        Option<&mut BorderColor>,
+    )>,
+) {
+    for (fade, text_color, border_color) in &mut colors {
+        let alpha = emphasis
+            .as_ref()
+            .map_or(1.0, |emphasis| emphasis.body_alpha(fade.body_index));
+        let color = fade.base_color.with_alpha(alpha);
+        if let Some(mut text_color) = text_color {
+            text_color.0 = color;
+        }
+        if let Some(mut border_color) = border_color {
+            *border_color = BorderColor::all(color);
+        }
+    }
 }
 
 fn sync_label_layer_children(
@@ -475,6 +520,13 @@ fn project_and_declutter_labels(
         let Some(body) = loaded.catalog.bodies.get(label.index) else {
             continue;
         };
+        if resources
+            .emphasis
+            .as_ref()
+            .is_some_and(|emphasis| emphasis.body_alpha(label.index) <= 0.01)
+        {
+            continue;
+        }
         if !body_is_contextually_visible(label.index, &visibility_context) {
             continue;
         }

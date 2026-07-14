@@ -1,4 +1,4 @@
-//! WP4–WP12 — simulation rendering, camera control, reusable HUD, and discovery.
+//! WP4–WP13 — simulation rendering, camera control, reusable HUD, and discovery.
 //!
 //! `sim-core` remains the f64 source of truth. This crate owns filesystem
 //! loading, parent-to-heliocentric composition, the one f64→f32 render rebase,
@@ -13,7 +13,9 @@ mod labels;
 mod layers;
 mod left_panel;
 mod orbit_lines;
+mod scene_polish;
 mod search;
+mod starfield;
 mod time_bar;
 mod ui_kit;
 
@@ -39,9 +41,20 @@ pub use orbit_lines::{
     orbit_vertex_count, sample_orbit, OrbitLineBrightness, OrbitLinesPlugin, OrbitPath,
     HYPERBOLIC_HALF_SPAN_S, MAX_ORBIT_VERTICES, MIN_ORBIT_VERTICES,
 };
+pub use scene_polish::{
+    hysteresis_state, phase_step_rad, simulated_step_for_phase, BodyOrbitEmphasis,
+    OrbitEmphasisOnset, OrbitEmphasisState, ScenePolishPlugin, SunLight, AMBIENT_BRIGHTNESS,
+    EMPHASIS_CROSSFADE_S, EMPHASIS_ENGAGE_PHASE_RAD, EMPHASIS_RELEASE_PHASE_RAD,
+    EMPHASIZED_ORBIT_BRIGHTNESS, SUN_LIGHT_INTENSITY_LUMENS, SUN_LIGHT_RANGE_UNITS,
+};
 pub use search::{
     search_catalog, BrowseColumn, BrowseColumnKind, BrowseCounts, BrowseEntry, BrowseMenuRoot,
     BrowseModel, SearchDropdownRoot, SearchHit, SearchMatchKind, SearchPlugin,
+};
+pub use starfield::{
+    decode_starfield, load_starfield, StarfieldAssetError, StarfieldPlugin, StarfieldPoint,
+    StarfieldRoot, StarfieldSource, DEFAULT_STARFIELD_PATH, EXPECTED_STARFIELD_POINTS,
+    STARFIELD_RADIUS_UNITS,
 };
 pub use time_bar::{
     commit_time_edit, live_chip_active, rate_for_slider_value, slider_value_for_rate,
@@ -61,6 +74,7 @@ pub use ui_kit::{WidgetGalleryCell, WidgetGalleryRoot};
 #[cfg(debug_assertions)]
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::ecs::system::SystemParam;
+use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
 use control::{
     advance_camera_controller, consume_presentation_command, consume_sim_command,
@@ -493,6 +507,8 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
         PropagationPlugin,
         OriginPlugin,
         CameraRigPlugin,
+        ScenePolishPlugin,
+        StarfieldPlugin,
         OrbitLinesPlugin,
         UiKitPlugin,
         SearchPlugin,
@@ -667,17 +683,18 @@ fn spawn_body_spheres(
     for (index, body) in loaded.catalog.bodies.iter().enumerate() {
         let (r, g, b) = body.color_srgb;
         let color = Color::srgb(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0);
-        let emissive = if body.category == Category::Star {
+        let is_star = body.category == Category::Star;
+        let emissive = if is_star {
             LinearRgba::rgb(
-                r as f32 / 255.0 * 4.0,
-                g as f32 / 255.0 * 4.0,
-                b as f32 / 255.0 * 4.0,
+                r as f32 / 255.0 * 80.0,
+                g as f32 / 255.0 * 80.0,
+                b as f32 / 255.0 * 80.0,
             )
         } else {
             LinearRgba::BLACK
         };
         let scale = (body.radius_km / KM_PER_RENDER_UNIT) as f32;
-        commands.spawn((
+        let mut entity = commands.spawn((
             Name::new(body.name.clone()),
             BodyId(body.id.clone()),
             BodyVisual { index },
@@ -685,11 +702,24 @@ fn spawn_body_spheres(
             MeshMaterial3d(materials.add(StandardMaterial {
                 base_color: color,
                 emissive,
-                unlit: true,
+                unlit: is_star,
                 ..default()
             })),
             Transform::from_scale(Vec3::splat(scale)),
         ));
+        if is_star {
+            entity.insert((
+                SunLight,
+                PointLight {
+                    color,
+                    intensity: SUN_LIGHT_INTENSITY_LUMENS,
+                    range: SUN_LIGHT_RANGE_UNITS,
+                    radius: scale,
+                    shadow_maps_enabled: false,
+                    ..default()
+                },
+            ));
+        }
     }
 }
 
@@ -712,6 +742,7 @@ fn spawn_camera(
         .id();
     commands.spawn((
         Camera3d::default(),
+        Bloom::NATURAL,
         Projection::Perspective(PerspectiveProjection {
             near: 1.0e-6,
             far: 1.0e9,
@@ -943,6 +974,38 @@ mod tests {
         assert_eq!(bodies.len(), 66);
         let mercury = bodies.iter().find(|(_, id, _)| id.0 == "mercury").unwrap();
         assert_eq!(mercury.2.scale, Vec3::splat(2.4397));
+
+        let mut material_query = app.world_mut().query::<(
+            &BodyId,
+            &MeshMaterial3d<StandardMaterial>,
+            Option<&SunLight>,
+            Option<&PointLight>,
+        )>();
+        let render_data: Vec<_> = material_query
+            .iter(app.world())
+            .map(|(id, material, sun_light, point_light)| {
+                (
+                    id.0.clone(),
+                    material.0.clone(),
+                    sun_light.is_some(),
+                    point_light.cloned(),
+                )
+            })
+            .collect();
+        let sun = render_data.iter().find(|data| data.0 == "sun").unwrap();
+        let mercury = render_data.iter().find(|data| data.0 == "mercury").unwrap();
+        assert!(sun.2, "Sun must carry the light marker");
+        let light = sun.3.as_ref().expect("Sun must carry a point light");
+        assert_eq!(light.intensity, SUN_LIGHT_INTENSITY_LUMENS);
+        assert_eq!(light.range, SUN_LIGHT_RANGE_UNITS);
+        assert_eq!(render_data.iter().filter(|data| data.2).count(), 1);
+        let materials = app.world().resource::<Assets<StandardMaterial>>();
+        let sun_material = materials.get(&sun.1).unwrap();
+        let mercury_material = materials.get(&mercury.1).unwrap();
+        assert!(sun_material.unlit);
+        assert_ne!(sun_material.emissive, LinearRgba::BLACK);
+        assert!(!mercury_material.unlit);
+        assert_eq!(mercury_material.emissive, LinearRgba::BLACK);
     }
 
     #[test]
@@ -965,10 +1028,10 @@ mod tests {
 
         let mut query = app
             .world_mut()
-            .query::<(&Camera3d, &ChildOf, &Projection)>();
+            .query::<(&Camera3d, &ChildOf, &Projection, &Bloom)>();
         let cameras: Vec<_> = query.iter(app.world()).collect();
         assert_eq!(cameras.len(), 1);
-        let (_, child_of, projection) = cameras[0];
+        let (_, child_of, projection, bloom) = cameras[0];
         assert!(
             app.world().get::<CameraFocusAnchor>(child_of.0).is_some(),
             "camera parent is not the moving focus anchor"
@@ -978,6 +1041,7 @@ mod tests {
         };
         assert_eq!(perspective.near, 1.0e-6);
         assert_eq!(perspective.far, 1.0e9);
+        assert_eq!(bloom.intensity, Bloom::NATURAL.intensity);
     }
 
     #[derive(Resource, Default)]
