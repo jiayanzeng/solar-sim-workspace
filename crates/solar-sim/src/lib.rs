@@ -92,6 +92,8 @@ use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::ecs::system::SystemParam;
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
+use bevy::render::renderer::RenderAdapterInfo;
+use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
 use bevy::settings::SettingsPlugin;
 use bevy::ui::IsDefaultUiCamera;
 use bevy::window::ExitCondition;
@@ -116,10 +118,50 @@ pub const KM_PER_RENDER_UNIT: f64 = 1_000.0;
 const DEFAULT_SMOKE_FRAMES: u32 = 60;
 pub const DEFAULT_CAMERA_DISTANCE_UNITS: f64 = 250_000.0;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpectedBackend {
+    Metal,
+    Dx12,
+    Vulkan,
+}
+
+impl ExpectedBackend {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "metal" => Some(Self::Metal),
+            "dx12" => Some(Self::Dx12),
+            "vulkan" => Some(Self::Vulkan),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Metal => "metal",
+            Self::Dx12 => "dx12",
+            Self::Vulkan => "vulkan",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunOptionsError(String);
+
+impl fmt::Display for RunOptionsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for RunOptionsError {}
+
 #[derive(Debug, Clone)]
 pub struct RunOptions {
     pub catalog_path: PathBuf,
     pub smoke_frames: Option<u32>,
+    pub expected_backend: Option<ExpectedBackend>,
+    pub reject_software_adapter: bool,
+    pub assert_nonblack: bool,
     pub initial_focus_id: Option<String>,
     /// Debug-only renderer recovery probe. It is translated through the same
     /// recorded `SimCommand` path as the F9 binding.
@@ -132,6 +174,9 @@ impl Default for RunOptions {
         Self {
             catalog_path: PathBuf::from(DEFAULT_CATALOG_PATH),
             smoke_frames: None,
+            expected_backend: None,
+            reject_software_adapter: false,
+            assert_nonblack: false,
             initial_focus_id: None,
             simulate_device_loss: false,
             golden_capture: None,
@@ -140,7 +185,7 @@ impl Default for RunOptions {
 }
 
 impl RunOptions {
-    pub fn from_args(args: &[String]) -> Self {
+    pub fn from_args(args: &[String]) -> Result<Self, RunOptionsError> {
         let mut options = Self::default();
         let mut golden_view = None;
         let mut golden_backend = None;
@@ -162,6 +207,20 @@ impl RunOptions {
                         i += 1;
                     }
                 }
+                "--expect-backend" => {
+                    let value = args.get(i + 1).ok_or_else(|| {
+                        RunOptionsError("--expect-backend requires metal, dx12, or vulkan".into())
+                    })?;
+                    options.expected_backend =
+                        Some(ExpectedBackend::parse(value).ok_or_else(|| {
+                            RunOptionsError(format!(
+                                "unsupported backend '{value}'; expected metal, dx12, or vulkan"
+                            ))
+                        })?);
+                    i += 1;
+                }
+                "--reject-software-adapter" => options.reject_software_adapter = true,
+                "--assert-nonblack" => options.assert_nonblack = true,
                 "--focus" => {
                     if let Some(value) = args.get(i + 1) {
                         options.initial_focus_id = Some(value.clone());
@@ -205,9 +264,25 @@ impl RunOptions {
                 view,
                 backend,
                 output,
+                reject_software_adapter: options.reject_software_adapter,
             });
         }
-        options
+        if options.smoke_frames.is_none()
+            && (options.expected_backend.is_some() || options.assert_nonblack)
+        {
+            return Err(RunOptionsError(
+                "--expect-backend and --assert-nonblack require --smoke".into(),
+            ));
+        }
+        if options.reject_software_adapter
+            && options.smoke_frames.is_none()
+            && options.golden_capture.is_none()
+        {
+            return Err(RunOptionsError(
+                "--reject-software-adapter requires --smoke or golden capture options".into(),
+            ));
+        }
+        Ok(options)
     }
 }
 
@@ -399,16 +474,31 @@ struct PropagationFault(Option<String>);
 #[derive(Resource)]
 struct SmokeFrames {
     target: Option<u32>,
+    expected_backend: Option<ExpectedBackend>,
+    reject_software_adapter: bool,
+    assert_nonblack: bool,
     seen: u32,
     started: Option<Instant>,
+    screenshot_requested: bool,
+    completed: bool,
 }
 
 impl SmokeFrames {
-    fn new(target: Option<u32>) -> Self {
+    fn new(
+        target: Option<u32>,
+        expected_backend: Option<ExpectedBackend>,
+        reject_software_adapter: bool,
+        assert_nonblack: bool,
+    ) -> Self {
         Self {
             target,
+            expected_backend,
+            reject_software_adapter,
+            assert_nonblack,
             seen: 0,
             started: None,
+            screenshot_requested: false,
+            completed: false,
         }
     }
 }
@@ -492,7 +582,13 @@ impl Plugin for CameraRigPlugin {
 
 pub fn run_from_env() {
     let args: Vec<String> = std::env::args().collect();
-    let options = RunOptions::from_args(&args);
+    let options = match RunOptions::from_args(&args) {
+        Ok(options) => options,
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(2);
+        }
+    };
     if options
         .golden_capture
         .as_ref()
@@ -503,8 +599,9 @@ pub fn run_from_env() {
     }
     let catalog = load_catalog_from_path(&options.catalog_path);
     let mut app = build_app(options, catalog);
-    if let AppExit::Error(code) = app.run() {
-        std::process::exit(i32::from(code.get()));
+    match app.run() {
+        AppExit::Success => {}
+        AppExit::Error(code) => std::process::exit(i32::from(code.get())),
     }
 }
 
@@ -592,7 +689,12 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
         .insert_resource(CommandRecording::default())
         .insert_resource(SimulationFrame::default())
         .insert_resource(PropagationFault::default())
-        .insert_resource(SmokeFrames::new(options.smoke_frames))
+        .insert_resource(SmokeFrames::new(
+            options.smoke_frames,
+            options.expected_backend,
+            options.reject_software_adapter,
+            options.assert_nonblack,
+        ))
         .add_message::<ClockTickReport>();
 
     match catalog.and_then(|catalog| {
@@ -943,10 +1045,18 @@ fn advance_simulation_frame(mut frame: ResMut<SimulationFrame>) {
     frame.0 += 1;
 }
 
-fn smoke_exit(mut smoke: ResMut<SmokeFrames>, mut exit: MessageWriter<AppExit>) {
+fn smoke_exit(
+    mut commands: Commands,
+    mut smoke: ResMut<SmokeFrames>,
+    adapter: Option<Res<RenderAdapterInfo>>,
+    mut exit: MessageWriter<AppExit>,
+) {
     let Some(target) = smoke.target else {
         return;
     };
+    if smoke.screenshot_requested || smoke.completed {
+        return;
+    }
     smoke.seen += 1;
     let warmup_frames = (target / 5).min(60);
     if smoke.started.is_none() && smoke.seen >= warmup_frames {
@@ -961,14 +1071,99 @@ fn smoke_exit(mut smoke: ResMut<SmokeFrames>, mut exit: MessageWriter<AppExit>) 
         let measured_frames = smoke.seen.saturating_sub(warmup_frames).max(1);
         let fps = measured_frames as f64 / elapsed;
         info!(
-            "smoke: rendered {} frames; measured {} after {} warmup frames in {:.3}s ({:.1} fps)",
+            "smoke: completed {} update frames; measured {} after {} warmup frames in {:.3}s ({:.1} fps)",
             smoke.seen, measured_frames, warmup_frames, elapsed, fps
         );
         println!(
-            "smoke: rendered {} frames; measured {} after {} warmup frames in {:.3}s ({:.1} fps)",
+            "smoke: completed {} update frames; measured {} after {} warmup frames in {:.3}s ({:.1} fps)",
             smoke.seen, measured_frames, warmup_frames, elapsed, fps
         );
-        exit.write(AppExit::Success);
+        if smoke.expected_backend.is_some() || smoke.reject_software_adapter {
+            let Some(adapter) = adapter else {
+                eprintln!("smoke: RenderAdapterInfo is unavailable");
+                smoke.completed = true;
+                exit.write(AppExit::error());
+                return;
+            };
+            let actual = adapter.backend.to_string();
+            let device_type = format!("{:?}", adapter.device_type);
+            println!(
+                "smoke: render adapter '{}' has device_type {device_type} and uses backend {actual}",
+                adapter.name,
+            );
+            if !software_adapter_allowed(smoke.reject_software_adapter, &device_type) {
+                eprintln!(
+                    "smoke: rejected software adapter '{}' with device_type {device_type}",
+                    adapter.name
+                );
+                smoke.completed = true;
+                exit.write(AppExit::error());
+                return;
+            }
+            if let Some(expected) = smoke.expected_backend {
+                if !backend_matches(expected, &actual) {
+                    eprintln!(
+                        "smoke: expected backend {}, got {actual}",
+                        expected.as_str()
+                    );
+                    smoke.completed = true;
+                    exit.write(AppExit::error());
+                    return;
+                }
+                println!("smoke: backend expectation {} passed", expected.as_str());
+            }
+        }
+        if smoke.assert_nonblack {
+            println!("smoke: requesting primary window readback");
+            smoke.screenshot_requested = true;
+            commands
+                .spawn(Screenshot::primary_window())
+                .observe(assert_window_nonblack_and_exit);
+        } else {
+            smoke.completed = true;
+            exit.write(AppExit::Success);
+        }
+    }
+}
+
+fn assert_window_nonblack_and_exit(
+    captured: On<ScreenshotCaptured>,
+    mut smoke: ResMut<SmokeFrames>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let result = captured
+        .image
+        .clone()
+        .try_into_dynamic()
+        .map_err(|error| error.to_string())
+        .map(|image| image.to_rgb8())
+        .and_then(|rgb| nonblack_rgb_dimensions(rgb.width(), rgb.height(), rgb.as_raw()));
+    smoke.completed = true;
+    match result {
+        Ok((width, height)) => {
+            println!("smoke: primary window readback {width}x{height} is nonblack");
+            exit.write(AppExit::Success);
+        }
+        Err(error) => {
+            eprintln!("smoke: {error}");
+            exit.write(AppExit::error());
+        }
+    }
+}
+
+fn backend_matches(expected: ExpectedBackend, actual: &str) -> bool {
+    expected.as_str() == actual
+}
+
+fn software_adapter_allowed(reject_software_adapter: bool, device_type: &str) -> bool {
+    !reject_software_adapter || device_type != "Cpu"
+}
+
+fn nonblack_rgb_dimensions(width: u32, height: u32, rgb: &[u8]) -> Result<(u32, u32), String> {
+    if rgb.iter().any(|channel| *channel != 0) {
+        Ok((width, height))
+    } else {
+        Err("primary window readback is entirely black".into())
     }
 }
 
@@ -1019,6 +1214,64 @@ mod tests {
 
     fn catalog() -> Catalog {
         load_catalog_text(REAL_CATALOG).expect("committed catalog must load")
+    }
+
+    #[test]
+    fn smoke_cli_accepts_only_reviewed_backends_and_requires_smoke_mode() {
+        for (name, expected) in [
+            ("metal", ExpectedBackend::Metal),
+            ("dx12", ExpectedBackend::Dx12),
+            ("vulkan", ExpectedBackend::Vulkan),
+        ] {
+            let args = [
+                "solar-sim",
+                "--smoke",
+                "60",
+                "--expect-backend",
+                name,
+                "--reject-software-adapter",
+                "--assert-nonblack",
+            ]
+            .map(str::to_owned);
+            let options = RunOptions::from_args(&args).unwrap();
+            assert_eq!(options.smoke_frames, Some(60));
+            assert_eq!(options.expected_backend, Some(expected));
+            assert!(options.reject_software_adapter);
+            assert!(options.assert_nonblack);
+        }
+
+        let invalid = ["solar-sim", "--smoke", "60", "--expect-backend", "gl"].map(str::to_owned);
+        assert!(RunOptions::from_args(&invalid).is_err());
+        let missing_smoke = ["solar-sim", "--assert-nonblack"].map(str::to_owned);
+        assert!(RunOptions::from_args(&missing_smoke).is_err());
+        let unscoped_rejection = ["solar-sim", "--reject-software-adapter"].map(str::to_owned);
+        assert!(RunOptions::from_args(&unscoped_rejection).is_err());
+    }
+
+    #[test]
+    fn smoke_backend_and_nonblack_checks_reject_mismatches_and_black_frames() {
+        assert!(backend_matches(ExpectedBackend::Metal, "metal"));
+        assert!(backend_matches(ExpectedBackend::Dx12, "dx12"));
+        assert!(backend_matches(ExpectedBackend::Vulkan, "vulkan"));
+        assert!(!backend_matches(ExpectedBackend::Metal, "vulkan"));
+
+        assert_eq!(
+            nonblack_rgb_dimensions(2, 1, &[0, 0, 0, 0, 1, 0]),
+            Ok((2, 1))
+        );
+        assert_eq!(
+            nonblack_rgb_dimensions(1, 1, &[0, 0, 0]),
+            Err("primary window readback is entirely black".into())
+        );
+    }
+
+    #[test]
+    fn smoke_software_adapter_check_rejects_cpu_only_when_requested() {
+        assert!(software_adapter_allowed(true, "IntegratedGpu"));
+        assert!(software_adapter_allowed(true, "DiscreteGpu"));
+        assert!(software_adapter_allowed(true, "VirtualGpu"));
+        assert!(!software_adapter_allowed(true, "Cpu"));
+        assert!(software_adapter_allowed(false, "Cpu"));
     }
 
     #[test]

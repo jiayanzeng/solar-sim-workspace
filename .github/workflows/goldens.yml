@@ -1,0 +1,51 @@
+name: goldens
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend:
+        description: Render backend to capture
+        required: true
+        default: metal
+        type: choice
+        options:
+          - metal
+          - dx12
+          - both
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  goldens:
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: ${{ fromJSON(inputs.backend == 'both' && '["metal","dx12"]' || format('["{0}"]', inputs.backend)) }}
+    runs-on: ${{ matrix.backend == 'metal' && 'macos-14' || 'windows-latest' }}
+    env:
+      GOLDEN_APP: ${{ matrix.backend == 'metal' && 'target/release/solar-sim' || 'target/release/solar-sim.exe' }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: 1.95.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - run: cargo build -p solar-sim --release
+      - name: capture canonical views twice
+        run: |
+          cargo run -p xtask -- capture-goldens --app "${{ env.GOLDEN_APP }}" --out target/goldens/run-a --backend "${{ matrix.backend }}"
+          cargo run -p xtask -- capture-goldens --app "${{ env.GOLDEN_APP }}" --out target/goldens/run-b --backend "${{ matrix.backend }}"
+      - name: perceptual stability gate
+        run: cargo run -p xtask -- compare-goldens --baseline "target/goldens/run-a/${{ matrix.backend }}" --candidate "target/goldens/run-b/${{ matrix.backend }}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: golden-${{ matrix.backend }}
+          path: |
+            target/goldens/run-b/${{ matrix.backend }}/*.ppm
+            target/goldens/run-b/${{ matrix.backend }}/golden-attempts.txt
+          if-no-files-found: error
+          retention-days: 7

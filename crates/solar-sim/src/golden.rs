@@ -7,8 +7,10 @@
 use bevy::{
     app::AppExit,
     asset::LoadState,
+    ecs::system::SystemParam,
     prelude::*,
     render::render_resource::TextureFormat,
+    render::renderer::RenderAdapterInfo,
     render::view::screenshot::{Screenshot, ScreenshotCaptured},
 };
 use std::{fs, path::PathBuf, time::Instant};
@@ -31,6 +33,7 @@ pub struct GoldenCaptureOptions {
     pub view: String,
     pub backend: String,
     pub output: PathBuf,
+    pub reject_software_adapter: bool,
 }
 
 #[derive(Resource)]
@@ -164,6 +167,15 @@ struct GoldenCaptureState {
     requested: bool,
 }
 
+#[derive(SystemParam)]
+struct GoldenCaptureInputs<'w, 's> {
+    asset_server: Res<'w, AssetServer>,
+    materials: Res<'w, Assets<StandardMaterial>>,
+    material_handles: Query<'w, 's, &'static MeshMaterial3d<StandardMaterial>>,
+    target: Res<'w, GoldenRenderTarget>,
+    adapter: Option<Res<'w, RenderAdapterInfo>>,
+}
+
 pub(crate) fn configure_golden_capture(app: &mut App, options: GoldenCaptureOptions) {
     let hide_hud = golden_view(&options.view).is_some_and(|view| !view.show_ui);
     let target = app
@@ -203,27 +215,45 @@ fn hide_golden_hud(mut surfaces: Query<&mut Visibility, GoldenHudFilter>) {
 fn request_golden_capture(
     mut commands: Commands,
     mut state: ResMut<GoldenCaptureState>,
-    asset_server: Res<AssetServer>,
-    materials: Res<Assets<StandardMaterial>>,
-    material_handles: Query<&MeshMaterial3d<StandardMaterial>>,
-    target: Res<GoldenRenderTarget>,
+    inputs: GoldenCaptureInputs,
     mut exit: MessageWriter<AppExit>,
 ) {
     if state.requested {
         return;
     }
+    if state.options.reject_software_adapter {
+        let Some(adapter) = inputs.adapter else {
+            error!(
+                "golden '{}' cannot inspect RenderAdapterInfo",
+                state.options.view
+            );
+            exit.write(AppExit::error());
+            state.requested = true;
+            return;
+        };
+        let device_type = format!("{:?}", adapter.device_type);
+        if !crate::software_adapter_allowed(true, &device_type) {
+            error!(
+                "golden '{}' rejected software adapter '{}' with device_type {device_type}",
+                state.options.view, adapter.name
+            );
+            exit.write(AppExit::error());
+            state.requested = true;
+            return;
+        }
+    }
     let started = *state.started.get_or_insert_with(Instant::now);
     state.frames += 1;
     let mut all_loaded = true;
-    for material_handle in &material_handles {
-        let Some(material) = materials.get(material_handle) else {
+    for material_handle in &inputs.material_handles {
+        let Some(material) = inputs.materials.get(material_handle) else {
             all_loaded = false;
             continue;
         };
         let Some(texture) = material.base_color_texture.as_ref() else {
             continue;
         };
-        match asset_server.load_state(texture) {
+        match inputs.asset_server.load_state(texture) {
             LoadState::Failed(error) => {
                 error!(
                     "golden '{}' texture failed to load: {error}",
@@ -264,7 +294,7 @@ fn request_golden_capture(
         state.options.output.display()
     );
     commands
-        .spawn(Screenshot::image(target.0.clone()))
+        .spawn(Screenshot::image(inputs.target.0.clone()))
         .observe(save_ppm_and_exit(state.options.output.clone()));
     state.attempts += 1;
     state.requested = true;
@@ -301,6 +331,10 @@ fn save_ppm_and_exit(
         match result {
             Ok(()) => {
                 info!("golden saved to {}", path.display());
+                println!(
+                    "golden-attempts view={} attempts={}",
+                    state.options.view, state.attempts
+                );
                 exit.write(AppExit::Success);
             }
             Err(error) => {
@@ -359,6 +393,7 @@ mod tests {
                 view: "earth-texture".into(),
                 backend: "test".into(),
                 output: PathBuf::from("ignored.ppm"),
+                reject_software_adapter: false,
             },
         );
         let target = app.world().resource::<GoldenRenderTarget>();

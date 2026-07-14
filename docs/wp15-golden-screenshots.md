@@ -42,7 +42,12 @@ Windows CI uses the same commands with `solar-sim.exe` and the `dx12` backend.
 The application writes strict binary PPM (`P6`) files so comparison needs no
 image-codec dependency. The default gate computes CIE Lab Delta E 76 and
 requires mean Delta E ≤ 1.25 and the 99th percentile ≤ 4.0 for every view.
-Both capture directories must contain exactly the six names above.
+Both capture directories must contain PPMs for exactly the six names above.
+Each directory also contains `golden-attempts.txt`, populated from the app's
+machine-readable capture-success output. The comparator reports baseline and
+candidate attempt counts for every view and rejects any count above one by
+default. `--allow-retries` is an explicit diagnostic escape hatch; it does not
+belong in the CI stability gate.
 
 The launcher replaces Cargo's inherited `CARGO_MANIFEST_DIR` with the
 `solar-sim` crate directory before starting the app. This keeps Bevy's
@@ -53,3 +58,26 @@ CI captures two independent application launches per backend, compares them,
 and uploads the second set as the reviewed backend artifact. A deliberately
 approved visual change is promoted by downloading those artifacts after both
 backend jobs pass; thresholds are not loosened to accept a regression.
+
+## Window-surface smoke check
+
+Golden capture deliberately targets a fixed offscreen image, so it does not
+replace a shipped-window check. On local or real release hardware, opt into a
+primary-window readback after the smoke frame count:
+
+```sh
+cargo run -p solar-sim --release -- --smoke 60 --expect-backend metal --assert-nonblack
+```
+
+Use `dx12` on the Windows reference machine and `vulkan` for a Vulkan release
+target. `--expect-backend` rejects an unexpected wgpu adapter backend, while
+`--reject-software-adapter` rejects `wgpu::DeviceType::Cpu`. Any future real
+DX12 machine must pass `cargo run -p solar-sim --release -- --smoke 60
+--expect-backend dx12 --reject-software-adapter` before its golden captures
+mean anything. The Windows hosted smoke deliberately omits this check because
+its WARP adapter is an expected compile/launch probe, not a golden GPU gate.
+`--assert-nonblack` reads the primary window render target and fails if every
+RGB channel is zero. The nonblack assertion is intentionally not a hosted-CI
+gate: a hosted window surface may read back black even when the fixed offscreen
+golden target is valid. WP17 runs this opt-in check on both real reference
+machines before release closeout.
