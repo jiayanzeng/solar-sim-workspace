@@ -47,11 +47,11 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | **✅ done** |
 | 14 | Settings screen + render-recovery policies | **✅ done** |
 | 15 | Texture pass (2K KTX2) + visual polish + golden screenshots | **✅ done** |
-| 16 | Steam: Steamworks init, overlay spike, packaging/signing/depots | todo |
+| 16 | Steam: Steamworks init, overlay spike, packaging/signing/depots | in-progress |
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 196 passing** (53 `sim-core` · 100 `solar-sim` · 40 `xtask`
+**Test baseline: 201 passing** (53 `sim-core` · 102 `solar-sim` · 43 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -764,8 +764,34 @@ WP16 will need Apple Developer ID and Steam credentials as repository secrets.
 On a public repo, those MUST live in a protected environment that no
 fork-triggered workflow can reach.
 
+### Q14 — OPEN.
+
+WP16 requires a new `steamworks` dependency, while the root `AGENTS.md` requires
+an Open question before any dependency is added. The current stable release is
+`steamworks` 0.13.1, whose documented `Client::init_app` API takes the numeric
+App ID required by ARCHITECTURE §11
+([crate documentation](https://docs.rs/steamworks/0.13.1/steamworks/struct.Client.html#method.init_app)).
+Decision required: approve `steamworks = "0.13.1"` as an optional dependency
+behind the `steam` feature, provide Solar Sim's numeric Steamworks App ID, and
+choose whether that ID is committed as build metadata or supplied through a
+named runtime input. Recommendation: commit the approved App ID and use no
+fallback ID, so local, CI, and SteamPipe builds cannot silently target different
+applications.
+
 ## Change log (append-only; newest first)
 
+- **2026-07-14** — WP16 moved to **in-progress** with the dependency-free
+  platform boundary completed before the hardware overlay spike. The app now
+  installs `PlatformServicesPlugin` with an overlay-unavailable no-op default;
+  application lifecycle code sees only the `PlatformServices` trait and shuts
+  an injected implementation down once on `AppExit`. The new mock test
+  `platform::tests::app_lifecycle_uses_the_mock_and_does_not_require_an_overlay`
+  passes both alone and in `cargo test`; the full command passes all 201 tests
+  (53 `sim-core`, 102 `solar-sim`, 43 `xtask` lib, two xtask smoke, one active
+  spot-check). `cargo clippy -p solar-sim --all-targets -- -D warnings` and the
+  exact default-tree guard command from `.github/workflows/ci.yml` pass. Q14
+  records the required dependency approval, App ID, and injection decision; no
+  dependency was added and no WP16 acceptance box was checked.
 - **2026-07-14** — CI-5 closed WP15 on clean, pushed `main` commit
   `887a2c60bf2cc04f0817bcd215eda9fa9075601b`. Two separate
   `workflow_dispatch` executions used `backend=metal`, job label
