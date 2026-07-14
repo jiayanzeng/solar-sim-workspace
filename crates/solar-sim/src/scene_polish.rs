@@ -238,9 +238,13 @@ fn apply_body_emphasis_alpha(
         let Some(mut material) = materials.get_mut(&material_handle.0) else {
             continue;
         };
-        let (red, green, blue) = body.color_srgb;
         let alpha = emphasis.body_alpha(visual.index);
-        material.base_color = Color::srgb_u8(red, green, blue).with_alpha(alpha);
+        material.base_color = if body.texture.is_some() && material.base_color_texture.is_some() {
+            Color::WHITE.with_alpha(alpha)
+        } else {
+            let (red, green, blue) = body.color_srgb;
+            Color::srgb_u8(red, green, blue).with_alpha(alpha)
+        };
         material.alpha_mode = if body.category != Category::Star && alpha < 0.999 {
             AlphaMode::Blend
         } else {

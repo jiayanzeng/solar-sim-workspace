@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "asset": "earth.ktx2",
+  "title": "Earth global surface map",
+  "body_ids": [
+    "earth"
+  ],
+  "usage": "sphere",
+  "creator": "NASA",
+  "source_page": "https://github.com/nasa/NASA-3D-Resources",
+  "source_file": "https://raw.githubusercontent.com/nasa/NASA-3D-Resources/master/Images%20and%20Textures/Earth%20%28A%29/Earth%20%28A%29.jpg",
+  "source_sha256": "5e18afce2860f02a215c09954fff5d3d1ca140cafa26c368d24d7636dd6705a7",
+  "source_dimensions": [
+    1440,
+    720
+  ],
+  "retrieved_utc": "2026-07-14",
+  "license_spdx": "LicenseRef-Public-Domain-USGov",
+  "license_name": "Public Domain - U.S. Government Work",
+  "license_url": "https://github.com/nasa/NASA-3D-Resources",
+  "transform": "Pillow RGB resize to 2048x1024 PPM; cargo run -p xtask -- convert-texture --source earth.ppm --out assets/textures/earth.ktx2",
+  "output_dimensions": [
+    2048,
+    1024
+  ],
+  "asset_sha256": "85331ca83f025260a940347a0029de8f6fc18f4e36b7e5e9e7b063b9c403c3ba"
+}

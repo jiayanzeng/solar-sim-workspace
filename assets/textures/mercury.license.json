@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "asset": "mercury.ktx2",
+  "title": "Mercury MESSENGER enhanced-color global mosaic",
+  "body_ids": [
+    "mercury"
+  ],
+  "usage": "sphere",
+  "creator": "USGS Astrogeology Science Center",
+  "source_page": "https://astrogeology.usgs.gov/search/map/mercury_messenger_mdis_basemap_enhanced_color_global_mosaic_665m",
+  "source_file": "https://astrogeology.usgs.gov/ckan/dataset/3599a192-1df1-49c7-a328-f5936df16155/resource/8b1ccce0-3d79-490f-85f6-3f78de377c96/download/mercury_messenger_mdis_basemap_enhancedcolor_mosaic_global_512.jpg",
+  "source_sha256": "f3068e181e08b89aa5ae11868e20bb8dc0a40a1697c7e90052540eea829105d7",
+  "source_dimensions": [
+    512,
+    256
+  ],
+  "retrieved_utc": "2026-07-14",
+  "license_spdx": "LicenseRef-Public-Domain-USGov",
+  "license_name": "Public Domain - U.S. Government Work",
+  "license_url": "https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits",
+  "transform": "Pillow RGB resize to 2048x1024 PPM; cargo run -p xtask -- convert-texture --source mercury.ppm --out assets/textures/mercury.ktx2",
+  "output_dimensions": [
+    2048,
+    1024
+  ],
+  "asset_sha256": "ca1f697159c2a658ac4233056785a5a8333c4930334a5ef8e581b9f5a34c9237"
+}

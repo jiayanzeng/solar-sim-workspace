@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "asset": "uranus.ktx2",
+  "title": "Uranus Voyager 2 latitude-band atmosphere map",
+  "body_ids": [
+    "uranus"
+  ],
+  "usage": "sphere",
+  "creator": "NASA/Caltech",
+  "source_page": "https://science.nasa.gov/asset/webb/uranus-voyager-2/",
+  "source_file": "https://assets.science.nasa.gov/dynamicimage/assets/science/missions/webb/science/2020/02/STScI-01EVSTT9CQYZ9K7ZTZHQXRSPRC.png?crop=faces%2Cfocalpoint&fit=clip&h=1720&w=1720",
+  "source_sha256": "682939ef6e655e060046331bebfca8dc8a4d7dc4273d724a56f82f3c175721cc",
+  "source_dimensions": [
+    1720,
+    1720
+  ],
+  "retrieved_utc": "2026-07-14",
+  "license_spdx": "LicenseRef-Public-Domain-USGov",
+  "license_name": "Public Domain - U.S. Government Work",
+  "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+  "transform": "Pillow latitude-band projection from the center of the NASA Voyager 2 disk to a 2048x1024 PPM; cargo run -p xtask -- convert-texture --source uranus.ppm --out assets/textures/uranus.ktx2",
+  "output_dimensions": [
+    2048,
+    1024
+  ],
+  "asset_sha256": "a2c40f8dbad6535e013cdb6762c9b879aa919a34344143bc0607cf3cb8f2df48"
+}

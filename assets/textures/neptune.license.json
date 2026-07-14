@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "asset": "neptune.ktx2",
+  "title": "Neptune global atmosphere map",
+  "body_ids": [
+    "neptune"
+  ],
+  "usage": "sphere",
+  "creator": "NASA/JPL-Caltech",
+  "source_page": "https://github.com/nasa/NASA-3D-Resources",
+  "source_file": "https://raw.githubusercontent.com/nasa/NASA-3D-Resources/master/Images%20and%20Textures/Neptune/Neptune.jpg",
+  "source_sha256": "e9bb2b7bcfb98d3f1adc6f2e20e833a00c11e9677238d8a00ae7431214ca70aa",
+  "source_dimensions": [
+    720,
+    360
+  ],
+  "retrieved_utc": "2026-07-14",
+  "license_spdx": "LicenseRef-Public-Domain-USGov",
+  "license_name": "Public Domain - U.S. Government Work",
+  "license_url": "https://github.com/nasa/NASA-3D-Resources",
+  "transform": "Pillow RGB resize to 2048x1024 PPM; cargo run -p xtask -- convert-texture --source neptune.ppm --out assets/textures/neptune.ktx2",
+  "output_dimensions": [
+    2048,
+    1024
+  ],
+  "asset_sha256": "0f920c4e2fc803f888cbe37307f107e4d3d0d3a90f62e20da17760409ef3dca3"
+}

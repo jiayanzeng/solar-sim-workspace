@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "asset": "venus.ktx2",
+  "title": "Venus global Magellan radar map",
+  "body_ids": [
+    "venus"
+  ],
+  "usage": "sphere",
+  "creator": "NASA/JPL-Caltech",
+  "source_page": "https://github.com/nasa/NASA-3D-Resources",
+  "source_file": "https://raw.githubusercontent.com/nasa/NASA-3D-Resources/master/Images%20and%20Textures/Venus/Venus.jpg",
+  "source_sha256": "e395bced59e95339efbdd002d4a0bbbf81fe323a6694f3a4039120560c80e789",
+  "source_dimensions": [
+    1440,
+    720
+  ],
+  "retrieved_utc": "2026-07-14",
+  "license_spdx": "LicenseRef-Public-Domain-USGov",
+  "license_name": "Public Domain - U.S. Government Work",
+  "license_url": "https://github.com/nasa/NASA-3D-Resources",
+  "transform": "Pillow RGB resize to 2048x1024 PPM; cargo run -p xtask -- convert-texture --source venus.ppm --out assets/textures/venus.ktx2",
+  "output_dimensions": [
+    2048,
+    1024
+  ],
+  "asset_sha256": "7ea59642d7b4c71330b5cc46f0e628b7931d9f7ec7a5ac9f2452d3b8096921f0"
+}

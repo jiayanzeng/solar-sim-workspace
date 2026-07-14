@@ -9,6 +9,7 @@
 
 mod control;
 mod formatting;
+mod golden;
 mod input_intent;
 mod labels;
 mod layers;
@@ -18,6 +19,7 @@ mod scene_polish;
 mod search;
 mod settings;
 mod starfield;
+mod surface_textures;
 mod time_bar;
 mod ui_kit;
 
@@ -26,6 +28,9 @@ pub use control::{
     ReplayRunError, ReplayStream, SimCommand, StampedCommand,
 };
 pub use formatting::format_distance_km;
+pub use golden::{
+    golden_view, GoldenCaptureOptions, GoldenViewSpec, GOLDEN_HEIGHT, GOLDEN_VIEWS, GOLDEN_WIDTH,
+};
 pub use labels::{
     declutter_labels, moon_label_is_contextually_visible, ray_sphere_hit_distance, BodyLabel,
     DeclutterCandidate, LabelPriority, LabelsPlugin, ScreenRect, SelectionPlugin,
@@ -117,6 +122,7 @@ pub struct RunOptions {
     /// Debug-only renderer recovery probe. It is translated through the same
     /// recorded `SimCommand` path as the F9 binding.
     pub simulate_device_loss: bool,
+    pub golden_capture: Option<GoldenCaptureOptions>,
 }
 
 impl Default for RunOptions {
@@ -126,6 +132,7 @@ impl Default for RunOptions {
             smoke_frames: None,
             initial_focus_id: None,
             simulate_device_loss: false,
+            golden_capture: None,
         }
     }
 }
@@ -133,6 +140,9 @@ impl Default for RunOptions {
 impl RunOptions {
     pub fn from_args(args: &[String]) -> Self {
         let mut options = Self::default();
+        let mut golden_view = None;
+        let mut golden_backend = None;
+        let mut golden_output = None;
         let mut i = 1;
         while i < args.len() {
             match args[i].as_str() {
@@ -162,11 +172,38 @@ impl RunOptions {
                         i += 1;
                     }
                 }
+                "--golden-view" => {
+                    if let Some(value) = args.get(i + 1) {
+                        golden_view = Some(value.clone());
+                        i += 1;
+                    }
+                }
+                "--golden-backend" => {
+                    if let Some(value) = args.get(i + 1) {
+                        golden_backend = Some(value.clone());
+                        i += 1;
+                    }
+                }
+                "--golden-capture" => {
+                    if let Some(value) = args.get(i + 1) {
+                        golden_output = Some(PathBuf::from(value));
+                        i += 1;
+                    }
+                }
                 #[cfg(debug_assertions)]
                 "--simulate-device-loss" => options.simulate_device_loss = true,
                 _ => {}
             }
             i += 1;
+        }
+        if let (Some(view), Some(backend), Some(output)) =
+            (golden_view, golden_backend, golden_output)
+        {
+            options.golden_capture = Some(GoldenCaptureOptions {
+                view,
+                backend,
+                output,
+            });
         }
         options
     }
@@ -454,33 +491,82 @@ impl Plugin for CameraRigPlugin {
 pub fn run_from_env() {
     let args: Vec<String> = std::env::args().collect();
     let options = RunOptions::from_args(&args);
+    if options
+        .golden_capture
+        .as_ref()
+        .is_some_and(|capture| golden::golden_view(&capture.view).is_none())
+    {
+        eprintln!("unknown golden view");
+        std::process::exit(2);
+    }
     let catalog = load_catalog_from_path(&options.catalog_path);
     let mut app = build_app(options, catalog);
-    app.run();
+    if let AppExit::Error(code) = app.run() {
+        std::process::exit(i32::from(code.get()));
+    }
 }
 
 pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>) -> App {
     let mut app = App::new();
-    app.add_plugins(
-        DefaultPlugins
-            .set(AssetPlugin {
-                file_path: DEFAULT_BEVY_ASSET_ROOT.to_string(),
-                ..default()
-            })
-            .set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: "Solar Sim".into(),
-                    ..default()
-                }),
-                exit_condition: ExitCondition::DontExit,
-                ..default()
-            }),
-    );
+    let golden_capture = options.golden_capture.clone();
+    let golden_spec = golden_capture
+        .as_ref()
+        .and_then(|capture| golden::golden_view(&capture.view));
+    #[cfg(debug_assertions)]
+    if golden_capture.is_some() {
+        app.insert_resource(ui_kit::WidgetGalleryEnabled(false));
+    }
+    let primary_window = if golden_capture.is_some() {
+        Window {
+            title: "Solar Sim Golden".into(),
+            resolution: bevy::window::WindowResolution::new(
+                golden::GOLDEN_WIDTH,
+                golden::GOLDEN_HEIGHT,
+            )
+            .with_scale_factor_override(1.0),
+            resizable: false,
+            present_mode: bevy::window::PresentMode::AutoNoVsync,
+            ..default()
+        }
+    } else {
+        Window {
+            title: "Solar Sim".into(),
+            ..default()
+        }
+    };
+    let default_plugins = DefaultPlugins
+        .set(AssetPlugin {
+            file_path: DEFAULT_BEVY_ASSET_ROOT.to_string(),
+            ..default()
+        })
+        .set(WindowPlugin {
+            primary_window: Some(Window { ..primary_window }),
+            exit_condition: ExitCondition::DontExit,
+            ..default()
+        });
+    app.add_plugins(default_plugins);
     app.register_type::<AppSettings>()
         .add_plugins(SettingsPlugin::new(SETTINGS_IDENTIFIER));
-    let initial_settings = app.world().resource::<AppSettings>().clone().normalized();
+    let initial_settings = if golden_capture.is_some() {
+        let settings = AppSettings {
+            resolution: ResolutionSetting {
+                width: golden::GOLDEN_WIDTH,
+                height: golden::GOLDEN_HEIGHT,
+            },
+            vsync: false,
+            frame_cap: FrameCap::Unlimited,
+            ..default()
+        };
+        settings.normalized()
+    } else {
+        app.world().resource::<AppSettings>().clone().normalized()
+    };
+    let initial_layers = golden_spec.map_or_else(
+        || initial_settings.initial_layer_state(),
+        golden::layer_state_for_view,
+    );
     app.insert_resource(initial_settings.clone())
-        .insert_resource(initial_settings.initial_layer_state())
+        .insert_resource(initial_layers)
         .insert_resource(PresentationState::with_fullscreen(
             initial_settings.display_mode.is_fullscreen(),
         ));
@@ -489,11 +575,16 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
     let wall_now_t = wall_now_t();
     let initial_clock = initial_settings.initial_clock(wall_now_t);
     let initial_t_s = initial_clock.t();
-    let mut initial_commands = SimCommandQueue::default();
     #[cfg(debug_assertions)]
-    if options.simulate_device_loss {
-        initial_commands.push(SimCommand::SimulateDeviceLoss);
-    }
+    let initial_commands = {
+        let mut commands = SimCommandQueue::default();
+        if options.simulate_device_loss {
+            commands.push(SimCommand::SimulateDeviceLoss);
+        }
+        commands
+    };
+    #[cfg(not(debug_assertions))]
+    let initial_commands = SimCommandQueue::default();
     app.insert_resource(SimulationClock(initial_clock))
         .insert_resource(initial_commands)
         .insert_resource(CommandRecording::default())
@@ -509,25 +600,43 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
     }) {
         Ok((catalog, states)) => {
             let loaded = LoadedCatalog::new(catalog);
-            let requested_focus = options
-                .initial_focus_id
-                .as_deref()
-                .and_then(|id| loaded.index_of(id));
+            let requested_focus = golden_spec
+                .and_then(|view| loaded.index_of(view.focus_id))
+                .or_else(|| {
+                    options
+                        .initial_focus_id
+                        .as_deref()
+                        .and_then(|id| loaded.index_of(id))
+                });
             let focus_index = requested_focus
                 .or_else(|| loaded.index_of("sun"))
                 .map_or(0, |index| index);
-            let distance = if requested_focus.is_some() {
+            let distance = if golden_spec.is_some_and(|view| view.distance_units.is_none()) {
+                full_system_framing_distance_units(&loaded)
+            } else if requested_focus.is_some() {
                 framing_distance_units(&loaded, focus_index)
             } else {
                 full_system_framing_distance_units(&loaded)
             };
-            app.insert_resource(CameraController::new(
-                focus_index,
-                states.0[focus_index].position_km,
-                distance,
-            ))
-            .insert_resource(loaded)
-            .insert_resource(states);
+            let mut camera =
+                CameraController::new(focus_index, states.0[focus_index].position_km, distance);
+            if let Some(view) = golden_spec {
+                let (yaw, pitch) = if view.face_sun {
+                    let sun_index = loaded.index_of("sun").unwrap_or(focus_index);
+                    golden::illuminated_pose(
+                        states.0[focus_index].position_km,
+                        states.0[sun_index].position_km,
+                        view.yaw_rad,
+                        view.pitch_rad,
+                    )
+                } else {
+                    (view.yaw_rad, view.pitch_rad)
+                };
+                camera.set_initial_pose(yaw, pitch, view.distance_units.unwrap_or(distance));
+            }
+            app.insert_resource(camera)
+                .insert_resource(loaded)
+                .insert_resource(states);
         }
         Err(error) => {
             app.insert_resource(CatalogFailure(error.to_string()))
@@ -565,10 +674,16 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
             .in_set(SimulationSet::Render),
     );
 
+    if let Some(capture) = golden_capture {
+        golden::configure_golden_capture(&mut app, capture);
+    }
+
     #[cfg(debug_assertions)]
-    app.add_plugins(FrameTimeDiagnosticsPlugin::default())
-        .add_systems(Startup, spawn_diag_overlay)
-        .add_systems(Update, update_diag_overlay);
+    if options.golden_capture.is_none() {
+        app.add_plugins(FrameTimeDiagnosticsPlugin::default())
+            .add_systems(Startup, spawn_diag_overlay)
+            .add_systems(Update, update_diag_overlay);
+    }
 
     app
 }
@@ -717,50 +832,41 @@ fn spawn_body_spheres(
     loaded: Option<Res<LoadedCatalog>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Option<Res<AssetServer>>,
 ) {
     let Some(loaded) = loaded else {
         return;
     };
     let unit_sphere = meshes.add(Sphere::new(1.0));
     for (index, body) in loaded.catalog.bodies.iter().enumerate() {
-        let (r, g, b) = body.color_srgb;
-        let color = Color::srgb(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0);
         let is_star = body.category == Category::Star;
-        let emissive = if is_star {
-            LinearRgba::rgb(
-                r as f32 / 255.0 * 80.0,
-                g as f32 / 255.0 * 80.0,
-                b as f32 / 255.0 * 80.0,
-            )
-        } else {
-            LinearRgba::BLACK
-        };
         let scale = (body.radius_km / KM_PER_RENDER_UNIT) as f32;
-        let mut entity = commands.spawn((
-            Name::new(body.name.clone()),
-            BodyId(body.id.clone()),
-            BodyVisual { index },
-            Mesh3d(unit_sphere.clone()),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: color,
-                emissive,
-                unlit: is_star,
-                ..default()
-            })),
-            Transform::from_scale(Vec3::splat(scale)),
-        ));
+        let body_entity = commands
+            .spawn((
+                Name::new(body.name.clone()),
+                BodyId(body.id.clone()),
+                BodyVisual { index },
+                Mesh3d(unit_sphere.clone()),
+                MeshMaterial3d(materials.add(surface_textures::body_material(
+                    body,
+                    asset_server.as_deref(),
+                ))),
+                Transform::from_scale(Vec3::splat(scale)),
+            ))
+            .id();
         if is_star {
-            entity.insert((
-                SunLight,
-                PointLight {
-                    color,
-                    intensity: SUN_LIGHT_INTENSITY_LUMENS,
-                    range: SUN_LIGHT_RANGE_UNITS,
-                    radius: scale,
-                    shadow_maps_enabled: false,
-                    ..default()
-                },
-            ));
+            commands
+                .entity(body_entity)
+                .insert((SunLight, surface_textures::sun_light(body)));
+        }
+        if body.id == "saturn" {
+            surface_textures::spawn_saturn_ring(
+                &mut commands,
+                body_entity,
+                &mut meshes,
+                &mut materials,
+                asset_server.as_deref(),
+            );
         }
     }
 }
@@ -1000,6 +1106,10 @@ mod tests {
     #[test]
     fn real_catalog_spawns_all_66_true_radius_spheres() {
         let catalog = catalog();
+        assert!(catalog
+            .lint()
+            .iter()
+            .all(|lint| !lint.contains("no texture assigned")));
         let loaded = LoadedCatalog::new(catalog);
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
@@ -1041,6 +1151,25 @@ mod tests {
         assert_eq!(light.intensity, SUN_LIGHT_INTENSITY_LUMENS);
         assert_eq!(light.range, SUN_LIGHT_RANGE_UNITS);
         assert_eq!(render_data.iter().filter(|data| data.2).count(), 1);
+        let saturn_entity = app
+            .world_mut()
+            .query::<(Entity, &BodyId)>()
+            .iter(app.world())
+            .find_map(|(entity, id)| (id.0 == "saturn").then_some(entity))
+            .unwrap();
+        let rings: Vec<_> = app
+            .world_mut()
+            .query::<(
+                &surface_textures::SaturnRing,
+                &ChildOf,
+                &MeshMaterial3d<StandardMaterial>,
+            )>()
+            .iter(app.world())
+            .map(|(_, parent, material)| (parent.0, material.0.clone()))
+            .collect();
+        assert_eq!(rings.len(), 1);
+        assert_eq!(rings[0].0, saturn_entity);
+
         let materials = app.world().resource::<Assets<StandardMaterial>>();
         let sun_material = materials.get(&sun.1).unwrap();
         let mercury_material = materials.get(&mercury.1).unwrap();
@@ -1048,6 +1177,16 @@ mod tests {
         assert_ne!(sun_material.emissive, LinearRgba::BLACK);
         assert!(!mercury_material.unlit);
         assert_eq!(mercury_material.emissive, LinearRgba::BLACK);
+        assert!(mercury_material.base_color_texture.is_none());
+        assert_eq!(
+            mercury_material.base_color,
+            Color::srgb(158.0 / 255.0, 158.0 / 255.0, 158.0 / 255.0),
+            "catalog color remains the complete headless/missing-asset fallback"
+        );
+
+        let ring_material = materials.get(&rings[0].1).unwrap();
+        assert_eq!(ring_material.alpha_mode, AlphaMode::Blend);
+        assert!(ring_material.double_sided);
     }
 
     #[test]

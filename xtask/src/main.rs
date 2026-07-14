@@ -6,17 +6,198 @@
 
 use anyhow::{bail, Result};
 use std::path::PathBuf;
-use xtask::{emit, fetch, plan, starfield, GenOptions, DEFAULT_EPOCH_JD_TDB};
+use xtask::{emit, fetch, golden, plan, starfield, texture, GenOptions, DEFAULT_EPOCH_JD_TDB};
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("gen-catalog") => gen_catalog(&args[1..]),
         Some("bake-starfield") => bake_starfield(&args[1..]),
+        Some("convert-texture") => convert_texture(&args[1..]),
+        Some("check-texture-metadata") => check_texture_metadata(&args[1..]),
+        Some("capture-goldens") => capture_goldens(&args[1..]),
+        Some("compare-goldens") => compare_goldens(&args[1..]),
         _ => {
-            eprintln!("usage:\n  xtask gen-catalog [--out PATH] [--epoch-jd F] [--dry-run] [--fixtures DIR [--allow-partial]] [--online [--capture DIR]]\n  xtask bake-starfield --source PATH --out PATH [--limit N]");
+            eprintln!("usage:\n  xtask gen-catalog [--out PATH] [--epoch-jd F] [--dry-run] [--fixtures DIR [--allow-partial]] [--online [--capture DIR]]\n  xtask bake-starfield --source PATH --out PATH [--limit N]\n  xtask convert-texture --source PATH.ppm --out PATH.ktx2 [--alpha-from-luminance]\n  xtask check-texture-metadata [--dir assets/textures]\n  xtask capture-goldens --app PATH --out DIR --backend TAG\n  xtask compare-goldens --baseline DIR --candidate DIR [--max-mean F] [--max-p99 F]");
             std::process::exit(2);
         }
+    }
+}
+
+fn convert_texture(args: &[String]) -> Result<()> {
+    let mut source: Option<PathBuf> = None;
+    let mut out: Option<PathBuf> = None;
+    let mut alpha_mode = texture::AlphaMode::Opaque;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--source" => {
+                i += 1;
+                source = Some(PathBuf::from(
+                    args.get(i)
+                        .ok_or_else(|| anyhow::anyhow!("--source needs a path"))?,
+                ));
+            }
+            "--out" => {
+                i += 1;
+                out = Some(PathBuf::from(
+                    args.get(i)
+                        .ok_or_else(|| anyhow::anyhow!("--out needs a path"))?,
+                ));
+            }
+            "--alpha-from-luminance" => alpha_mode = texture::AlphaMode::FromLuminance,
+            other => bail!("unknown flag: {other}"),
+        }
+        i += 1;
+    }
+    let source = source.ok_or_else(|| anyhow::anyhow!("--source is required"))?;
+    let out = out.ok_or_else(|| anyhow::anyhow!("--out is required"))?;
+    let image = texture::convert_texture_file(&source, &out, alpha_mode)?;
+    println!(
+        "wrote {} ({}x{}, {} channels)",
+        out.display(),
+        image.width,
+        image.height,
+        image.channels
+    );
+    Ok(())
+}
+
+fn check_texture_metadata(args: &[String]) -> Result<()> {
+    let mut directory = PathBuf::from("assets/textures");
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--dir" => {
+                i += 1;
+                directory = PathBuf::from(
+                    args.get(i)
+                        .ok_or_else(|| anyhow::anyhow!("--dir needs a path"))?,
+                );
+            }
+            other => bail!("unknown flag: {other}"),
+        }
+        i += 1;
+    }
+    let count = texture::audit_texture_directory(&directory)?;
+    println!(
+        "texture metadata audit passed: {count} KTX2 assets in {}",
+        directory.display()
+    );
+    Ok(())
+}
+
+fn capture_goldens(args: &[String]) -> Result<()> {
+    let mut application: Option<PathBuf> = None;
+    let mut output: Option<PathBuf> = None;
+    let mut backend: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--app" => {
+                i += 1;
+                application = Some(PathBuf::from(
+                    args.get(i)
+                        .ok_or_else(|| anyhow::anyhow!("--app needs a path"))?,
+                ));
+            }
+            "--out" => {
+                i += 1;
+                output = Some(PathBuf::from(
+                    args.get(i)
+                        .ok_or_else(|| anyhow::anyhow!("--out needs a path"))?,
+                ));
+            }
+            "--backend" => {
+                i += 1;
+                backend = Some(
+                    args.get(i)
+                        .ok_or_else(|| anyhow::anyhow!("--backend needs a tag"))?
+                        .clone(),
+                );
+            }
+            other => bail!("unknown flag: {other}"),
+        }
+        i += 1;
+    }
+    let directory = golden::capture_golden_views(
+        &application.ok_or_else(|| anyhow::anyhow!("--app is required"))?,
+        &output.ok_or_else(|| anyhow::anyhow!("--out is required"))?,
+        &backend.ok_or_else(|| anyhow::anyhow!("--backend is required"))?,
+    )?;
+    println!(
+        "captured {} canonical views in {}",
+        golden::CANONICAL_VIEW_SLUGS.len(),
+        directory.display()
+    );
+    Ok(())
+}
+
+fn compare_goldens(args: &[String]) -> Result<()> {
+    let mut baseline: Option<PathBuf> = None;
+    let mut candidate: Option<PathBuf> = None;
+    let mut threshold = golden::PerceptualThreshold::default();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--baseline" => {
+                i += 1;
+                baseline = Some(PathBuf::from(
+                    args.get(i)
+                        .ok_or_else(|| anyhow::anyhow!("--baseline needs a path"))?,
+                ));
+            }
+            "--candidate" => {
+                i += 1;
+                candidate =
+                    Some(PathBuf::from(args.get(i).ok_or_else(|| {
+                        anyhow::anyhow!("--candidate needs a path")
+                    })?));
+            }
+            "--max-mean" => {
+                i += 1;
+                threshold.max_mean_delta_e = args
+                    .get(i)
+                    .ok_or_else(|| anyhow::anyhow!("--max-mean needs a value"))?
+                    .parse()?;
+            }
+            "--max-p99" => {
+                i += 1;
+                threshold.max_p99_delta_e = args
+                    .get(i)
+                    .ok_or_else(|| anyhow::anyhow!("--max-p99 needs a value"))?
+                    .parse()?;
+            }
+            other => bail!("unknown flag: {other}"),
+        }
+        i += 1;
+    }
+    let baseline = baseline.ok_or_else(|| anyhow::anyhow!("--baseline is required"))?;
+    let candidate = candidate.ok_or_else(|| anyhow::anyhow!("--candidate is required"))?;
+    match golden::compare_golden_directories(&baseline, &candidate, threshold) {
+        Ok(comparisons) => {
+            print_golden_comparisons(&comparisons);
+            Ok(())
+        }
+        Err(golden::GoldenError::ThresholdExceeded(comparisons)) => {
+            print_golden_comparisons(&comparisons);
+            bail!("one or more golden views exceeded the perceptual threshold")
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn print_golden_comparisons(comparisons: &[golden::GoldenComparison]) {
+    for comparison in comparisons {
+        println!(
+            "{:<16} {}x{} mean ΔE={:.4} p99 ΔE={:.4} {}",
+            comparison.view,
+            comparison.width,
+            comparison.height,
+            comparison.mean_delta_e,
+            comparison.p99_delta_e,
+            if comparison.passed { "PASS" } else { "FAIL" }
+        );
     }
 }
 

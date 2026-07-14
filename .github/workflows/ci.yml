@@ -17,6 +17,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: texture public-domain metadata is complete and byte-exact
+        run: scripts/check-texture-metadata.sh
 
   test-macos:
     runs-on: macos-14
@@ -28,6 +30,35 @@ jobs:
       - run: cargo nextest run --workspace
       - name: offline smoke (fixtures pipeline)
         run: cargo run -p xtask -- gen-catalog --fixtures xtask/fixtures --allow-partial --out /tmp/catalog.smoke.ron
+
+  goldens:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            backend: metal
+            app: target/release/solar-sim
+          - os: windows-latest
+            backend: dx12
+            app: target/release/solar-sim.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p solar-sim --release
+      - name: capture canonical views twice
+        run: |
+          cargo run -p xtask -- capture-goldens --app "${{ matrix.app }}" --out target/goldens/run-a --backend "${{ matrix.backend }}"
+          cargo run -p xtask -- capture-goldens --app "${{ matrix.app }}" --out target/goldens/run-b --backend "${{ matrix.backend }}"
+      - name: perceptual stability gate
+        run: cargo run -p xtask -- compare-goldens --baseline "target/goldens/run-a/${{ matrix.backend }}" --candidate "target/goldens/run-b/${{ matrix.backend }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: golden-${{ matrix.backend }}
+          path: target/goldens/run-b/${{ matrix.backend }}/*.ppm
+          if-no-files-found: error
 
   build-windows:
     runs-on: windows-latest

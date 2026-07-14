@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "asset": "saturn-rings.ktx2",
+  "title": "Saturn ring radial texture from PIA02241",
+  "body_ids": [
+    "saturn"
+  ],
+  "usage": "saturn_ring",
+  "creator": "NASA/JPL-Caltech",
+  "source_page": "https://science.nasa.gov/photojournal/saturns-rings/",
+  "source_file": "https://assets.science.nasa.gov/content/dam/science/psd/photojournal/pia/pia02/pia02241/PIA02241.tif",
+  "source_sha256": "3fa4da45b7cd0955f8f2d9ba4e6282bd4767298e4bb9e820f2f6c95d9fc0bdf0",
+  "source_dimensions": [
+    1760,
+    800
+  ],
+  "retrieved_utc": "2026-07-14",
+  "license_spdx": "LicenseRef-Public-Domain-USGov",
+  "license_name": "Public Domain - U.S. Government Work",
+  "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+  "transform": "Pillow radial line sample from PIA02241 to a 2048x64 PPM; cargo run -p xtask -- convert-texture --source saturn-rings.ppm --out assets/textures/saturn-rings.ktx2 --alpha-from-luminance",
+  "output_dimensions": [
+    2048,
+    64
+  ],
+  "asset_sha256": "7bfa5f0d0eb0db611a746bc28bd3e42a1bf6c8139fdefec267e0bf629dd92aa7"
+}

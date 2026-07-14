@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "asset": "titan.ktx2",
+  "title": "Titan global atmosphere map",
+  "body_ids": [
+    "titan"
+  ],
+  "usage": "sphere",
+  "creator": "NASA/JPL-Caltech",
+  "source_page": "https://github.com/nasa/NASA-3D-Resources",
+  "source_file": "https://raw.githubusercontent.com/nasa/NASA-3D-Resources/master/Images%20and%20Textures/Saturn%20-%20Titan/Saturn%20-%20Titan.jpg",
+  "source_sha256": "a213516e3ccbe46bfbdb576963859c82c75799612ccab775ec3cf24b451feca0",
+  "source_dimensions": [
+    720,
+    360
+  ],
+  "retrieved_utc": "2026-07-14",
+  "license_spdx": "LicenseRef-Public-Domain-USGov",
+  "license_name": "Public Domain - U.S. Government Work",
+  "license_url": "https://github.com/nasa/NASA-3D-Resources",
+  "transform": "Pillow RGB resize to 2048x1024 PPM; cargo run -p xtask -- convert-texture --source titan.ppm --out assets/textures/titan.ktx2",
+  "output_dimensions": [
+    2048,
+    1024
+  ],
+  "asset_sha256": "0c860880049acbd73af14cf4bd493ce2808786e72e0d241d6ad4041c440d09d2"
+}

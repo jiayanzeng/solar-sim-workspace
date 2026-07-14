@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "asset": "saturn.ktx2",
+  "title": "Saturn global atmosphere map",
+  "body_ids": [
+    "saturn"
+  ],
+  "usage": "sphere",
+  "creator": "NASA/JPL-Caltech",
+  "source_page": "https://github.com/nasa/NASA-3D-Resources",
+  "source_file": "https://raw.githubusercontent.com/nasa/NASA-3D-Resources/master/Images%20and%20Textures/Saturn/Saturn.jpg",
+  "source_sha256": "d959a239e3d87630daf08e2a688dcbf315fe01b1fd474e55522770108f40aca7",
+  "source_dimensions": [
+    720,
+    360
+  ],
+  "retrieved_utc": "2026-07-14",
+  "license_spdx": "LicenseRef-Public-Domain-USGov",
+  "license_name": "Public Domain - U.S. Government Work",
+  "license_url": "https://github.com/nasa/NASA-3D-Resources",
+  "transform": "Pillow RGB resize to 2048x1024 PPM; cargo run -p xtask -- convert-texture --source saturn.ppm --out assets/textures/saturn.ktx2",
+  "output_dimensions": [
+    2048,
+    1024
+  ],
+  "asset_sha256": "c3b397de85b4336b9a1df02f4bafea46492ce516cec2ac2e72e43c0f51c5e619"
+}

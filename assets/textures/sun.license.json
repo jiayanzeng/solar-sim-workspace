@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "asset": "sun.ktx2",
+  "title": "Solar Dynamics Observatory 304 Angstrom Carrington map",
+  "body_ids": [
+    "sun"
+  ],
+  "usage": "sphere",
+  "creator": "NASA Scientific Visualization Studio / Solar Dynamics Observatory",
+  "source_page": "https://svs.gsfc.nasa.gov/30362",
+  "source_file": "https://svs.gsfc.nasa.gov/vis/a030000/a030300/a030362/euvi_aia304_2012_carrington.tif",
+  "source_sha256": "6235977f0fee5594786d8cde7bd4b0bb46db1f7755cf30cf625d0f1dc3e72ba5",
+  "source_dimensions": [
+    4104,
+    2304
+  ],
+  "retrieved_utc": "2026-07-14",
+  "license_spdx": "LicenseRef-Public-Domain-USGov",
+  "license_name": "Public Domain - U.S. Government Work",
+  "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+  "transform": "Pillow RGB resize to 2048x1024 PPM; cargo run -p xtask -- convert-texture --source sun.ppm --out assets/textures/sun.ktx2",
+  "output_dimensions": [
+    2048,
+    1024
+  ],
+  "asset_sha256": "aac666137e5532bb8b57fb8be436614f8aae17b21a8274e5964d2bb3cf2de9dc"
+}

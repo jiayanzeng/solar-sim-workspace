@@ -3,12 +3,14 @@
 
 pub mod emit;
 pub mod fetch;
+pub mod golden;
 pub mod horizons;
 pub mod lookup;
 pub mod manifest;
 pub mod normalize;
 pub mod sbdb;
 pub mod starfield;
+pub mod texture;
 
 use anyhow::{anyhow, Context, Result};
 use fetch::Fetch;
@@ -108,7 +110,7 @@ fn record_shell(e: &Entry) -> BodyRecord {
         gm_km3_s2: e.gm_km3_s2,
         radius_km: e.radius_km,
         color_srgb: e.color,
-        texture: None,
+        texture: manifest::texture_path(e.id).map(str::to_string),
         description: e.blurb.to_string(),
         orbit: None,
         source: manifest::source_string(e),

@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "asset": "moon.ktx2",
+  "title": "LRO natural-color global Moon mosaic",
+  "body_ids": [
+    "moon"
+  ],
+  "usage": "sphere",
+  "creator": "NASA Scientific Visualization Studio / Ernie Wright / Noah Petro",
+  "source_page": "https://svs.gsfc.nasa.gov/4720",
+  "source_file": "https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/lroc_color_2k.jpg",
+  "source_sha256": "f7130a1822681fa7512d7dcfd40db8c10b9ba4f06777910348698260ed7a2170",
+  "source_dimensions": [
+    2048,
+    1024
+  ],
+  "retrieved_utc": "2026-07-14",
+  "license_spdx": "LicenseRef-Public-Domain-USGov",
+  "license_name": "Public Domain - U.S. Government Work",
+  "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+  "transform": "Pillow RGB resize to 2048x1024 PPM; cargo run -p xtask -- convert-texture --source moon.ppm --out assets/textures/moon.ktx2",
+  "output_dimensions": [
+    2048,
+    1024
+  ],
+  "asset_sha256": "ff8026bae8c35c5f3e6167269c49c09ed2bbffb263afd1f5031b854ed687d3fc"
+}

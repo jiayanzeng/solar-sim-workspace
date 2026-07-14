@@ -46,12 +46,12 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 12 | Search (alias-aware) + Menu browse with live counts | **✅ done** |
 | 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | **✅ done** |
 | 14 | Settings screen + render-recovery policies | **✅ done** |
-| 15 | Texture pass (2K KTX2) + visual polish + golden screenshots | todo |
+| 15 | Texture pass (2K KTX2) + visual polish + golden screenshots | **in-progress** |
 | 16 | Steam: Steamworks init, overlay spike, packaging/signing/depots | todo |
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 178 passing** (53 `sim-core` · 91 `solar-sim` · 31 `xtask`
+**Test baseline: 191 passing** (53 `sim-core` · 96 `solar-sim` · 39 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -608,10 +608,10 @@ attribution, no NASA branding).
   threshold.
 
 **Acceptance.**
-- [ ] `catalog.lint()` reports zero untextured star/planet lints.
-- [ ] Every shipped texture has license + source metadata; the CI check
+- [x] `catalog.lint()` reports zero untextured star/planet lints.
+- [x] Every shipped texture has license + source metadata; the CI check
   fails on a metadata-less asset (prove by adding one in a scratch branch).
-- [ ] Untextured bodies still render with catalog colors (texturing stays
+- [x] Untextured bodies still render with catalog colors (texturing stays
   polish, not a dependency).
 - [ ] Goldens are stable across two consecutive CI runs on the same
   platform.
@@ -711,6 +711,40 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-14** — WP15 implementation complete; hosted golden stability
+  verification remains. Added 15 catalog-driven 2048×1024 sphere KTX2 assets
+  plus Saturn's 2048-pixel translucent ring strip, with byte-exact public-domain
+  NASA/USGS metadata for all 16 assets. Texture identity now flows through the
+  curated manifest and both catalogs were regenerated through `xtask`; the real
+  catalog has zero untextured star/planet lints. The renderer preserves catalog
+  colors when an assignment/asset server is absent, preserves source texels when
+  present, and parents a seam-closed, double-sided annulus to Saturn. The offline
+  pipeline now converts strict PPM to KTX2, round-trips the result, hashes source
+  and output bytes, and rejects orphaned or invalid metadata; the positive audit
+  passes all 16 assets; inserting a temporary `metadata-less.ktx2` beside them
+  makes the exact CI script exit 1 with the expected missing-sidecar error, and
+  the audit passes again after removing that scratch asset. The
+  golden harness defines exactly six fixed 960×600 views, waits for texture and
+  pipeline settling, rejects all-black readback, compares CIE Lab Delta E per
+  backend, and runs twice for Metal/DX12 in CI. Evidence: `cargo test` passes all
+  191 tests (53 `sim-core`, 96 `solar-sim`, 39 `xtask` lib, two smoke, one active
+  spot-check); `cargo fmt --all -- --check`, `cargo clippy --workspace
+  --all-targets -- -D warnings`, `scripts/check-texture-metadata.sh`, `cargo run
+  -p xtask -- gen-catalog --dry-run`, and `cargo build -p solar-sim --release`
+  pass. No dependencies were added. WP15 stays **in-progress** and the final
+  acceptance box remains unchecked until two consecutive hosted CI runs on the
+  same platform prove the Metal/DX12 captures stable; rapid repeated local Metal
+  launches also exercised the black-frame guard and correctly failed rather
+  than accepting an invalid golden.
+- **2026-07-14** — Started WP15 from the green 178-test WP14 checkout after
+  reading ARCHITECTURE §§1, 10.1, and 12. The implementation will keep every
+  source assignment in the curated generator manifest, normalize public-domain
+  NASA SVS / NASA 3D Resources / USGS imagery through a dependency-free KTX2
+  `xtask` pipeline, verify per-asset provenance plus output digests in CI, add
+  Saturn's textured translucent ring mesh, and make the six canonical golden
+  views deterministic at a fixed epoch with per-backend perceptual comparison.
+  Evidence: pre-change `cargo test` passes all 178 tests; the checkout was clean;
+  no read-only files or generated catalogs were edited.
 - **2026-07-14** — WP14 done. Enabled Bevy 0.19's native settings feature
   under `com.github.jiayanzeng.solar-sim`; its reflected `AppSettings` schema
   persists display mode, resolution, vsync/frame cap, quality, UI scale,

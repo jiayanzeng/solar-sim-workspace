@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "asset": "mars.ktx2",
+  "title": "Mars global surface map",
+  "body_ids": [
+    "mars"
+  ],
+  "usage": "sphere",
+  "creator": "NASA/JPL-Caltech/USGS",
+  "source_page": "https://github.com/nasa/NASA-3D-Resources",
+  "source_file": "https://raw.githubusercontent.com/nasa/NASA-3D-Resources/master/Images%20and%20Textures/Mars/Mars.jpg",
+  "source_sha256": "12ec6bf02ebd42a246edc778cb2ce8c595b4d9f0892badf0bfff8abb2303c780",
+  "source_dimensions": [
+    1440,
+    720
+  ],
+  "retrieved_utc": "2026-07-14",
+  "license_spdx": "LicenseRef-Public-Domain-USGov",
+  "license_name": "Public Domain - U.S. Government Work",
+  "license_url": "https://github.com/nasa/NASA-3D-Resources",
+  "transform": "Pillow RGB resize to 2048x1024 PPM; cargo run -p xtask -- convert-texture --source mars.ppm --out assets/textures/mars.ktx2",
+  "output_dimensions": [
+    2048,
+    1024
+  ],
+  "asset_sha256": "6cca379336a7457af7352765244fe6392c935abb5a0f1a0af66989c8d8367c9a"
+}

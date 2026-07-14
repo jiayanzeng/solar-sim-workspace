@@ -5,8 +5,8 @@
 //! every documented visual state.
 
 use super::{
-    checkbox_row, chip, panel, section_header, slider, tab_bar, toast, UiTheme, WidgetKind,
-    WidgetSpec, WidgetVisualState, INTER_FONT_ASSET,
+    checkbox_row, chip, panel, section_header, slider, tab_bar, toast, UiTheme,
+    WidgetGalleryEnabled, WidgetKind, WidgetSpec, WidgetVisualState, INTER_FONT_ASSET,
 };
 use crate::layers::HudSurface;
 use bevy::{
@@ -77,7 +77,14 @@ fn gallery_cell(theme: UiTheme, label: String, parent: Entity) -> impl Scene {
     }
 }
 
-pub(super) fn spawn_widget_gallery(mut commands: Commands, theme: Res<UiTheme>) {
+pub(super) fn spawn_widget_gallery(
+    mut commands: Commands,
+    theme: Res<UiTheme>,
+    enabled: Option<Res<WidgetGalleryEnabled>>,
+) {
+    if enabled.is_some_and(|enabled| !enabled.0) {
+        return;
+    }
     let theme = *theme;
     let root = commands.spawn_scene(gallery_root(theme)).id();
     for kind in WidgetKind::ALL {

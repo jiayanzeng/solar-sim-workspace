@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "asset": "jupiter.ktx2",
+  "title": "Jupiter global atmosphere map",
+  "body_ids": [
+    "jupiter"
+  ],
+  "usage": "sphere",
+  "creator": "NASA/JPL-Caltech",
+  "source_page": "https://github.com/nasa/NASA-3D-Resources",
+  "source_file": "https://raw.githubusercontent.com/nasa/NASA-3D-Resources/master/Images%20and%20Textures/Jupiter/Jupiter.jpg",
+  "source_sha256": "ac2d387f8ea56a59f45dea37993c779a730f49d7d9fdbc8d36c307a351b1f1a1",
+  "source_dimensions": [
+    720,
+    360
+  ],
+  "retrieved_utc": "2026-07-14",
+  "license_spdx": "LicenseRef-Public-Domain-USGov",
+  "license_name": "Public Domain - U.S. Government Work",
+  "license_url": "https://github.com/nasa/NASA-3D-Resources",
+  "transform": "Pillow RGB resize to 2048x1024 PPM; cargo run -p xtask -- convert-texture --source jupiter.ppm --out assets/textures/jupiter.ktx2",
+  "output_dimensions": [
+    2048,
+    1024
+  ],
+  "asset_sha256": "b9f4dfb6767ebd1a22709f50fe2aef281e5db89cda539d1fe66a4740854f42ec"
+}

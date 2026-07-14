@@ -26,6 +26,17 @@ pub use widgets::{
 
 use bevy::prelude::*;
 
+#[cfg(debug_assertions)]
+#[derive(Resource)]
+pub(crate) struct WidgetGalleryEnabled(pub bool);
+
+#[cfg(debug_assertions)]
+impl Default for WidgetGalleryEnabled {
+    fn default() -> Self {
+        Self(true)
+    }
+}
+
 pub struct UiKitPlugin;
 
 impl Plugin for UiKitPlugin {
@@ -36,6 +47,7 @@ impl Plugin for UiKitPlugin {
             .add_systems(Update, hud::update_breadcrumb);
 
         #[cfg(debug_assertions)]
-        app.add_systems(Startup, gallery::spawn_widget_gallery);
+        app.init_resource::<WidgetGalleryEnabled>()
+            .add_systems(Startup, gallery::spawn_widget_gallery);
     }
 }

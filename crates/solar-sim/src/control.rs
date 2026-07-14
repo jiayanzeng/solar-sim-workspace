@@ -107,6 +107,15 @@ impl CameraController {
         Self::new(0, [0.0; 3], DEFAULT_CAMERA_DISTANCE_UNITS)
     }
 
+    pub(crate) fn set_initial_pose(&mut self, yaw_rad: f64, pitch_rad: f64, distance_units: f64) {
+        debug_assert!(yaw_rad.is_finite());
+        debug_assert!(pitch_rad.is_finite());
+        debug_assert!(distance_units.is_finite() && distance_units > 0.0);
+        self.yaw_rad = yaw_rad;
+        self.pitch_rad = pitch_rad;
+        self.distance_units = distance_units;
+    }
+
     pub fn selected_body_index(&self) -> usize {
         self.selected_body_index
     }

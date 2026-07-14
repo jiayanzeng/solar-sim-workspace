@@ -46,6 +46,33 @@ const C_AST: (u8, u8, u8) = (158, 163, 170);
 const C_COMET: (u8, u8, u8) = (166, 216, 232);
 const C_MOON: (u8, u8, u8) = (198, 189, 175);
 
+/// WP15 texture assignments are curated identity data, never an emitter
+/// post-process. Paths are relative to Bevy's asset root and therefore flow
+/// through the same manifest -> generated catalog route as every other
+/// display field.
+pub fn texture_path(id: &str) -> Option<&'static str> {
+    Some(match id {
+        "sun" => "textures/sun.ktx2",
+        "mercury" => "textures/mercury.ktx2",
+        "venus" => "textures/venus.ktx2",
+        "earth" => "textures/earth.ktx2",
+        "mars" => "textures/mars.ktx2",
+        "jupiter" => "textures/jupiter.ktx2",
+        "saturn" => "textures/saturn.ktx2",
+        "uranus" => "textures/uranus.ktx2",
+        "neptune" => "textures/neptune.ktx2",
+        // The highest-value public-domain major-moon maps available in NASA's
+        // 3D Resources collection. Other bodies retain their catalog colors.
+        "moon" => "textures/moon.ktx2",
+        "io" => "textures/io.ktx2",
+        "europa" => "textures/europa.ktx2",
+        "ganymede" => "textures/ganymede.ktx2",
+        "callisto" => "textures/callisto.ktx2",
+        "titan" => "textures/titan.ktx2",
+        _ => return None,
+    })
+}
+
 /// How the generator obtains orbital elements for a body.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Route {
@@ -766,6 +793,35 @@ mod tests {
         assert_eq!(count(Category::Asteroid), 8);
         assert_eq!(count(Category::Moon), 32);
         assert_eq!(count(Category::Comet), 8);
+    }
+
+    #[test]
+    fn texture_assignments_cover_the_star_planets_and_available_major_moons() {
+        let entries = entries();
+        for entry in entries
+            .iter()
+            .filter(|entry| matches!(entry.category, Category::Star | Category::Planet))
+        {
+            assert!(
+                texture_path(entry.id).is_some(),
+                "{} has no curated WP15 texture",
+                entry.id
+            );
+        }
+        let textured_moons: HashSet<_> = entries
+            .iter()
+            .filter(|entry| entry.category == Category::Moon)
+            .filter(|entry| texture_path(entry.id).is_some())
+            .map(|entry| entry.id)
+            .collect();
+        assert_eq!(
+            textured_moons,
+            HashSet::from(["moon", "io", "europa", "ganymede", "callisto", "titan"])
+        );
+        assert!(entries
+            .iter()
+            .filter(|entry| texture_path(entry.id).is_some())
+            .all(|entry| entry.category != Category::Moon || entry.is_major_moon));
     }
 
     #[test]
