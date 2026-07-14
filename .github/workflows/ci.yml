@@ -23,7 +23,7 @@ jobs:
       - name: install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libudev-dev pkg-config
+          sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev pkg-config
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: 1.95.0
@@ -41,7 +41,7 @@ jobs:
       - name: install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libudev-dev pkg-config
+          sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev pkg-config
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: 1.95.0
