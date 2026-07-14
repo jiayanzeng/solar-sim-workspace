@@ -9,6 +9,7 @@
 use crate::texture::{parse_binary_ppm, RasterImage, TexturePipelineError};
 use std::fmt;
 use std::fs;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -22,6 +23,7 @@ pub const CANONICAL_VIEW_SLUGS: [&str; 6] = [
 ];
 pub const DEFAULT_MAX_MEAN_DELTA_E: f64 = 1.25;
 pub const DEFAULT_MAX_P99_DELTA_E: f64 = 4.0;
+pub const ATTEMPTS_MANIFEST_FILE: &str = "golden-attempts.txt";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PerceptualThreshold {
@@ -61,7 +63,21 @@ pub struct GoldenComparison {
     pub height: u32,
     pub mean_delta_e: f64,
     pub p99_delta_e: f64,
+    pub baseline_attempts: u8,
+    pub candidate_attempts: u8,
     pub passed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GoldenAttemptCount {
+    pub view: String,
+    pub attempts: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GoldenCaptureReport {
+    pub directory: PathBuf,
+    pub attempts: Vec<GoldenAttemptCount>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -80,7 +96,12 @@ pub enum GoldenError {
         view: String,
         message: String,
     },
+    Attempts {
+        path: PathBuf,
+        message: String,
+    },
     ThresholdExceeded(Vec<GoldenComparison>),
+    RetriesDetected(Vec<GoldenComparison>),
     Launch {
         view: String,
         message: String,
@@ -108,6 +129,11 @@ impl fmt::Display for GoldenError {
             Self::Image { view, message } => {
                 write!(f, "golden view '{view}' is invalid: {message}")
             }
+            Self::Attempts { path, message } => write!(
+                f,
+                "golden attempts manifest '{}' is invalid: {message}",
+                path.display()
+            ),
             Self::ThresholdExceeded(comparisons) => {
                 write!(f, "golden perceptual threshold exceeded")?;
                 for comparison in comparisons.iter().filter(|comparison| !comparison.passed) {
@@ -115,6 +141,21 @@ impl fmt::Display for GoldenError {
                         f,
                         "\n- {}: mean Delta E {:.4}, p99 Delta E {:.4}",
                         comparison.view, comparison.mean_delta_e, comparison.p99_delta_e
+                    )?;
+                }
+                Ok(())
+            }
+            Self::RetriesDetected(comparisons) => {
+                write!(f, "golden capture retry detected")?;
+                for comparison in comparisons.iter().filter(|comparison| {
+                    comparison.baseline_attempts > 1 || comparison.candidate_attempts > 1
+                }) {
+                    write!(
+                        f,
+                        "\n- {}: baseline attempts {}, candidate attempts {}",
+                        comparison.view,
+                        comparison.baseline_attempts,
+                        comparison.candidate_attempts
                     )?;
                 }
                 Ok(())
@@ -172,7 +213,7 @@ pub fn capture_golden_views(
     application: &Path,
     output_root: &Path,
     backend: &str,
-) -> Result<PathBuf, GoldenError> {
+) -> Result<GoldenCaptureReport, GoldenError> {
     if backend.is_empty()
         || !backend
             .bytes()
@@ -193,6 +234,14 @@ pub fn capture_golden_views(
         path: output.clone(),
         message: error.to_string(),
     })?;
+    let attempts_path = output.join(ATTEMPTS_MANIFEST_FILE);
+    if attempts_path.exists() {
+        fs::remove_file(&attempts_path).map_err(|error| GoldenError::Read {
+            path: attempts_path.clone(),
+            message: error.to_string(),
+        })?;
+    }
+    let mut attempts = Vec::with_capacity(CANONICAL_VIEW_SLUGS.len());
     for view in CANONICAL_VIEW_SLUGS {
         let path = output.join(format!("{view}.ppm"));
         if path.exists() {
@@ -201,47 +250,226 @@ pub fn capture_golden_views(
                 message: error.to_string(),
             })?;
         }
-        let status = golden_application_command(application, backend, view, &path)
-            .status()
+        let output_result = golden_application_command(application, backend, view, &path)
+            .output()
             .map_err(|error| GoldenError::Launch {
                 view: view.into(),
                 message: error.to_string(),
             })?;
-        if !status.success() {
+        forward_child_output(view, &output_result.stdout, &output_result.stderr)?;
+        if !output_result.status.success() {
             return Err(GoldenError::Launch {
                 view: view.into(),
-                message: format!("application exited with {status}"),
+                message: format!("application exited with {}", output_result.status),
             });
         }
+        let stdout =
+            String::from_utf8(output_result.stdout).map_err(|error| GoldenError::Launch {
+                view: view.into(),
+                message: format!("application stdout was not UTF-8: {error}"),
+            })?;
+        attempts.push(
+            parse_application_attempts(&stdout, view).map_err(|message| GoldenError::Launch {
+                view: view.into(),
+                message,
+            })?,
+        );
     }
     validate_view_set(&output)?;
-    Ok(output)
+    fs::write(&attempts_path, encode_attempt_manifest(&attempts)).map_err(|error| {
+        GoldenError::Read {
+            path: attempts_path,
+            message: error.to_string(),
+        }
+    })?;
+    Ok(GoldenCaptureReport {
+        directory: output,
+        attempts,
+    })
+}
+
+fn forward_child_output(view: &str, stdout: &[u8], stderr: &[u8]) -> Result<(), GoldenError> {
+    io::stdout()
+        .write_all(stdout)
+        .and_then(|()| io::stdout().flush())
+        .map_err(|error| GoldenError::Launch {
+            view: view.into(),
+            message: format!("could not forward application stdout: {error}"),
+        })?;
+    io::stderr()
+        .write_all(stderr)
+        .and_then(|()| io::stderr().flush())
+        .map_err(|error| GoldenError::Launch {
+            view: view.into(),
+            message: format!("could not forward application stderr: {error}"),
+        })
+}
+
+fn parse_application_attempts(
+    stdout: &str,
+    expected_view: &str,
+) -> Result<GoldenAttemptCount, String> {
+    let mut parsed = None;
+    for line in stdout
+        .lines()
+        .filter(|line| line.starts_with("golden-attempts"))
+    {
+        let count = parse_attempt_line(line)?;
+        if count.view != expected_view {
+            return Err(format!(
+                "attempt report named view '{}' instead of '{expected_view}'",
+                count.view
+            ));
+        }
+        if parsed.replace(count).is_some() {
+            return Err(format!(
+                "application emitted more than one attempt report for '{expected_view}'"
+            ));
+        }
+    }
+    parsed.ok_or_else(|| {
+        format!("application emitted no golden-attempts report for '{expected_view}'")
+    })
+}
+
+fn parse_attempt_line(line: &str) -> Result<GoldenAttemptCount, String> {
+    let mut fields = line.split_ascii_whitespace();
+    if fields.next() != Some("golden-attempts") {
+        return Err("attempt line must start with 'golden-attempts'".into());
+    }
+    let view = fields
+        .next()
+        .and_then(|field| field.strip_prefix("view="))
+        .filter(|view| !view.is_empty())
+        .ok_or_else(|| "attempt line needs a non-empty view=<slug> field".to_string())?;
+    let attempts = fields
+        .next()
+        .and_then(|field| field.strip_prefix("attempts="))
+        .ok_or_else(|| "attempt line needs an attempts=<n> field".to_string())?
+        .parse::<u8>()
+        .map_err(|error| format!("attempt count is not an unsigned byte: {error}"))?;
+    if attempts == 0 {
+        return Err("attempt count must be greater than zero".into());
+    }
+    if fields.next().is_some() {
+        return Err("attempt line has unexpected trailing fields".into());
+    }
+    Ok(GoldenAttemptCount {
+        view: view.into(),
+        attempts,
+    })
+}
+
+fn encode_attempt_manifest(attempts: &[GoldenAttemptCount]) -> String {
+    let mut manifest = String::new();
+    for count in attempts {
+        manifest.push_str(&format!(
+            "golden-attempts view={} attempts={}\n",
+            count.view, count.attempts
+        ));
+    }
+    manifest
+}
+
+fn read_attempt_manifest(directory: &Path) -> Result<Vec<GoldenAttemptCount>, GoldenError> {
+    let path = directory.join(ATTEMPTS_MANIFEST_FILE);
+    let manifest = fs::read_to_string(&path).map_err(|error| GoldenError::Read {
+        path: path.clone(),
+        message: error.to_string(),
+    })?;
+    let mut attempts = Vec::new();
+    for line in manifest.lines().filter(|line| !line.is_empty()) {
+        attempts.push(
+            parse_attempt_line(line).map_err(|message| GoldenError::Attempts {
+                path: path.clone(),
+                message,
+            })?,
+        );
+    }
+    let missing = CANONICAL_VIEW_SLUGS
+        .iter()
+        .filter(|view| !attempts.iter().any(|count| count.view == **view))
+        .copied()
+        .collect::<Vec<_>>();
+    let unexpected = attempts
+        .iter()
+        .filter(|count| !CANONICAL_VIEW_SLUGS.contains(&count.view.as_str()))
+        .map(|count| count.view.as_str())
+        .collect::<Vec<_>>();
+    let duplicate = attempts.iter().find_map(|count| {
+        (attempts
+            .iter()
+            .filter(|other| other.view == count.view)
+            .count()
+            > 1)
+        .then_some(count.view.as_str())
+    });
+    if !missing.is_empty() || !unexpected.is_empty() || duplicate.is_some() {
+        return Err(GoldenError::Attempts {
+            path,
+            message: format!(
+                "wrong view set (missing: {}; unexpected: {}; duplicate: {})",
+                missing.join(", "),
+                unexpected.join(", "),
+                duplicate.unwrap_or("none")
+            ),
+        });
+    }
+    Ok(attempts)
+}
+
+fn attempts_for_view(
+    attempts: &[GoldenAttemptCount],
+    view: &str,
+    directory: &Path,
+) -> Result<u8, GoldenError> {
+    attempts
+        .iter()
+        .find(|count| count.view == view)
+        .map(|count| count.attempts)
+        .ok_or_else(|| GoldenError::Attempts {
+            path: directory.join(ATTEMPTS_MANIFEST_FILE),
+            message: format!("missing view '{view}'"),
+        })
 }
 
 pub fn compare_golden_directories(
     baseline: &Path,
     candidate: &Path,
     threshold: PerceptualThreshold,
+    allow_retries: bool,
 ) -> Result<Vec<GoldenComparison>, GoldenError> {
     let threshold = threshold.validate()?;
     validate_view_set(baseline)?;
     validate_view_set(candidate)?;
+    let baseline_attempts = read_attempt_manifest(baseline)?;
+    let candidate_attempts = read_attempt_manifest(candidate)?;
     let mut comparisons = Vec::with_capacity(CANONICAL_VIEW_SLUGS.len());
     for view in CANONICAL_VIEW_SLUGS {
         let baseline_image = read_ppm(&baseline.join(format!("{view}.ppm")), view)?;
         let candidate_image = read_ppm(&candidate.join(format!("{view}.ppm")), view)?;
+        let baseline_attempts = attempts_for_view(&baseline_attempts, view, baseline)?;
+        let candidate_attempts = attempts_for_view(&candidate_attempts, view, candidate)?;
         comparisons.push(compare_images(
             view,
             &baseline_image,
             &candidate_image,
             threshold,
+            baseline_attempts,
+            candidate_attempts,
         )?);
     }
-    if comparisons.iter().all(|comparison| comparison.passed) {
-        Ok(comparisons)
-    } else {
-        Err(GoldenError::ThresholdExceeded(comparisons))
+    if comparisons.iter().any(|comparison| !comparison.passed) {
+        return Err(GoldenError::ThresholdExceeded(comparisons));
     }
+    if !allow_retries
+        && comparisons
+            .iter()
+            .any(|comparison| comparison.baseline_attempts > 1 || comparison.candidate_attempts > 1)
+    {
+        return Err(GoldenError::RetriesDetected(comparisons));
+    }
+    Ok(comparisons)
 }
 
 fn validate_view_set(directory: &Path) -> Result<(), GoldenError> {
@@ -308,6 +536,8 @@ fn compare_images(
     baseline: &RasterImage,
     candidate: &RasterImage,
     threshold: PerceptualThreshold,
+    baseline_attempts: u8,
+    candidate_attempts: u8,
 ) -> Result<GoldenComparison, GoldenError> {
     if baseline.width != candidate.width
         || baseline.height != candidate.height
@@ -360,6 +590,8 @@ fn compare_images(
         height: baseline.height,
         mean_delta_e: mean,
         p99_delta_e: p99,
+        baseline_attempts,
+        candidate_attempts,
         passed: mean <= threshold.max_mean_delta_e && p99 <= threshold.max_p99_delta_e,
     })
 }
@@ -431,6 +663,22 @@ mod tests {
             }
             fs::write(directory.join(format!("{view}.ppm")), ppm).unwrap();
         }
+        write_attempt_manifest(directory, None);
+    }
+
+    fn write_attempt_manifest(directory: &Path, retry_view: Option<&str>) {
+        let attempts = CANONICAL_VIEW_SLUGS
+            .iter()
+            .map(|view| GoldenAttemptCount {
+                view: (*view).into(),
+                attempts: if retry_view == Some(*view) { 2 } else { 1 },
+            })
+            .collect::<Vec<_>>();
+        fs::write(
+            directory.join(ATTEMPTS_MANIFEST_FILE),
+            encode_attempt_manifest(&attempts),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -495,26 +743,88 @@ mod tests {
     }
 
     #[test]
+    fn application_attempt_parser_accepts_one_exact_record_and_rejects_corruption() {
+        let stdout = "renderer ready\ngolden-attempts view=earth-texture attempts=2\ndone\n";
+        assert_eq!(
+            parse_application_attempts(stdout, "earth-texture").unwrap(),
+            GoldenAttemptCount {
+                view: "earth-texture".into(),
+                attempts: 2,
+            }
+        );
+        for corrupt in [
+            "renderer ready\n",
+            "golden-attempts view=earth-texture attempts=0\n",
+            "golden-attempts view=saturn-rings attempts=1\n",
+            "golden-attempts view=earth-texture attempts=1 extra=true\n",
+            "golden-attempts view=earth-texture attempts=1\ngolden-attempts view=earth-texture attempts=2\n",
+        ] {
+            assert!(parse_application_attempts(corrupt, "earth-texture").is_err());
+        }
+    }
+
+    #[test]
     fn perceptual_threshold_accepts_small_backend_noise_and_rejects_scene_drift() {
         let baseline = TestDir::new("baseline");
         let candidate = TestDir::new("candidate");
         write_view_set(&baseline.0, [80, 120, 160]);
         write_view_set(&candidate.0, [81, 120, 160]);
-        let comparisons =
-            compare_golden_directories(&baseline.0, &candidate.0, PerceptualThreshold::default())
-                .unwrap();
+        let comparisons = compare_golden_directories(
+            &baseline.0,
+            &candidate.0,
+            PerceptualThreshold::default(),
+            false,
+        )
+        .unwrap();
         assert_eq!(comparisons.len(), 6);
         assert!(comparisons.iter().all(|comparison| comparison.passed));
 
         write_view_set(&candidate.0, [220, 30, 20]);
-        let error =
-            compare_golden_directories(&baseline.0, &candidate.0, PerceptualThreshold::default())
-                .unwrap_err();
+        let error = compare_golden_directories(
+            &baseline.0,
+            &candidate.0,
+            PerceptualThreshold::default(),
+            false,
+        )
+        .unwrap_err();
         let GoldenError::ThresholdExceeded(comparisons) = error else {
             panic!("wrong error: {error:?}");
         };
         assert_eq!(comparisons.len(), 6);
         assert!(comparisons.iter().all(|comparison| !comparison.passed));
+    }
+
+    #[test]
+    fn comparison_rejects_retries_by_default_and_allows_explicit_diagnostics() {
+        let baseline = TestDir::new("attempt-baseline");
+        let candidate = TestDir::new("attempt-candidate");
+        write_view_set(&baseline.0, [80, 120, 160]);
+        write_view_set(&candidate.0, [80, 120, 160]);
+        write_attempt_manifest(&candidate.0, Some("earth-texture"));
+
+        let error = compare_golden_directories(
+            &baseline.0,
+            &candidate.0,
+            PerceptualThreshold::default(),
+            false,
+        )
+        .unwrap_err();
+        let GoldenError::RetriesDetected(comparisons) = error else {
+            panic!("wrong error: {error:?}");
+        };
+        let earth = comparisons
+            .iter()
+            .find(|comparison| comparison.view == "earth-texture")
+            .unwrap();
+        assert_eq!((earth.baseline_attempts, earth.candidate_attempts), (1, 2));
+
+        assert!(compare_golden_directories(
+            &baseline.0,
+            &candidate.0,
+            PerceptualThreshold::default(),
+            true,
+        )
+        .is_ok());
     }
 
     #[test]
@@ -525,7 +835,12 @@ mod tests {
         write_view_set(&candidate.0, [10, 20, 30]);
         fs::write(candidate.0.join("earth-texture.ppm"), b"not ppm").unwrap();
         assert!(matches!(
-            compare_golden_directories(&baseline.0, &candidate.0, PerceptualThreshold::default()),
+            compare_golden_directories(
+                &baseline.0,
+                &candidate.0,
+                PerceptualThreshold::default(),
+                false,
+            ),
             Err(GoldenError::Image { .. })
         ));
     }

@@ -331,6 +331,10 @@ fn save_ppm_and_exit(
         match result {
             Ok(()) => {
                 info!("golden saved to {}", path.display());
+                println!(
+                    "golden-attempts view={} attempts={}",
+                    state.options.view, state.attempts
+                );
                 exit.write(AppExit::Success);
             }
             Err(error) => {

@@ -42,7 +42,12 @@ Windows CI uses the same commands with `solar-sim.exe` and the `dx12` backend.
 The application writes strict binary PPM (`P6`) files so comparison needs no
 image-codec dependency. The default gate computes CIE Lab Delta E 76 and
 requires mean Delta E ≤ 1.25 and the 99th percentile ≤ 4.0 for every view.
-Both capture directories must contain exactly the six names above.
+Both capture directories must contain PPMs for exactly the six names above.
+Each directory also contains `golden-attempts.txt`, populated from the app's
+machine-readable capture-success output. The comparator reports baseline and
+candidate attempt counts for every view and rejects any count above one by
+default. `--allow-retries` is an explicit diagnostic escape hatch; it does not
+belong in the CI stability gate.
 
 The launcher replaces Cargo's inherited `CARGO_MANIFEST_DIR` with the
 `solar-sim` crate directory before starting the app. This keeps Bevy's

@@ -18,7 +18,7 @@ fn main() -> Result<()> {
         Some("capture-goldens") => capture_goldens(&args[1..]),
         Some("compare-goldens") => compare_goldens(&args[1..]),
         _ => {
-            eprintln!("usage:\n  xtask gen-catalog [--out PATH] [--epoch-jd F] [--dry-run] [--fixtures DIR [--allow-partial]] [--online [--capture DIR]]\n  xtask bake-starfield --source PATH --out PATH [--limit N]\n  xtask convert-texture --source PATH.ppm --out PATH.ktx2 [--alpha-from-luminance]\n  xtask check-texture-metadata [--dir assets/textures]\n  xtask capture-goldens --app PATH --out DIR --backend TAG\n  xtask compare-goldens --baseline DIR --candidate DIR [--max-mean F] [--max-p99 F]");
+            eprintln!("usage:\n  xtask gen-catalog [--out PATH] [--epoch-jd F] [--dry-run] [--fixtures DIR [--allow-partial]] [--online [--capture DIR]]\n  xtask bake-starfield --source PATH --out PATH [--limit N]\n  xtask convert-texture --source PATH.ppm --out PATH.ktx2 [--alpha-from-luminance]\n  xtask check-texture-metadata [--dir assets/textures]\n  xtask capture-goldens --app PATH --out DIR --backend TAG\n  xtask compare-goldens --baseline DIR --candidate DIR [--max-mean F] [--max-p99 F] [--allow-retries]");
             std::process::exit(2);
         }
     }
@@ -120,15 +120,24 @@ fn capture_goldens(args: &[String]) -> Result<()> {
         }
         i += 1;
     }
-    let directory = golden::capture_golden_views(
+    let report = golden::capture_golden_views(
         &application.ok_or_else(|| anyhow::anyhow!("--app is required"))?,
         &output.ok_or_else(|| anyhow::anyhow!("--out is required"))?,
         &backend.ok_or_else(|| anyhow::anyhow!("--backend is required"))?,
     )?;
     println!(
+        "golden attempts: {}",
+        report
+            .attempts
+            .iter()
+            .map(|count| format!("{}={}", count.view, count.attempts))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    println!(
         "captured {} canonical views in {}",
         golden::CANONICAL_VIEW_SLUGS.len(),
-        directory.display()
+        report.directory.display()
     );
     Ok(())
 }
@@ -137,6 +146,7 @@ fn compare_goldens(args: &[String]) -> Result<()> {
     let mut baseline: Option<PathBuf> = None;
     let mut candidate: Option<PathBuf> = None;
     let mut threshold = golden::PerceptualThreshold::default();
+    let mut allow_retries = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -168,13 +178,14 @@ fn compare_goldens(args: &[String]) -> Result<()> {
                     .ok_or_else(|| anyhow::anyhow!("--max-p99 needs a value"))?
                     .parse()?;
             }
+            "--allow-retries" => allow_retries = true,
             other => bail!("unknown flag: {other}"),
         }
         i += 1;
     }
     let baseline = baseline.ok_or_else(|| anyhow::anyhow!("--baseline is required"))?;
     let candidate = candidate.ok_or_else(|| anyhow::anyhow!("--candidate is required"))?;
-    match golden::compare_golden_directories(&baseline, &candidate, threshold) {
+    match golden::compare_golden_directories(&baseline, &candidate, threshold, allow_retries) {
         Ok(comparisons) => {
             print_golden_comparisons(&comparisons);
             Ok(())
@@ -183,6 +194,10 @@ fn compare_goldens(args: &[String]) -> Result<()> {
             print_golden_comparisons(&comparisons);
             bail!("one or more golden views exceeded the perceptual threshold")
         }
+        Err(golden::GoldenError::RetriesDetected(comparisons)) => {
+            print_golden_comparisons(&comparisons);
+            bail!("one or more golden views required a retry; use --allow-retries only for an explicitly reviewed diagnostic run")
+        }
         Err(error) => Err(error.into()),
     }
 }
@@ -190,12 +205,14 @@ fn compare_goldens(args: &[String]) -> Result<()> {
 fn print_golden_comparisons(comparisons: &[golden::GoldenComparison]) {
     for comparison in comparisons {
         println!(
-            "{:<16} {}x{} mean ΔE={:.4} p99 ΔE={:.4} {}",
+            "{:<16} {}x{} mean ΔE={:.4} p99 ΔE={:.4} attempts={}/{} {}",
             comparison.view,
             comparison.width,
             comparison.height,
             comparison.mean_delta_e,
             comparison.p99_delta_e,
+            comparison.baseline_attempts,
+            comparison.candidate_attempts,
             if comparison.passed { "PASS" } else { "FAIL" }
         );
     }
