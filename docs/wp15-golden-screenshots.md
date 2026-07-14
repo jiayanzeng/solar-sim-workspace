@@ -66,6 +66,11 @@ cargo run -p solar-sim --release -- --smoke 60 --expect-backend metal --assert-n
 
 Use `dx12` on the Windows reference machine and `vulkan` for a Vulkan release
 target. `--expect-backend` rejects an unexpected wgpu adapter backend, while
+`--reject-software-adapter` rejects `wgpu::DeviceType::Cpu`. Any future real
+DX12 machine must pass `cargo run -p solar-sim --release -- --smoke 60
+--expect-backend dx12 --reject-software-adapter` before its golden captures
+mean anything. The Windows hosted smoke deliberately omits this check because
+its WARP adapter is an expected compile/launch probe, not a golden GPU gate.
 `--assert-nonblack` reads the primary window render target and fails if every
 RGB channel is zero. The nonblack assertion is intentionally not a hosted-CI
 gate: a hosted window surface may read back black even when the fixed offscreen

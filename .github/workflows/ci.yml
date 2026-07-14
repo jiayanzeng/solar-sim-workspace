@@ -68,8 +68,7 @@ jobs:
       - run: cargo build -p solar-sim --release
       - name: smoke launch (Metal)
         if: runner.os == 'macOS'
-        continue-on-error: true
-        run: cargo run -p solar-sim --release -- --smoke 60 --expect-backend metal
+        run: cargo run -p solar-sim --release -- --smoke 60 --expect-backend metal --reject-software-adapter
       # Launch check on a GPU-less runner: wgpu falls back to a software
       # DX12 adapter (WARP). Keep continue-on-error until proven stable,
       # then promote to a hard gate.

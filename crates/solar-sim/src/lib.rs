@@ -160,6 +160,7 @@ pub struct RunOptions {
     pub catalog_path: PathBuf,
     pub smoke_frames: Option<u32>,
     pub expected_backend: Option<ExpectedBackend>,
+    pub reject_software_adapter: bool,
     pub assert_nonblack: bool,
     pub initial_focus_id: Option<String>,
     /// Debug-only renderer recovery probe. It is translated through the same
@@ -174,6 +175,7 @@ impl Default for RunOptions {
             catalog_path: PathBuf::from(DEFAULT_CATALOG_PATH),
             smoke_frames: None,
             expected_backend: None,
+            reject_software_adapter: false,
             assert_nonblack: false,
             initial_focus_id: None,
             simulate_device_loss: false,
@@ -217,6 +219,7 @@ impl RunOptions {
                         })?);
                     i += 1;
                 }
+                "--reject-software-adapter" => options.reject_software_adapter = true,
                 "--assert-nonblack" => options.assert_nonblack = true,
                 "--focus" => {
                     if let Some(value) = args.get(i + 1) {
@@ -261,6 +264,7 @@ impl RunOptions {
                 view,
                 backend,
                 output,
+                reject_software_adapter: options.reject_software_adapter,
             });
         }
         if options.smoke_frames.is_none()
@@ -268,6 +272,14 @@ impl RunOptions {
         {
             return Err(RunOptionsError(
                 "--expect-backend and --assert-nonblack require --smoke".into(),
+            ));
+        }
+        if options.reject_software_adapter
+            && options.smoke_frames.is_none()
+            && options.golden_capture.is_none()
+        {
+            return Err(RunOptionsError(
+                "--reject-software-adapter requires --smoke or golden capture options".into(),
             ));
         }
         Ok(options)
@@ -463,6 +475,7 @@ struct PropagationFault(Option<String>);
 struct SmokeFrames {
     target: Option<u32>,
     expected_backend: Option<ExpectedBackend>,
+    reject_software_adapter: bool,
     assert_nonblack: bool,
     seen: u32,
     started: Option<Instant>,
@@ -474,11 +487,13 @@ impl SmokeFrames {
     fn new(
         target: Option<u32>,
         expected_backend: Option<ExpectedBackend>,
+        reject_software_adapter: bool,
         assert_nonblack: bool,
     ) -> Self {
         Self {
             target,
             expected_backend,
+            reject_software_adapter,
             assert_nonblack,
             seen: 0,
             started: None,
@@ -677,6 +692,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
         .insert_resource(SmokeFrames::new(
             options.smoke_frames,
             options.expected_backend,
+            options.reject_software_adapter,
             options.assert_nonblack,
         ))
         .add_message::<ClockTickReport>();
@@ -1062,31 +1078,40 @@ fn smoke_exit(
             "smoke: completed {} update frames; measured {} after {} warmup frames in {:.3}s ({:.1} fps)",
             smoke.seen, measured_frames, warmup_frames, elapsed, fps
         );
-        if let Some(expected) = smoke.expected_backend {
+        if smoke.expected_backend.is_some() || smoke.reject_software_adapter {
             let Some(adapter) = adapter else {
-                eprintln!(
-                    "smoke: expected backend {}, but RenderAdapterInfo is unavailable",
-                    expected.as_str()
-                );
+                eprintln!("smoke: RenderAdapterInfo is unavailable");
                 smoke.completed = true;
                 exit.write(AppExit::error());
                 return;
             };
             let actual = adapter.backend.to_string();
+            let device_type = format!("{:?}", adapter.device_type);
             println!(
-                "smoke: render adapter '{}' uses backend {actual}",
-                adapter.name
+                "smoke: render adapter '{}' has device_type {device_type} and uses backend {actual}",
+                adapter.name,
             );
-            if !backend_matches(expected, &actual) {
+            if !software_adapter_allowed(smoke.reject_software_adapter, &device_type) {
                 eprintln!(
-                    "smoke: expected backend {}, got {actual}",
-                    expected.as_str()
+                    "smoke: rejected software adapter '{}' with device_type {device_type}",
+                    adapter.name
                 );
                 smoke.completed = true;
                 exit.write(AppExit::error());
                 return;
             }
-            println!("smoke: backend expectation {} passed", expected.as_str());
+            if let Some(expected) = smoke.expected_backend {
+                if !backend_matches(expected, &actual) {
+                    eprintln!(
+                        "smoke: expected backend {}, got {actual}",
+                        expected.as_str()
+                    );
+                    smoke.completed = true;
+                    exit.write(AppExit::error());
+                    return;
+                }
+                println!("smoke: backend expectation {} passed", expected.as_str());
+            }
         }
         if smoke.assert_nonblack {
             println!("smoke: requesting primary window readback");
@@ -1128,6 +1153,10 @@ fn assert_window_nonblack_and_exit(
 
 fn backend_matches(expected: ExpectedBackend, actual: &str) -> bool {
     expected.as_str() == actual
+}
+
+fn software_adapter_allowed(reject_software_adapter: bool, device_type: &str) -> bool {
+    !reject_software_adapter || device_type != "Cpu"
 }
 
 fn nonblack_rgb_dimensions(width: u32, height: u32, rgb: &[u8]) -> Result<(u32, u32), String> {
@@ -1200,12 +1229,14 @@ mod tests {
                 "60",
                 "--expect-backend",
                 name,
+                "--reject-software-adapter",
                 "--assert-nonblack",
             ]
             .map(str::to_owned);
             let options = RunOptions::from_args(&args).unwrap();
             assert_eq!(options.smoke_frames, Some(60));
             assert_eq!(options.expected_backend, Some(expected));
+            assert!(options.reject_software_adapter);
             assert!(options.assert_nonblack);
         }
 
@@ -1213,6 +1244,8 @@ mod tests {
         assert!(RunOptions::from_args(&invalid).is_err());
         let missing_smoke = ["solar-sim", "--assert-nonblack"].map(str::to_owned);
         assert!(RunOptions::from_args(&missing_smoke).is_err());
+        let unscoped_rejection = ["solar-sim", "--reject-software-adapter"].map(str::to_owned);
+        assert!(RunOptions::from_args(&unscoped_rejection).is_err());
     }
 
     #[test]
@@ -1230,6 +1263,15 @@ mod tests {
             nonblack_rgb_dimensions(1, 1, &[0, 0, 0]),
             Err("primary window readback is entirely black".into())
         );
+    }
+
+    #[test]
+    fn smoke_software_adapter_check_rejects_cpu_only_when_requested() {
+        assert!(software_adapter_allowed(true, "IntegratedGpu"));
+        assert!(software_adapter_allowed(true, "DiscreteGpu"));
+        assert!(software_adapter_allowed(true, "VirtualGpu"));
+        assert!(!software_adapter_allowed(true, "Cpu"));
+        assert!(software_adapter_allowed(false, "Cpu"));
     }
 
     #[test]

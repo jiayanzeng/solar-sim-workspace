@@ -161,6 +161,9 @@ fn golden_application_command(
             "--golden-capture",
         ])
         .arg(output);
+    if backend == "metal" {
+        command.arg("--reject-software-adapter");
+    }
     command
 }
 
@@ -453,6 +456,22 @@ mod tests {
             .canonicalize()
             .unwrap();
         assert_eq!(child_asset_root, workspace_asset_root);
+    }
+
+    #[test]
+    fn metal_golden_children_reject_software_adapters_but_dx12_children_do_not() {
+        for (backend, expected) in [("metal", true), ("dx12", false)] {
+            let command = golden_application_command(
+                Path::new("solar-sim-test"),
+                backend,
+                "full-system",
+                Path::new("capture.ppm"),
+            );
+            let has_rejection = command
+                .get_args()
+                .any(|argument| argument == "--reject-software-adapter");
+            assert_eq!(has_rejection, expected);
+        }
     }
 
     #[test]
