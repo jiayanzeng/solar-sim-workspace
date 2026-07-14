@@ -683,6 +683,12 @@ steamworks directly); packaging script smoke run in CI (unsigned variant).
 **Tests required.** The suite *is* the tests; additionally a CI job that
 fails if any replay session is skipped.
 
+**Reference-machine window gate.** Before WP17 closeout, the M1 MacBook Air
+must pass `cargo run -p solar-sim --release -- --smoke 60 --expect-backend
+metal --assert-nonblack`, and the GTX 1650-class Windows laptop must pass the
+same command with `dx12`. This is an opt-in real-hardware gate, not a hosted-CI
+gate; it does not check any WP17 acceptance box by itself.
+
 ### WP18 — Compare Size mode (deferred)
 
 Optional post-beta. No brief until un-deferred by the human.
@@ -708,6 +714,25 @@ Optional post-beta. No brief until un-deferred by the human.
 | Q7 | **Approve the general Sun/planet GM audit?** Adopt the exact JPL DE440 set in `docs/wp3-gm-audit-2026-07-13.md`: eight numeric replacements, with Venus verified unchanged; Mars–Neptune use DE440 system GMs. | 2026-07-13 | **closed 2026-07-13** — human approved all nine rows. The eight replacements and verified Venus value are applied with DE440 provenance; both catalogs were regenerated from captured responses and the active position gate remains green. |
 | Q8 | **What defines “Major” in WP10's per-system Major/All moon visibility option?** The frozen catalog has no major-moon flag and ARCHITECTURE gives no membership list or physical cutoff. Recommend an additive curated boolean in the generator manifest/schema so the choice is reviewable; alternatives are a human-approved id set or a specified radius rule. | 2026-07-13 | **closed 2026-07-13** — human approved the recommended additive, catalog-backed curated boolean. The manifest's explicit 24-id membership list is the source of truth and covers every modeled moon system. |
 | Q9 | **Approve NASA HEASARC BSC5P as WP13's license-clean Bright Star Catalog source?** The authoritative NASA Open Data Portal identifies `ivo://nasa.heasarc/bsc5p`, marks access public, and links its license to the U.S. government-works policy. The table is HEASARC's 1995 derivative of ADC/CDS V/50 with later position corrections. Recommend the NASA export rather than redistributing CDS V/50 directly; retain Hoffleit & Warren, HEASARC, NASA Open Data, and V/50 provenance in the audit sidecar. | 2026-07-14 | **closed 2026-07-14** — human approved NASA HEASARC BSC5P. The derived 5,000-star asset and `assets/starfield-SOURCE.md` record the exact TAP query, hashes, government-works license route, catalog references, exclusions, and bake transform. |
+Q10 — CLOSED (human, 2026-07-14). WP15's "stable across two consecutive CI runs
+on the same platform" is scoped to a SINGLE platform, and that platform is
+macOS/Metal. Rationale: hosted windows-latest has no GPU, so wgpu falls back to
+the WARP software rasterizer. Proving WARP is deterministic across two runs is
+near-tautological and tests nothing the Metal run does not. Real-GPU DX12 golden
+validation is deferred to WP16/WP17 bring-up on real hardware. DX12 captures stay
+in the golden workflow as a non-blocking code-path check. No acceptance text is
+reworded; this records how the existing text is read.
+
+Q11 — CLOSED (human, 2026-07-14). Yes, create the platform matrix. Docker is not
+required: the repository is public, so GitHub-hosted standard runners are free
+and unlimited. Validate the Linux lane on hosted CI by pushing a branch and
+reading the run. Self-hosted runners and local VMs are OFF the table.
+
+Q12 — OPEN. The 2026-07-14 CI follow-up instructs agents to work tasks CI-1
+through CI-6 in order, but does not define the scope, acceptance evidence, or
+commands for any of those six tasks. Provide the exact CI-1 through CI-6 briefs;
+agents must not infer them from the superseded private-repository Task 1/Task 2
+numbering.
 
 ## Change log (append-only; newest first)
 
@@ -795,6 +820,34 @@ Optional post-beta. No brief until un-deferred by the human.
   and the unchanged workflow purity/offline/online-feature scans pass. No
   dependency, read-only file, generated catalog, curated route, catalog
   composition, or WP15 acceptance checkbox changed.
+- **2026-07-14** — Added honest shipped-window smoke coverage locally while
+  leaving CI placement blocked on Q11. `--smoke N` now accepts only the reviewed
+  `--expect-backend metal|dx12|vulkan` values, compares them with Bevy's
+  `RenderAdapterInfo`, and propagates every non-success `AppExit` as a nonzero
+  process exit. The opt-in `--assert-nonblack` path waits until frame N, reads
+  the primary window render target, and exits nonzero on an all-black RGB image;
+  it remains excluded from hosted gates and is recorded as a required WP17
+  reference-machine check. On the local Apple M2 Pro, the 60-frame Metal gate
+  passed at 202.4 fps; the opt-in run passed at 210.7 fps with a nonblack
+  1920×1200 primary-window readback. A deliberate DX12 expectation on the same
+  machine reported `expected backend dx12, got metal` and exited 1. Evidence:
+  `cargo test` passes all 196 tests (53 `sim-core`, 100 `solar-sim`, 40 `xtask`
+  lib, two smoke, one active spot-check); `cargo fmt --all -- --check` and
+  `cargo clippy --workspace --all-targets -- -D warnings` pass. No dependencies,
+  read-only files, generated catalogs, curated routes, or catalog composition
+  changed. The requested CI commands are not yet placed because Task 1 stopped
+  before creating the referenced `platform` matrix when Docker was unavailable;
+  Q11 records the required human decision.
+- **2026-07-14** — Human ruling on the WP15 acceptance text. "Stable across two
+  consecutive CI runs **on the same platform**" is scoped to a single platform,
+  and that platform is macOS/Metal. Rationale: the DX12 leg runs on
+  `windows-latest`, which has no GPU — wgpu falls back to the WARP software
+  rasterizer (see the standing comment in the `build-windows` job). Proving WARP
+  is deterministic across two runs is near-tautological and tests nothing the
+  Metal run does not. Real-GPU DX12 golden validation is deferred to WP16/WP17
+  bring-up on the GTX 1650-class reference laptop. DX12 captures remain in the
+  golden workflow as a non-blocking code-path check. No acceptance text is
+  reworded; this records how the existing text is to be read.
 - **2026-07-14** — Repaired the WP15 CI run #21 golden-capture failure without
   weakening its gate. `cargo run -p xtask` exported xtask's
   `CARGO_MANIFEST_DIR` into each `solar-sim` child, so Bevy resolved
