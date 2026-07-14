@@ -711,6 +711,28 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-14** — CI-4 complete: successful golden captures now print
+  `golden-attempts view=<slug> attempts=<n>`; `xtask capture-goldens` validates
+  one record per canonical view, writes the six counts to
+  `golden-attempts.txt` beside the PPMs, prints a summary, and includes the
+  manifest in the uploaded run-b artifact. `xtask compare-goldens` reports
+  baseline/candidate counts per view and rejects any count above one by default;
+  `--allow-retries` is documented and implemented as an explicit diagnostic-only
+  escape hatch. Two local `capture-goldens` Metal runs each printed attempts 1
+  for all six views, and the default comparison printed attempts `1/1` with all
+  views passing. After changing the ignored candidate manifest's earth count to
+  2, the default comparison printed attempts `1/2` and exited 1; the same command
+  with `--allow-retries` exited 0. Hosted run
+  [#31](https://github.com/jiayanzeng/solar-sim-workspace/actions/runs/29332811125)
+  passed in 7m48s: `lint` 48s, `test-linux` 1m58s, `invariants` 32s,
+  `platform (macos-14)` 2m37s, and `platform (windows-latest)` 7m44s. Local
+  evidence: `cargo test` passes all 200 tests; `cargo fmt --all -- --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`,
+  `scripts/check-texture-metadata.sh`, both fixture catalog commands, workflow
+  YAML parsing and boundary scans, and `git diff --check` pass. No dependency,
+  read-only file, generated catalog, curated route, catalog composition,
+  capture-attempt/settle constant, Delta E threshold, or WP15 acceptance
+  checkbox changed.
 - **2026-07-14** — CI-3 complete: added dependency-free
   `--reject-software-adapter` handling that reports the adapter name and
   `device_type` in smoke output and exits nonzero for a reported `Cpu` adapter.
