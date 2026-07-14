@@ -711,6 +711,30 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-14** — CI-3 complete: added dependency-free
+  `--reject-software-adapter` handling that reports the adapter name and
+  `device_type` in smoke output and exits nonzero for a reported `Cpu` adapter.
+  Metal golden children launched by `xtask capture-goldens` now receive the
+  same guard; DX12 golden children and the hosted Windows smoke do not. The
+  future real-DX12 acceptance command is recorded in the WP15 guide. Because
+  CI-2 macOS runs [#27](https://github.com/jiayanzeng/solar-sim-workspace/actions/runs/29328432241)
+  and [#28](https://github.com/jiayanzeng/solar-sim-workspace/actions/runs/29329026027)
+  were green, the macOS smoke is now a hard gate while Windows remains
+  `continue-on-error: true`. Hosted run
+  [#29](https://github.com/jiayanzeng/solar-sim-workspace/actions/runs/29330775705)
+  passed in 6m00s: `lint` 41s, `test-linux` 1m58s, `invariants` 30s,
+  `platform (macos-14)` 2m32s, and `platform (windows-latest)` 5m56s. macOS
+  printed `Apple Paravirtual device`, `device_type IntegratedGpu`, backend
+  `metal`, 1.798s/26.7 fps, and a passed expectation; Windows printed
+  `Microsoft Basic Render Driver`, `device_type Cpu`, backend `dx12`,
+  12.808s/3.7 fps, and a passed expectation. Local evidence:
+  `cargo run -p solar-sim --release -- --smoke 60 --expect-backend metal
+  --reject-software-adapter` exited 0 on `Apple M2 Pro`/`IntegratedGpu`/Metal
+  at 162.4 fps; `cargo test` passes all 198 tests; `cargo fmt --all -- --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`, YAML parsing,
+  texture metadata, fixtures catalog smoke, workflow boundary scans, and `git
+  diff --check` pass. No dependency, read-only file, generated catalog,
+  curated route, catalog composition, or WP15 acceptance checkbox changed.
 - **2026-07-14** — CI-2 complete: landed the backend-checked smoke CLI and
   wired 60-frame window launches after the `platform` release build, with both
   macOS/Metal and Windows/DX12 steps kept `continue-on-error: true`. Hosted
