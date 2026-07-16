@@ -2,10 +2,10 @@
 // Regenerate with: cargo run -p xtask -- gen-catalog --fixtures xtask/fixtures --epoch-jd 2461042
 // Frame: ECLIPJ2000. Units: km, degrees, Julian Date (TDB).
 // Per-body provenance is in each record's `source` field.
-// Generated: 2026-07-14T01:30:47Z
+// Generated: 2026-07-15T06:19:55Z
 Catalog(
   schema_version: 1,
-  generated_utc: "2026-07-14T01:30:47Z",
+  generated_utc: "2026-07-15T06:19:55Z",
   frame: "ECLIPJ2000",
   bodies: [
     BodyRecord(
