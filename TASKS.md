@@ -38,7 +38,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 4 | Propagation + floating origin: 66 colored spheres at 2026 positions | **✅ done** |
 | 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | **✅ done** |
 | 6 | Orbit lines (adaptive; hyperbolic arc), colors, fades | **✅ done** |
-| 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | **✅ done** |
+| 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | in-progress |
 | 8 | Time bar: detented log slider, editable date/clock, LIVE chip | **✅ done** |
 | 9 | Labels/reticles, tiered declutter, contextual moon visibility, picking | **✅ done** |
 | 10 | Left panel: Info tab, collection pages, View Options | **✅ done** |
@@ -829,6 +829,53 @@ ruling and corresponding architecture update.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Began the required pre-code review for stabilization Task
+  7, reopening WP7 as the coordinating retained-UI/update-efficiency package
+  from the green 303-test Task 6 commit. Re-reading ARCHITECTURE invariants
+  4, 6–8 and §§7, 8.2–8.4, 9, 10, and 12 plus the locked Task 7 acceptance
+  found a shared Bevy change-detection defect rather than isolated repaint
+  problems. The desktop command gate mutably dereferences clock, camera,
+  View Options, navigation, Browse, settings, and transient UI state for every
+  command even when that reducer branch is a no-op. Stable selection and
+  presentation-convergence systems repeat the same mistake. An unrelated or
+  duplicate UI command can therefore advertise false clock, camera,
+  navigation, and `AppSettings` changes, re-propagate all 66 bodies while
+  paused, reapply window/runtime settings, rebuild the actionable breadcrumb
+  and other surfaces, and trigger unrelated body/UI work.
+
+  The reviewed correction will preserve reducer order while mutating through
+  Bevy's change-detection bypass, compare semantic before/after state, and
+  explicitly mark only resources that actually changed. Desktop propagation
+  and the headless replay runner will share an exact simulation-time reuse
+  policy: unchanged time reuses bit-identical `BodyStates`, while `SetTime`,
+  LIVE easing, ordinary playback, or changed startup catalog truth still
+  propagates. Catalog truth remains the architecture's immutable startup
+  resource; no partial runtime hot-reload contract will be invented.
+  Retained orbit geometry will continue to use exact complete conic inputs,
+  with a documented zero-kilometre temporal-cache error bound and
+  fresh-versus-retained coverage across the supported 1800–2300 endpoints,
+  catalog epoch, high-confidence boundary, elliptic secular planets, and the
+  hyperbolic mean-motion/parent-GM path. No time bucket, screen-space
+  approximation, physics tolerance, or f64 truth change is allowed.
+
+  Stable render work will acquire mutable assets/components only when the
+  desired value differs: body/ring emphasis materials, label/reticle
+  colors and visibility, retained orbit assets/anchors, camera/body
+  transforms, and page-independent body presentation. Stable and idempotent
+  settings, Layers, Browse, navigation, and View Options transitions will
+  retain surface entity identity; actual structural rebuilds must preserve
+  the already-reviewed focus and scroll contracts, while single-control
+  visual changes use retained-state repaint where that surface permits it.
+  Acceptance evidence will prove paused idle/UI-only/rate-only frames perform
+  zero propagation, a paused `SetTime` performs exactly one bit-identical
+  propagation, stable emphasis/orbits emit no component or asset rewrites,
+  unrelated/duplicate commands leave change flags and surface identities
+  stable, and one composed real-catalog lifecycle covers text/modal input,
+  scrolling, Jupiter/Io navigation, default recovery, Saturn's real
+  sphere/ring/text/orbit aggregate plus Io's architecture-valid reticle, and
+  variable-input LIVE replay. Q16 remains open and no forbidden Saturn icon
+  will be added. Steam/WP16, dependencies, catalogs, generated/truth assets,
+  starfield, persisted schemas, and numerical tolerances remain out of scope.
 - **2026-07-17** — Completed every architecture-authorized stabilization Task
   6 source change; WP13 is now `blocked(Q16)` only because the locked wording
   names a Saturn icon that Rev C explicitly forbids. Independent aggregate,
