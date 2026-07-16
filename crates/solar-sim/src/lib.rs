@@ -28,7 +28,7 @@ mod ui_kit;
 
 pub use control::{
     replay_headless, CameraController, CommandRecording, HeadlessSimulation, ReplayFrameInput,
-    ReplayParseError, ReplayRunError, ReplayStream, SimCommand, StampedCommand,
+    ReplayParseError, ReplayRunError, ReplayStream, ReplayVersion, SimCommand, StampedCommand,
 };
 pub use formatting::format_distance_km;
 pub use golden::{
@@ -107,7 +107,7 @@ use bevy::settings::SettingsPlugin;
 use bevy::ui::IsDefaultUiCamera;
 use bevy::window::ExitCondition;
 use control::{
-    advance_camera_controller, consume_presentation_command, consume_sim_command,
+    advance_camera_controller, consume_application_command, consume_sim_command,
     framing_distance_units, full_system_framing_distance_units, SimCommandQueue, SimulationFrame,
 };
 use input_intent::InputIntentPlugin;
@@ -856,7 +856,7 @@ fn apply_sim_commands(gate: SimCommandGate) {
         mut queue,
         mut clock,
         loaded,
-        camera,
+        mut camera,
         frame,
         mut recording,
         mut reports,
@@ -872,36 +872,27 @@ fn apply_sim_commands(gate: SimCommandGate) {
         #[cfg(debug_assertions)]
         mut debug_device_loss,
     } = gate;
-    let (Some(loaded), Some(mut camera)) = (loaded, camera) else {
-        queue.drain().for_each(drop);
-        return;
-    };
     let commands: Vec<_> = queue.drain().collect();
+    let frame_start_t = clock.0.t();
     for command in commands {
-        recording.record(frame.0, clock.0.t(), command.clone());
+        recording.record(frame.0, frame_start_t, command.clone());
         #[cfg(debug_assertions)]
         if matches!(command, SimCommand::SimulateDeviceLoss) {
             request_debug_device_loss(&mut debug_device_loss);
         }
         let layers_before = *layers;
         let presentation_before = *presentation;
-        consume_presentation_command(
+        consume_application_command(
             &command,
+            loaded.as_deref(),
             layers.bypass_change_detection(),
             presentation.bypass_change_detection(),
-        );
-        left_panel::consume_left_panel_command(
-            &command,
-            &loaded,
             &mut view_options,
             &mut left_panel,
             &mut navigation,
-        );
-        search::consume_search_command(&command, &mut browse);
-        settings::consume_settings_command(
-            &command,
-            &mut settings_screen,
+            &mut browse,
             &mut app_settings,
+            &mut settings_screen,
             &mut settings_save,
         );
         if *layers != layers_before {
@@ -910,8 +901,10 @@ fn apply_sim_commands(gate: SimCommandGate) {
         if *presentation != presentation_before {
             presentation.set_changed();
         }
-        let report = consume_sim_command(&command, &mut clock.0, &mut camera, &loaded);
-        write_tick_report(report, &mut reports);
+        if let (Some(loaded), Some(camera)) = (loaded.as_deref(), camera.as_deref_mut()) {
+            let report = consume_sim_command(&command, &mut clock.0, camera, loaded);
+            write_tick_report(report, &mut reports);
+        }
     }
 }
 
@@ -1291,7 +1284,7 @@ fn update_diag_overlay(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sim_core::time::t_from_jd_tdb;
+    use sim_core::time::{t_from_jd_tdb, StartMode};
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
 
@@ -1662,6 +1655,73 @@ mod tests {
                 SimulationSet::Render,
             ]
         );
+    }
+
+    #[test]
+    fn command_gate_reduces_application_state_before_catalog_loads() {
+        let mut queue = SimCommandQueue::default();
+        for command in [
+            SimCommand::SetLayerVisibility {
+                layer: LayerId::Labels,
+                visible: false,
+            },
+            SimCommand::ToggleFullscreen,
+            SimCommand::OpenSettings,
+            SimCommand::SetBrowseOpen(true),
+        ] {
+            queue.push(command);
+        }
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(queue)
+            .insert_resource(SimulationClock(SimClock::new(StartMode::default(), 0.0)))
+            .init_resource::<SimulationFrame>()
+            .init_resource::<CommandRecording>()
+            .init_resource::<LayerState>()
+            .init_resource::<PresentationState>()
+            .init_resource::<ViewOptionsState>()
+            .init_resource::<left_panel::LeftPanelUiState>()
+            .init_resource::<NavigationStack>()
+            .init_resource::<search::BrowseUiState>()
+            .init_resource::<AppSettings>()
+            .init_resource::<settings::SettingsScreenState>()
+            .init_resource::<settings::SettingsSaveRequest>()
+            .add_message::<ClockTickReport>()
+            .add_systems(Update, apply_sim_commands);
+        #[cfg(debug_assertions)]
+        app.init_resource::<DebugDeviceLossRequest>();
+
+        app.update();
+
+        assert!(app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .next()
+            .is_none());
+        assert_eq!(
+            app.world()
+                .resource::<CommandRecording>()
+                .stream()
+                .entries()
+                .len(),
+            4
+        );
+        assert!(!app
+            .world()
+            .resource::<LayerState>()
+            .is_visible(LayerId::Labels));
+        let presentation = *app.world().resource::<PresentationState>();
+        assert!(presentation.is_fullscreen());
+        assert!(presentation.is_settings_open());
+        assert!(app.world().resource::<search::BrowseUiState>().is_open());
+        let settings = app.world().resource::<AppSettings>();
+        assert_eq!(
+            settings.display_mode,
+            DisplayModeSetting::BorderlessFullscreen
+        );
+        assert!(!settings.layers.labels);
     }
 
     #[test]

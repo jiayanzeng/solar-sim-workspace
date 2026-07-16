@@ -36,7 +36,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 2 | `sim-core::kepler` — elliptic + hyperbolic, guards | **✅ done** |
 | 3 | `xtask gen-catalog` + committed 66-body `catalog.ron` + validation | **✅ done** |
 | 4 | Propagation + floating origin: 66 colored spheres at 2026 positions | **✅ done** |
-| 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | **✅ done** |
+| 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | in-progress |
 | 6 | Orbit lines (adaptive; hyperbolic arc), colors, fades | **✅ done** |
 | 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | **✅ done** |
 | 8 | Time bar: detented log slider, editable date/clock, LIVE chip | **✅ done** |
@@ -47,7 +47,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | **✅ done** |
 | 14 | Settings screen + render-recovery policies | **✅ done** |
 | 15 | Texture pass (2K KTX2) + visual polish + golden screenshots | **✅ done** |
-| 16 | Steam: Steamworks init, overlay spike, packaging/signing/depots | in-progress |
+| 16 | Steam: Steamworks init, overlay spike, packaging/signing/depots | deferred |
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
@@ -815,6 +815,44 @@ task order, and acceptance evidence are recorded in
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Completed stabilization Task 1 (WP5 command boundary and
+  replay schema) before beginning Task 2. `ReplayStream` now retains an
+  explicit v1/v2 version, v1 round-trips without upgrading, and v2 always
+  requires its exact ordered finite frame-input set instead of silently
+  falling back to synthetic v1 timing. Desktop and headless execution now
+  share the presentation, View Options, left-panel/navigation, Browse,
+  settings, and persistence-convergence reducers; application commands are no
+  longer discarded while catalog/camera resources are unavailable. Settings
+  open/closed state is canonical rather than a desktop-only transient request.
+  The combined replay hash now covers exact wall time, every layer,
+  fullscreen, Settings/Browse modal state, full navigation identity, View
+  Options, and normalized settings while continuing to exclude render-only
+  state. Frame recordings now stamp every same-frame command with the
+  frame-start time, so a `SetTime` followed by another command replays
+  correctly, and invalid breadcrumb targets cannot partially mutate UI state.
+  The portable 600-frame hash intentionally changed from
+  `11341847874983838712` to `1553394718950124988`; no numerical tolerance or
+  physics assertion changed. Ten new transition/rejection/parity tests raise
+  the workspace baseline from 223 to 233 tests (53 `sim-core` · 129
+  `solar-sim` · 48 `xtask` lib · 2 xtask smoke · 1 active spot-check).
+  `cargo test`, `cargo clippy -p solar-sim --all-targets -- -D warnings`,
+  `cargo fmt --all`, and `git diff --check` are green. WP5 remains
+  `in-progress` only for the documented Task 2 input-ownership acceptance.
+- **2026-07-17** — Reopened WP5 for the human-approved UI/gameplay remediation
+  and deferred WP16 while the Steam/overlay investigation remains explicitly
+  on hold. The pre-code audit found that the replay-v2 stream does not retain
+  its parsed version, the combined replay hash omits layer, presentation, and
+  wall-time state, and desktop/headless application reducers have diverged.
+  Task 1 will repair those defects against ARCHITECTURE invariants 4 and 7 and
+  the reviewed acceptance matrix in
+  `docs/ui-gameplay-stabilization-2026-07-16.md`; no Steam runtime, overlay,
+  packaging, App ID, dependency, catalog, or generated asset work is in scope.
+  The paused six-file WP16/MSAA delta is preserved without loss in stash
+  `hold-wp16-steam-msaa-2026-07-16`, and branch
+  `codex/ui-gameplay-remediation` starts from committed stabilization baseline
+  `0e49870`. The required pre-change `cargo test` is green at the committed
+  223-test baseline (53 `sim-core` · 119 `solar-sim` · 48 `xtask` lib ·
+  2 xtask smoke · 1 active spot-check) before source changes.
 - **2026-07-16** — Completed the human-directed UI/gameplay stabilization
   cycle and closed Q15 with both approved recovery measures. The reviewed
   implementation brief and task-by-task acceptance matrix live in

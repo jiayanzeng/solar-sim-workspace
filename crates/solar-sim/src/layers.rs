@@ -208,16 +208,14 @@ impl LayerState {
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PresentationState {
     fullscreen: bool,
-    settings_requested: bool,
-    settings_close_requested: bool,
+    settings_open: bool,
 }
 
 impl PresentationState {
     pub(crate) const fn with_fullscreen(fullscreen: bool) -> Self {
         Self {
             fullscreen,
-            settings_requested: false,
-            settings_close_requested: false,
+            settings_open: false,
         }
     }
 
@@ -225,20 +223,8 @@ impl PresentationState {
         self.fullscreen
     }
 
-    pub const fn settings_requested(self) -> bool {
-        self.settings_requested
-    }
-
-    pub fn take_settings_request(&mut self) -> bool {
-        std::mem::take(&mut self.settings_requested)
-    }
-
-    pub const fn settings_close_requested(self) -> bool {
-        self.settings_close_requested
-    }
-
-    pub fn take_settings_close_request(&mut self) -> bool {
-        std::mem::take(&mut self.settings_close_requested)
+    pub const fn is_settings_open(self) -> bool {
+        self.settings_open
     }
 
     pub(crate) fn toggle_fullscreen(&mut self) {
@@ -249,14 +235,12 @@ impl PresentationState {
         self.fullscreen = fullscreen;
     }
 
-    pub(crate) fn request_settings(&mut self) {
-        self.settings_requested = true;
-        self.settings_close_requested = false;
+    pub(crate) fn open_settings(&mut self) {
+        self.settings_open = true;
     }
 
-    pub(crate) fn request_settings_close(&mut self) {
-        self.settings_requested = false;
-        self.settings_close_requested = true;
+    pub(crate) fn close_settings(&mut self) {
+        self.settings_open = false;
     }
 }
 
@@ -1144,13 +1128,13 @@ mod tests {
         );
         assert!(presentation.is_fullscreen());
         consume_presentation_command(&SimCommand::OpenSettings, &mut layers, &mut presentation);
-        assert!(presentation.settings_requested());
-        assert!(presentation.take_settings_request());
-        assert!(!presentation.take_settings_request());
+        assert!(presentation.is_settings_open());
+        consume_presentation_command(&SimCommand::OpenSettings, &mut layers, &mut presentation);
+        assert!(presentation.is_settings_open());
         consume_presentation_command(&SimCommand::CloseSettings, &mut layers, &mut presentation);
-        assert!(presentation.settings_close_requested());
-        assert!(presentation.take_settings_close_request());
-        assert!(!presentation.take_settings_close_request());
+        assert!(!presentation.is_settings_open());
+        consume_presentation_command(&SimCommand::CloseSettings, &mut layers, &mut presentation);
+        assert!(!presentation.is_settings_open());
         consume_presentation_command(
             &SimCommand::ToggleFullscreen,
             &mut layers,

@@ -465,6 +465,10 @@ impl BrowseUiState {
     pub(crate) const fn is_open(&self) -> bool {
         self.open
     }
+
+    pub(crate) const fn replay_state(&self) -> (bool, [bool; 3]) {
+        (self.open, self.expanded)
+    }
 }
 
 pub(crate) fn consume_search_command(command: &SimCommand, state: &mut BrowseUiState) {

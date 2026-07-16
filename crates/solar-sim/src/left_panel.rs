@@ -520,7 +520,7 @@ impl Plugin for LeftPanelPlugin {
 
 pub(crate) fn consume_left_panel_command(
     command: &SimCommand,
-    loaded: &LoadedCatalog,
+    loaded: Option<&LoadedCatalog>,
     settings: &mut ViewOptionsState,
     state: &mut LeftPanelUiState,
     navigation: &mut NavigationStack,
@@ -531,13 +531,13 @@ pub(crate) fn consume_left_panel_command(
             state.dirty = true;
         }
         SimCommand::SetMoonVisibility { system_id, mode }
-            if loaded.index_of(system_id).is_some() =>
+            if loaded.is_some_and(|loaded| loaded.index_of(system_id).is_some()) =>
         {
             settings.set_moon_visibility(system_id.clone(), *mode);
             state.dirty = true;
         }
         SimCommand::SetLocalOrbitVisibility { body_id, visible }
-            if loaded.index_of(body_id).is_some() =>
+            if loaded.is_some_and(|loaded| loaded.index_of(body_id).is_some()) =>
         {
             settings.set_local_orbit_visible(body_id.clone(), *visible);
             state.dirty = true;
@@ -554,7 +554,7 @@ pub(crate) fn consume_left_panel_command(
             };
             state.dirty = true;
             state.scroll_y = 0.0;
-            if let Some(selected) = state.selected_body_index {
+            if let (Some(loaded), Some(selected)) = (loaded, state.selected_body_index) {
                 sync_navigation_to_body(loaded, selected, navigation);
                 if *tab == LeftPanelTab::Collection {
                     if let Some(body) = loaded.catalog.bodies.get(selected) {
@@ -567,7 +567,16 @@ pub(crate) fn consume_left_panel_command(
             *settings = ViewOptionsState::default();
             state.dirty = true;
         }
-        SimCommand::NavigateBreadcrumb { depth, target_id } => {
+        SimCommand::NavigateBreadcrumb { depth, target_id }
+            if loaded.is_some_and(|loaded| {
+                let resolved_id = if target_id == "solar_system" {
+                    "sun"
+                } else {
+                    target_id.as_str()
+                };
+                loaded.index_of(resolved_id).is_some()
+            }) =>
+        {
             navigation.truncate(depth.saturating_add(1));
             state.page = if target_id.ends_with("_moons") {
                 ActivePanelPage::Collection
@@ -581,6 +590,32 @@ pub(crate) fn consume_left_panel_command(
     }
 }
 
+pub(crate) fn sync_left_panel_selection_state(
+    camera: &CameraController,
+    loaded: &LoadedCatalog,
+    state: &mut LeftPanelUiState,
+    navigation: &mut NavigationStack,
+) {
+    let selected = camera.selected_body_index();
+    if state.selected_body_index == Some(selected) {
+        return;
+    }
+    state.selected_body_index = Some(selected);
+    state.page = ActivePanelPage::Info;
+    state.dirty = true;
+    state.scroll_y = 0.0;
+    sync_navigation_to_body(loaded, selected, navigation);
+}
+
+pub(crate) fn left_panel_replay_state(state: &LeftPanelUiState) -> (Option<usize>, LeftPanelTab) {
+    let tab = match state.page {
+        ActivePanelPage::Info => LeftPanelTab::Info,
+        ActivePanelPage::Collection => LeftPanelTab::Collection,
+        ActivePanelPage::ViewOptions => LeftPanelTab::ViewOptions,
+    };
+    (state.selected_body_index, tab)
+}
+
 fn sync_left_panel_selection(
     camera: Res<CameraController>,
     loaded: Option<Res<LoadedCatalog>>,
@@ -590,15 +625,7 @@ fn sync_left_panel_selection(
     let Some(loaded) = loaded else {
         return;
     };
-    let selected = camera.selected_body_index();
-    if state.selected_body_index == Some(selected) {
-        return;
-    }
-    state.selected_body_index = Some(selected);
-    state.page = ActivePanelPage::Info;
-    state.dirty = true;
-    state.scroll_y = 0.0;
-    sync_navigation_to_body(&loaded, selected, &mut navigation);
+    sync_left_panel_selection_state(&camera, &loaded, &mut state, &mut navigation);
 }
 
 fn sync_navigation_to_body(
@@ -1907,7 +1934,7 @@ mod tests {
             .unwrap();
         consume_left_panel_command(
             &command,
-            &loaded,
+            Some(&loaded),
             &mut settings,
             &mut state,
             &mut navigation,

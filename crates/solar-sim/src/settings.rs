@@ -459,6 +459,12 @@ pub(crate) struct SettingsScreenState {
 #[derive(Resource, Debug, Default)]
 pub(crate) struct SettingsSaveRequest(bool);
 
+impl SettingsSaveRequest {
+    pub(crate) fn request(&mut self) {
+        self.0 = true;
+    }
+}
+
 impl SettingsScreenState {
     pub(crate) const fn is_open(&self) -> bool {
         self.open
@@ -497,7 +503,7 @@ impl Plugin for ProductSettingsPlugin {
             .add_systems(
                 Update,
                 (
-                    sync_requested_settings_screen,
+                    sync_settings_screen,
                     apply_settings_to_runtime,
                     sync_external_presentation_to_settings,
                     persist_requested_settings,
@@ -545,36 +551,51 @@ pub(crate) fn reset_persisted_settings(world: &mut World) {
     SaveSettingsSync::Always.apply(world);
 }
 
-fn sync_requested_settings_screen(
-    mut presentation: ResMut<PresentationState>,
+pub(crate) fn sync_settings_screen_state(
+    presentation: &PresentationState,
+    settings: &AppSettings,
+    screen: &mut SettingsScreenState,
+) -> bool {
+    let open = presentation.is_settings_open();
+    if screen.open == open {
+        return false;
+    }
+    screen.open = open;
+    screen.draft = settings.clone();
+    screen.dirty = true;
+    screen.scroll_y = 0.0;
+    screen.restore_focus = None;
+    true
+}
+
+fn sync_settings_screen(
+    presentation: Res<PresentationState>,
     settings: Res<AppSettings>,
     mut screen: ResMut<SettingsScreenState>,
     mut focus: ResMut<InputFocus>,
 ) {
-    if presentation.settings_close_requested() {
-        presentation
-            .bypass_change_detection()
-            .take_settings_close_request();
-        presentation.set_changed();
-        screen.open = false;
-        screen.draft = settings.clone();
-        screen.dirty = true;
-        screen.scroll_y = 0.0;
-        screen.restore_focus = None;
+    if sync_settings_screen_state(&presentation, &settings, &mut screen) {
         focus.clear();
     }
-    if presentation.settings_requested() {
-        presentation
-            .bypass_change_detection()
-            .take_settings_request();
-        presentation.set_changed();
-        screen.open = true;
-        screen.draft = settings.clone();
-        screen.dirty = true;
-        screen.scroll_y = 0.0;
-        screen.restore_focus = None;
-        focus.clear();
+}
+
+pub(crate) fn converge_presentation_settings(
+    layers: &LayerState,
+    presentation: &PresentationState,
+    settings: &mut AppSettings,
+) -> bool {
+    let persisted_layers = PersistedLayerState::from_snapshot(layers.persistence_snapshot());
+    let display_mode = if presentation.is_fullscreen() {
+        DisplayModeSetting::BorderlessFullscreen
+    } else {
+        DisplayModeSetting::Windowed
+    };
+    if settings.layers == persisted_layers && settings.display_mode == display_mode {
+        return false;
     }
+    settings.layers = persisted_layers;
+    settings.display_mode = display_mode;
+    true
 }
 
 fn apply_settings_to_runtime(
@@ -624,21 +645,13 @@ fn sync_external_presentation_to_settings(
     mut settings: ResMut<AppSettings>,
     mut commands: Commands,
 ) {
-    // A settings-screen commit is authoritative for this frame. On the next
-    // command pass its queued layer/fullscreen commands make both resources
-    // converge, avoiding a one-frame write-back of the old state.
+    // A settings-screen commit is authoritative for this frame. The shared
+    // command reducer already converges layers/fullscreen into AppSettings, so
+    // a changed settings resource must not be overwritten by stale externals.
     if settings.is_changed() {
         return;
     }
-    let persisted_layers = PersistedLayerState::from_snapshot(layers.persistence_snapshot());
-    let display_mode = if presentation.is_fullscreen() {
-        DisplayModeSetting::BorderlessFullscreen
-    } else {
-        DisplayModeSetting::Windowed
-    };
-    if settings.layers != persisted_layers || settings.display_mode != display_mode {
-        settings.layers = persisted_layers;
-        settings.display_mode = display_mode;
+    if converge_presentation_settings(&layers, &presentation, &mut settings) {
         commands.queue(SaveSettingsDeferred(SETTINGS_SAVE_DELAY));
     }
 }
@@ -1583,7 +1596,7 @@ mod tests {
     }
 
     #[test]
-    fn requested_close_dismisses_the_modal_and_clears_focus() {
+    fn canonical_close_dismisses_the_modal_and_clears_focus() {
         let mut app = App::new();
         app.insert_resource(AppSettings::default())
             .insert_resource(SettingsScreenState {
@@ -1595,10 +1608,10 @@ mod tests {
             })
             .init_resource::<PresentationState>()
             .init_resource::<InputFocus>()
-            .add_systems(Update, sync_requested_settings_screen);
+            .add_systems(Update, sync_settings_screen);
         app.world_mut()
             .resource_mut::<PresentationState>()
-            .request_settings_close();
+            .close_settings();
 
         app.update();
 
@@ -1626,6 +1639,8 @@ mod tests {
 
     #[test]
     fn settings_screen_renders_every_control_with_accessibility_labels() {
+        let mut presentation = PresentationState::default();
+        presentation.open_settings();
         let mut app = App::new();
         app.add_plugins((
             TaskPoolPlugin::default(),
@@ -1636,7 +1651,7 @@ mod tests {
         .insert_resource(UiTheme::default())
         .insert_resource(AppSettings::default())
         .init_resource::<LayerState>()
-        .init_resource::<PresentationState>()
+        .insert_resource(presentation)
         .init_resource::<SimCommandQueue>()
         .init_resource::<InputFocus>()
         .insert_resource(SettingsScreenState {
@@ -1649,7 +1664,7 @@ mod tests {
         .add_systems(Startup, rebuild_settings_screen)
         .add_systems(
             Update,
-            (sync_requested_settings_screen, rebuild_settings_screen).chain(),
+            (sync_settings_screen, rebuild_settings_screen).chain(),
         );
         app.update();
         {
@@ -1725,7 +1740,7 @@ mod tests {
         assert_eq!(commands, vec![SimCommand::CloseSettings]);
         app.world_mut()
             .resource_mut::<PresentationState>()
-            .request_settings_close();
+            .close_settings();
         app.update();
         let world = app.world_mut();
         let mut roots = world.query::<&SettingsScreenRoot>();

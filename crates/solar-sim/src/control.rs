@@ -6,9 +6,9 @@
 //! moving-focus evolution are deterministic updates driven by explicit inputs.
 
 use crate::{
-    propagate_into, AppSettings, BodySizeScale, BodyStates, LayerId, LayerState, LeftPanelTab,
-    LoadedCatalog, MoonVisibilityMode, PresentationState, PropagationError,
-    DEFAULT_CAMERA_DISTANCE_UNITS, KM_PER_RENDER_UNIT,
+    left_panel, propagate_into, search, settings, AppSettings, BodySizeScale, BodyStates, LayerId,
+    LayerState, LeftPanelTab, LoadedCatalog, MoonVisibilityMode, NavigationStack,
+    PresentationState, PropagationError, DEFAULT_CAMERA_DISTANCE_UNITS, KM_PER_RENDER_UNIT,
 };
 use bevy::prelude::{Resource, Vec3};
 use sim_core::catalog::{Catalog, CatalogError, Category};
@@ -297,8 +297,8 @@ pub(crate) fn consume_presentation_command(
         }
         SimCommand::RestorePresentationDefaults => *layers = LayerState::default(),
         SimCommand::ToggleFullscreen => presentation.toggle_fullscreen(),
-        SimCommand::OpenSettings => presentation.request_settings(),
-        SimCommand::CloseSettings => presentation.request_settings_close(),
+        SimCommand::OpenSettings => presentation.open_settings(),
+        SimCommand::CloseSettings => presentation.close_settings(),
         SimCommand::SimulateDeviceLoss => {}
         SimCommand::SetBodySize(_)
         | SimCommand::SetMoonVisibility { .. }
@@ -309,6 +309,29 @@ pub(crate) fn consume_presentation_command(
         | SimCommand::SetBrowseColumnExpanded { .. }
         | SimCommand::NavigateBreadcrumb { .. } => {}
         _ => {}
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn consume_application_command(
+    command: &SimCommand,
+    loaded: Option<&LoadedCatalog>,
+    layers: &mut LayerState,
+    presentation: &mut PresentationState,
+    view_options: &mut crate::ViewOptionsState,
+    left_panel: &mut left_panel::LeftPanelUiState,
+    navigation: &mut NavigationStack,
+    browse: &mut search::BrowseUiState,
+    app_settings: &mut AppSettings,
+    settings_screen: &mut settings::SettingsScreenState,
+    settings_save: &mut settings::SettingsSaveRequest,
+) {
+    consume_presentation_command(command, layers, presentation);
+    left_panel::consume_left_panel_command(command, loaded, view_options, left_panel, navigation);
+    search::consume_search_command(command, browse);
+    settings::consume_settings_command(command, settings_screen, app_settings, settings_save);
+    if settings::converge_presentation_settings(layers, presentation, app_settings) {
+        settings_save.request();
     }
 }
 
@@ -420,8 +443,8 @@ pub struct StampedCommand {
     pub command: SimCommand,
 }
 
-/// Text replay format v1. Floating-point values are stored by raw bits, so a
-/// serialization round-trip cannot alter an input before deterministic replay.
+/// Per-frame wall inputs introduced by replay-v2. Floating-point values are
+/// stored by raw bits, so serialization cannot alter a deterministic input.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ReplayFrameInput {
     pub frame: u64,
@@ -429,26 +452,67 @@ pub struct ReplayFrameInput {
     pub wall_now_t: f64,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ReplayVersion {
+    V1,
+    #[default]
+    V2,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ReplayStream {
-    pub frames: Vec<ReplayFrameInput>,
-    pub entries: Vec<StampedCommand>,
+    version: ReplayVersion,
+    frames: Vec<ReplayFrameInput>,
+    entries: Vec<StampedCommand>,
 }
 
 impl ReplayStream {
     const HEADER_V1: &'static str = "solar-sim-replay-v1";
     const HEADER_V2: &'static str = "solar-sim-replay-v2";
 
+    pub fn v1(entries: Vec<StampedCommand>) -> Self {
+        Self {
+            version: ReplayVersion::V1,
+            frames: Vec::new(),
+            entries,
+        }
+    }
+
+    pub fn v2(frames: Vec<ReplayFrameInput>, entries: Vec<StampedCommand>) -> Self {
+        Self {
+            version: ReplayVersion::V2,
+            frames,
+            entries,
+        }
+    }
+
+    pub const fn version(&self) -> ReplayVersion {
+        self.version
+    }
+
+    pub fn frames(&self) -> &[ReplayFrameInput] {
+        &self.frames
+    }
+
+    pub fn entries(&self) -> &[StampedCommand] {
+        &self.entries
+    }
+
     pub fn to_text(&self) -> String {
-        let mut output = String::from(Self::HEADER_V2);
+        let mut output = String::from(match self.version {
+            ReplayVersion::V1 => Self::HEADER_V1,
+            ReplayVersion::V2 => Self::HEADER_V2,
+        });
         output.push('\n');
-        for frame in &self.frames {
-            output.push_str(&format!(
-                "@frame|{}|{:016x}|{:016x}\n",
-                frame.frame,
-                frame.wall_dt_s.to_bits(),
-                frame.wall_now_t.to_bits()
-            ));
+        if self.version == ReplayVersion::V2 {
+            for frame in &self.frames {
+                output.push_str(&format!(
+                    "@frame|{}|{:016x}|{:016x}\n",
+                    frame.frame,
+                    frame.wall_dt_s.to_bits(),
+                    frame.wall_now_t.to_bits()
+                ));
+            }
         }
         for entry in &self.entries {
             output.push_str(&serialize_entry(entry));
@@ -461,9 +525,13 @@ impl ReplayStream {
         let mut lines = text.lines();
         let header = lines.next();
         if !matches!(header, Some(Self::HEADER_V1 | Self::HEADER_V2)) {
-            return Err(ReplayParseError(vec!["missing replay-v1 header".into()]));
+            return Err(ReplayParseError(vec!["missing replay header".into()]));
         }
-        let is_v2 = header == Some(Self::HEADER_V2);
+        let version = if header == Some(Self::HEADER_V2) {
+            ReplayVersion::V2
+        } else {
+            ReplayVersion::V1
+        };
         let mut frames = Vec::new();
         let mut entries = Vec::new();
         let mut errors = Vec::new();
@@ -472,7 +540,7 @@ impl ReplayStream {
                 continue;
             }
             if line.starts_with("@frame|") {
-                if !is_v2 {
+                if version != ReplayVersion::V2 {
                     errors.push(format!(
                         "line {}: frame input requires replay-v2",
                         index + 2
@@ -491,7 +559,11 @@ impl ReplayStream {
             }
         }
         if errors.is_empty() {
-            Ok(Self { frames, entries })
+            Ok(Self {
+                version,
+                frames,
+                entries,
+            })
         } else {
             Err(ReplayParseError(errors))
         }
@@ -637,10 +709,11 @@ pub struct HeadlessSimulation {
     presentation: PresentationState,
     view_options: crate::ViewOptionsState,
     app_settings: AppSettings,
-    left_panel_tab: LeftPanelTab,
-    browse_open: bool,
-    browse_expanded: [bool; 3],
-    navigation_depth: usize,
+    left_panel: left_panel::LeftPanelUiState,
+    browse: search::BrowseUiState,
+    navigation: NavigationStack,
+    settings_screen: settings::SettingsScreenState,
+    settings_save: settings::SettingsSaveRequest,
     frame: u64,
     wall_now_t: f64,
 }
@@ -664,6 +737,14 @@ impl HeadlessSimulation {
             focus_position_km,
             DEFAULT_CAMERA_DISTANCE_UNITS,
         );
+        let mut left_panel = left_panel::LeftPanelUiState::default();
+        let mut navigation = NavigationStack::default();
+        left_panel::sync_left_panel_selection_state(
+            &camera,
+            &loaded,
+            &mut left_panel,
+            &mut navigation,
+        );
         Ok(Self {
             loaded,
             clock,
@@ -673,10 +754,11 @@ impl HeadlessSimulation {
             presentation: PresentationState::default(),
             view_options: crate::ViewOptionsState::default(),
             app_settings: AppSettings::default(),
-            left_panel_tab: LeftPanelTab::Info,
-            browse_open: false,
-            browse_expanded: [false; 3],
-            navigation_depth: 0,
+            left_panel,
+            browse: search::BrowseUiState::default(),
+            navigation,
+            settings_screen: settings::SettingsScreenState::default(),
+            settings_save: settings::SettingsSaveRequest::default(),
             frame: 0,
             wall_now_t,
         })
@@ -726,34 +808,49 @@ impl HeadlessSimulation {
         if let Some(recorder) = recording.as_deref_mut() {
             recorder.record_frame(self.frame, wall_dt_s, wall_now_t);
         }
+        let frame_start_t = self.clock.t();
         for command in commands {
             if let Some(recorder) = recording.as_deref_mut() {
-                recorder.record(self.frame, self.clock.t(), command.clone());
+                recorder.record(self.frame, frame_start_t, command.clone());
             }
-            consume_presentation_command(command, &mut self.layers, &mut self.presentation);
-            consume_sim_command(command, &mut self.clock, &mut self.camera, &self.loaded);
-            consume_headless_application_command(
+            consume_application_command(
                 command,
+                Some(&self.loaded),
+                &mut self.layers,
+                &mut self.presentation,
                 &mut self.view_options,
+                &mut self.left_panel,
+                &mut self.navigation,
+                &mut self.browse,
                 &mut self.app_settings,
-                &mut self.left_panel_tab,
-                &mut self.browse_open,
-                &mut self.browse_expanded,
-                &mut self.navigation_depth,
+                &mut self.settings_screen,
+                &mut self.settings_save,
             );
+            consume_sim_command(command, &mut self.clock, &mut self.camera, &self.loaded);
         }
+        settings::sync_settings_screen_state(
+            &self.presentation,
+            &self.app_settings,
+            &mut self.settings_screen,
+        );
         self.wall_now_t = wall_now_t;
         self.clock.tick(wall_dt_s, wall_now_t);
         propagate_into(&self.loaded.catalog, self.clock.t(), &mut self.states)?;
         advance_camera_controller(&mut self.camera, &self.states, wall_dt_s);
+        left_panel::sync_left_panel_selection_state(
+            &self.camera,
+            &self.loaded,
+            &mut self.left_panel,
+            &mut self.navigation,
+        );
         self.frame += 1;
         Ok(())
     }
 
-    /// Cross-platform replay hash over f64 simulation truth only. Values are
-    /// quantized on a canonical 1 km / 1 mm·s⁻¹ grid before hashing to avoid
-    /// platform libm last-bit noise while still catching visible divergence.
-    /// Render state is deliberately absent.
+    /// Cross-platform replay hash over command-visible application state and
+    /// f64 simulation truth. Propagated values are quantized on a canonical
+    /// 1 km / 1 mm·s⁻¹ grid to avoid platform libm last-bit noise. Entities,
+    /// focus handles, scroll pixels, dirty flags, and render state are absent.
     pub fn state_hash(&self) -> u64 {
         let mut hash = Fnv1a::new();
         hash.u64(self.frame);
@@ -769,18 +866,38 @@ impl HeadlessSimulation {
         hash.i64(quantize(self.camera.yaw_rad, 1.0e-12));
         hash.i64(quantize(self.camera.pitch_rad, 1.0e-12));
         hash.i64(quantize(self.camera.distance_units, 1.0e-9));
+        hash.u64(self.wall_now_t.to_bits());
+        hash.u64(self.layers.stable_hash());
+        hash.u8(u8::from(self.presentation.is_fullscreen()));
+        hash.u8(u8::from(self.presentation.is_settings_open()));
         hash_view_options(&mut hash, &self.view_options);
         hash_app_settings(&mut hash, &self.app_settings);
-        hash.u8(match self.left_panel_tab {
+        let (selected_body_index, left_panel_tab) =
+            left_panel::left_panel_replay_state(&self.left_panel);
+        match selected_body_index {
+            Some(index) => {
+                hash.u8(1);
+                hash.u64(index as u64);
+            }
+            None => hash.u8(0),
+        }
+        hash.u8(match left_panel_tab {
             LeftPanelTab::Info => 0,
             LeftPanelTab::Collection => 1,
             LeftPanelTab::ViewOptions => 2,
         });
-        hash.u8(u8::from(self.browse_open));
-        for expanded in self.browse_expanded {
+        let (browse_open, browse_expanded) = self.browse.replay_state();
+        hash.u8(u8::from(browse_open));
+        for expanded in browse_expanded {
             hash.u8(u8::from(expanded));
         }
-        hash.u64(self.navigation_depth as u64);
+        hash.u64(self.navigation.items().len() as u64);
+        for item in self.navigation.items() {
+            hash.u64(item.id.len() as u64);
+            hash.bytes(item.id.as_bytes());
+            hash.u64(item.label.len() as u64);
+            hash.bytes(item.label.as_bytes());
+        }
         match self.camera.travel {
             Some(travel) => {
                 hash.u8(1);
@@ -804,50 +921,6 @@ impl HeadlessSimulation {
             }
         }
         hash.finish()
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn consume_headless_application_command(
-    command: &SimCommand,
-    view_options: &mut crate::ViewOptionsState,
-    app_settings: &mut AppSettings,
-    left_panel_tab: &mut LeftPanelTab,
-    browse_open: &mut bool,
-    browse_expanded: &mut [bool; 3],
-    navigation_depth: &mut usize,
-) {
-    match command {
-        SimCommand::SetBodySize(scale) => view_options.set_body_size(*scale),
-        SimCommand::SetMoonVisibility { system_id, mode } => {
-            view_options.set_moon_visibility(system_id.clone(), *mode);
-        }
-        SimCommand::SetLocalOrbitVisibility { body_id, visible } => {
-            view_options.set_local_orbit_visible(body_id.clone(), *visible);
-        }
-        SimCommand::SetLeftPanelCollapsed(collapsed) => {
-            view_options.set_panel_collapsed(*collapsed);
-        }
-        SimCommand::SetLeftPanelTab(tab) => *left_panel_tab = *tab,
-        SimCommand::SetBrowseOpen(open) => *browse_open = *open,
-        SimCommand::SetBrowseColumnExpanded { column, expanded } => {
-            if let Some(value) = browse_expanded.get_mut(usize::from(*column)) {
-                *value = *expanded;
-            }
-        }
-        SimCommand::ApplySettings(settings) => {
-            *app_settings = settings.as_ref().clone().normalized()
-        }
-        SimCommand::RestorePresentationDefaults => {
-            *view_options = crate::ViewOptionsState::default();
-            app_settings.layers = crate::PersistedLayerState::default();
-            *browse_open = false;
-            *browse_expanded = [false; 3];
-            *left_panel_tab = LeftPanelTab::Info;
-            *navigation_depth = 0;
-        }
-        SimCommand::NavigateBreadcrumb { depth, .. } => *navigation_depth = *depth,
-        _ => {}
     }
 }
 
@@ -929,7 +1002,7 @@ pub fn replay_headless(
     total_frames: u64,
     wall_dt_s: f64,
 ) -> Result<HeadlessSimulation, ReplayRunError> {
-    if !stream.frames.is_empty() {
+    if stream.version == ReplayVersion::V2 {
         if stream.frames.len() != total_frames as usize {
             return Err(ReplayRunError::FrameInputsIncomplete {
                 expected: total_frames,
@@ -988,14 +1061,18 @@ pub fn replay_headless(
             .iter()
             .map(|entry| entry.command.clone())
             .collect();
-        if let Some(input) = stream.frames.get(frame as usize) {
-            simulation
-                .step_with_wall_time(input.wall_dt_s, input.wall_now_t, &commands, None)
-                .map_err(ReplayRunError::Propagation)?;
-        } else {
-            simulation
-                .step(wall_dt_s, &commands, None)
-                .map_err(ReplayRunError::Propagation)?;
+        match stream.version {
+            ReplayVersion::V2 => {
+                let input = &stream.frames[frame as usize];
+                simulation
+                    .step_with_wall_time(input.wall_dt_s, input.wall_now_t, &commands, None)
+                    .map_err(ReplayRunError::Propagation)?;
+            }
+            ReplayVersion::V1 => {
+                simulation
+                    .step(wall_dt_s, &commands, None)
+                    .map_err(ReplayRunError::Propagation)?;
+            }
         }
     }
     Ok(simulation)
@@ -1414,7 +1491,7 @@ mod tests {
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
     const FRAME_DT_S: f64 = 1.0 / 60.0;
-    const PORTABLE_REPLAY_HASH: u64 = 11_341_847_874_983_838_712;
+    const PORTABLE_REPLAY_HASH: u64 = 1_553_394_718_950_124_988;
 
     fn catalog() -> Catalog {
         load_catalog_text(REAL_CATALOG).expect("committed catalog must load")
@@ -1576,7 +1653,7 @@ mod tests {
                 .step(FRAME_DT_S, &commands, Some(&mut recording))
                 .unwrap();
         }
-        assert!(recording.stream().entries.len() > 500);
+        assert!(recording.stream().entries().len() > 500);
 
         let serialized = recording.stream().to_text();
         let parsed = ReplayStream::from_text(&serialized).unwrap();
@@ -1640,7 +1717,7 @@ mod tests {
                 .unwrap();
         }
 
-        assert_eq!(recording.stream().frames.len(), 180);
+        assert_eq!(recording.stream().frames().len(), 180);
         let encoded = recording.stream().to_text();
         assert!(encoded.starts_with("solar-sim-replay-v2\n"));
         let decoded = ReplayStream::from_text(&encoded).unwrap();
@@ -1654,6 +1731,337 @@ mod tests {
             replay_headless(&catalog, &invalid, 180, FRAME_DT_S),
             Err(ReplayRunError::InvalidFrameInput { frame: 12 })
         ));
+    }
+
+    #[test]
+    fn replay_versions_round_trip_without_upgrade_or_downgrade() {
+        let v1 = ReplayStream::from_text(concat!(
+            "solar-sim-replay-v1\n",
+            "0|0000000000000000|play\n"
+        ))
+        .unwrap();
+        assert_eq!(v1.version(), ReplayVersion::V1);
+        assert!(v1.to_text().starts_with("solar-sim-replay-v1\n"));
+        assert!(v1.frames().is_empty());
+
+        let v2 = ReplayStream::from_text(concat!(
+            "solar-sim-replay-v2\n",
+            "@frame|0|3f91111111111111|4024000000000000\n"
+        ))
+        .unwrap();
+        assert_eq!(v2.version(), ReplayVersion::V2);
+        assert!(v2.to_text().starts_with("solar-sim-replay-v2\n"));
+        assert_eq!(v2.frames().len(), 1);
+    }
+
+    #[test]
+    fn new_recordings_are_explicit_replay_v2() {
+        let recording = CommandRecording::default();
+        assert_eq!(recording.stream().version(), ReplayVersion::V2);
+        assert!(recording
+            .stream()
+            .to_text()
+            .starts_with("solar-sim-replay-v2\n"));
+    }
+
+    #[test]
+    fn replay_v2_without_frames_never_falls_back_to_v1_timing() {
+        let stream = ReplayStream::from_text("solar-sim-replay-v2\n").unwrap();
+        assert!(matches!(
+            replay_headless(&catalog(), &stream, 1, FRAME_DT_S),
+            Err(ReplayRunError::FrameInputsIncomplete {
+                expected: 1,
+                actual: 0
+            })
+        ));
+    }
+
+    #[test]
+    fn replay_v2_requires_exact_frame_count_order_and_finite_inputs() {
+        let catalog = catalog();
+        let too_many = ReplayStream::v2(
+            vec![
+                ReplayFrameInput {
+                    frame: 0,
+                    wall_dt_s: FRAME_DT_S,
+                    wall_now_t: 1.0,
+                },
+                ReplayFrameInput {
+                    frame: 1,
+                    wall_dt_s: FRAME_DT_S,
+                    wall_now_t: 2.0,
+                },
+            ],
+            Vec::new(),
+        );
+        assert!(matches!(
+            replay_headless(&catalog, &too_many, 1, FRAME_DT_S),
+            Err(ReplayRunError::FrameInputsIncomplete {
+                expected: 1,
+                actual: 2
+            })
+        ));
+
+        let duplicate = ReplayStream::v2(
+            vec![
+                ReplayFrameInput {
+                    frame: 0,
+                    wall_dt_s: FRAME_DT_S,
+                    wall_now_t: 1.0,
+                },
+                ReplayFrameInput {
+                    frame: 0,
+                    wall_dt_s: FRAME_DT_S,
+                    wall_now_t: 2.0,
+                },
+            ],
+            Vec::new(),
+        );
+        assert!(matches!(
+            replay_headless(&catalog, &duplicate, 2, FRAME_DT_S),
+            Err(ReplayRunError::FrameInputOutOfOrder {
+                expected: 1,
+                actual: 0
+            })
+        ));
+
+        for wall_dt_s in [-FRAME_DT_S, f64::INFINITY, f64::NAN] {
+            let invalid = ReplayStream::v2(
+                vec![ReplayFrameInput {
+                    frame: 0,
+                    wall_dt_s,
+                    wall_now_t: 1.0,
+                }],
+                Vec::new(),
+            );
+            assert!(matches!(
+                replay_headless(&catalog, &invalid, 1, FRAME_DT_S),
+                Err(ReplayRunError::InvalidFrameInput { frame: 0 })
+            ));
+        }
+        let invalid_wall_now = ReplayStream::v2(
+            vec![ReplayFrameInput {
+                frame: 0,
+                wall_dt_s: FRAME_DT_S,
+                wall_now_t: f64::NEG_INFINITY,
+            }],
+            Vec::new(),
+        );
+        assert!(matches!(
+            replay_headless(&catalog, &invalid_wall_now, 1, FRAME_DT_S),
+            Err(ReplayRunError::InvalidFrameInput { frame: 0 })
+        ));
+    }
+
+    #[test]
+    fn replay_v1_still_executes_with_fixed_wall_delta() {
+        let catalog = catalog();
+        let stream = ReplayStream::from_text("solar-sim-replay-v1\n").unwrap();
+        let replayed = replay_headless(&catalog, &stream, 3, FRAME_DT_S).unwrap();
+        let mut manually_stepped = HeadlessSimulation::new(&catalog).unwrap();
+        for _ in 0..3 {
+            manually_stepped.step(FRAME_DT_S, &[], None).unwrap();
+        }
+        assert_eq!(replayed.state_hash(), manually_stepped.state_hash());
+    }
+
+    #[test]
+    fn same_frame_commands_after_set_time_keep_the_frame_start_timestamp() {
+        let catalog = catalog();
+        let mut original = HeadlessSimulation::new(&catalog).unwrap();
+        let frame_start_t = original.clock().t();
+        let mut recording = CommandRecording::default();
+        original
+            .step_with_wall_time(
+                0.0,
+                10.0,
+                &[
+                    SimCommand::SetTime(frame_start_t + 86_400.0),
+                    SimCommand::ToggleFullscreen,
+                ],
+                Some(&mut recording),
+            )
+            .unwrap();
+        assert_eq!(
+            recording
+                .stream()
+                .entries()
+                .iter()
+                .map(|entry| entry.sim_time_s.to_bits())
+                .collect::<Vec<_>>(),
+            vec![frame_start_t.to_bits(); 2]
+        );
+
+        let replayed = replay_headless(&catalog, recording.stream(), 1, FRAME_DT_S).unwrap();
+        assert_eq!(replayed.state_hash(), original.state_hash());
+    }
+
+    #[test]
+    fn application_commands_reduce_without_a_loaded_catalog() {
+        let mut layers = LayerState::default();
+        let mut presentation = PresentationState::default();
+        let mut view_options = crate::ViewOptionsState::default();
+        let mut left_panel = left_panel::LeftPanelUiState::default();
+        let mut navigation = NavigationStack::default();
+        let mut browse = search::BrowseUiState::default();
+        let mut app_settings = AppSettings::default();
+        let mut settings_screen = settings::SettingsScreenState::default();
+        let mut settings_save = settings::SettingsSaveRequest::default();
+        for command in [
+            SimCommand::SetLayerVisibility {
+                layer: LayerId::Labels,
+                visible: false,
+            },
+            SimCommand::ToggleFullscreen,
+            SimCommand::OpenSettings,
+            SimCommand::SetBodySize(BodySizeScale::X10),
+            SimCommand::SetBrowseOpen(true),
+            SimCommand::SetMoonVisibility {
+                system_id: "unknown".into(),
+                mode: MoonVisibilityMode::All,
+            },
+        ] {
+            consume_application_command(
+                &command,
+                None,
+                &mut layers,
+                &mut presentation,
+                &mut view_options,
+                &mut left_panel,
+                &mut navigation,
+                &mut browse,
+                &mut app_settings,
+                &mut settings_screen,
+                &mut settings_save,
+            );
+        }
+        settings::sync_settings_screen_state(&presentation, &app_settings, &mut settings_screen);
+
+        assert!(!layers.is_visible(LayerId::Labels));
+        assert!(presentation.is_fullscreen());
+        assert!(presentation.is_settings_open());
+        assert!(settings_screen.is_open());
+        assert_eq!(
+            view_options.persistence_snapshot().body_size,
+            BodySizeScale::X10
+        );
+        assert!(browse.is_open());
+        assert_eq!(
+            app_settings.display_mode,
+            crate::DisplayModeSetting::BorderlessFullscreen
+        );
+        assert!(!app_settings.layers.labels);
+        assert!(view_options
+            .persistence_snapshot()
+            .moon_visibility_by_system
+            .is_empty());
+    }
+
+    #[test]
+    fn shared_reducers_keep_navigation_restore_and_unknown_ids_canonical() {
+        let catalog = catalog();
+        let mut restored = HeadlessSimulation::new(&catalog).unwrap();
+        restored
+            .step(
+                FRAME_DT_S,
+                &[SimCommand::TravelToBody("jupiter".into())],
+                None,
+            )
+            .unwrap();
+        restored
+            .step(
+                FRAME_DT_S,
+                &[
+                    SimCommand::SetLeftPanelTab(LeftPanelTab::Collection),
+                    SimCommand::SetBrowseOpen(true),
+                    SimCommand::SetBodySize(BodySizeScale::X50),
+                ],
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            restored.navigation.label(),
+            "Solar System › Jupiter › Moons"
+        );
+        restored
+            .step(FRAME_DT_S, &[SimCommand::RestorePresentationDefaults], None)
+            .unwrap();
+        assert_eq!(
+            restored.navigation.label(),
+            "Solar System › Jupiter › Moons"
+        );
+        assert_eq!(
+            left_panel::left_panel_replay_state(&restored.left_panel).1,
+            LeftPanelTab::Collection
+        );
+        assert_eq!(
+            restored.view_options.persistence_snapshot(),
+            crate::ViewOptionsState::default().persistence_snapshot()
+        );
+        assert!(!restored.browse.is_open());
+
+        let mut ignored = HeadlessSimulation::new(&catalog).unwrap();
+        let mut untouched = HeadlessSimulation::new(&catalog).unwrap();
+        let invalid_commands = [
+            SimCommand::SetMoonVisibility {
+                system_id: "unknown".into(),
+                mode: MoonVisibilityMode::All,
+            },
+            SimCommand::SetLocalOrbitVisibility {
+                body_id: "unknown".into(),
+                visible: false,
+            },
+            SimCommand::NavigateBreadcrumb {
+                depth: 0,
+                target_id: "unknown".into(),
+            },
+        ];
+        ignored
+            .step_with_wall_time(FRAME_DT_S, 1.0, &invalid_commands, None)
+            .unwrap();
+        untouched
+            .step_with_wall_time(FRAME_DT_S, 1.0, &[], None)
+            .unwrap();
+        assert_eq!(ignored.state_hash(), untouched.state_hash());
+    }
+
+    #[test]
+    fn combined_hash_covers_wall_time_presentation_modal_and_navigation_identity() {
+        let catalog = catalog();
+        let mut baseline = HeadlessSimulation::new(&catalog).unwrap();
+        baseline.step_with_wall_time(0.0, 10.0, &[], None).unwrap();
+        let baseline_hash = baseline.state_hash();
+
+        for command in [
+            SimCommand::SetLayerVisibility {
+                layer: LayerId::Labels,
+                visible: false,
+            },
+            SimCommand::ToggleFullscreen,
+            SimCommand::OpenSettings,
+            SimCommand::SetBrowseOpen(true),
+        ] {
+            let mut changed = HeadlessSimulation::new(&catalog).unwrap();
+            changed
+                .step_with_wall_time(0.0, 10.0, &[command], None)
+                .unwrap();
+            assert_ne!(changed.state_hash(), baseline_hash);
+        }
+
+        let mut different_wall_time = HeadlessSimulation::new(&catalog).unwrap();
+        different_wall_time
+            .step_with_wall_time(0.0, 11.0, &[], None)
+            .unwrap();
+        assert_ne!(different_wall_time.state_hash(), baseline_hash);
+
+        let mut first_navigation = HeadlessSimulation::new(&catalog).unwrap();
+        let mut second_navigation = HeadlessSimulation::new(&catalog).unwrap();
+        first_navigation.navigation.push("first", "Same depth");
+        second_navigation.navigation.push("second", "Same depth");
+        assert_ne!(
+            first_navigation.state_hash(),
+            second_navigation.state_hash()
+        );
     }
 
     #[test]
@@ -1708,41 +2116,38 @@ mod tests {
         assert_eq!(report.clamped, Some(sim_core::time::RangeEdge::AtMin));
         assert_eq!(clock.t(), T_MIN_S);
 
-        let stream = ReplayStream {
-            frames: Vec::new(),
-            entries: vec![
-                StampedCommand {
-                    frame: 7,
-                    sim_time_s: 123.5,
-                    command: SimCommand::SetTime(target),
-                },
-                StampedCommand {
-                    frame: 8,
-                    sim_time_s: T_MIN_S,
-                    command: SimCommand::SnapToLive,
-                },
-                StampedCommand {
-                    frame: 9,
-                    sim_time_s: T_MIN_S,
-                    command: SimCommand::ToggleFullscreen,
-                },
-                StampedCommand {
-                    frame: 10,
-                    sim_time_s: T_MIN_S,
-                    command: SimCommand::OpenSettings,
-                },
-                StampedCommand {
-                    frame: 11,
-                    sim_time_s: T_MIN_S,
-                    command: SimCommand::CloseSettings,
-                },
-                StampedCommand {
-                    frame: 12,
-                    sim_time_s: T_MIN_S,
-                    command: SimCommand::SimulateDeviceLoss,
-                },
-            ],
-        };
+        let stream = ReplayStream::v1(vec![
+            StampedCommand {
+                frame: 7,
+                sim_time_s: 123.5,
+                command: SimCommand::SetTime(target),
+            },
+            StampedCommand {
+                frame: 8,
+                sim_time_s: T_MIN_S,
+                command: SimCommand::SnapToLive,
+            },
+            StampedCommand {
+                frame: 9,
+                sim_time_s: T_MIN_S,
+                command: SimCommand::ToggleFullscreen,
+            },
+            StampedCommand {
+                frame: 10,
+                sim_time_s: T_MIN_S,
+                command: SimCommand::OpenSettings,
+            },
+            StampedCommand {
+                frame: 11,
+                sim_time_s: T_MIN_S,
+                command: SimCommand::CloseSettings,
+            },
+            StampedCommand {
+                frame: 12,
+                sim_time_s: T_MIN_S,
+                command: SimCommand::SimulateDeviceLoss,
+            },
+        ]);
         assert_eq!(ReplayStream::from_text(&stream.to_text()).unwrap(), stream);
     }
 
@@ -1785,7 +2190,7 @@ mod tests {
             .step(FRAME_DT_S, &[SimCommand::Play], Some(&mut recording))
             .unwrap();
         assert_eq!(
-            recording.stream().entries[0].sim_time_s,
+            recording.stream().entries()[0].sim_time_s,
             t_from_jd_tdb(2_461_042.0)
         );
     }
