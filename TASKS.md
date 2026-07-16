@@ -641,7 +641,7 @@ Steamworks App ID from the human.
   `dev → beta → default` branches.
 
 **Acceptance.**
-- [ ] Default (non-`steam`) build has no Steamworks in its dependency
+- [x] Default (non-`steam`) build has no Steamworks in its dependency
   tree (CI-checked like core purity).
 - [ ] Overlay spike results documented in `docs/` for both OSes; app runs
   correctly with overlay unavailable.
@@ -785,6 +785,19 @@ Full rationale and human sign-off:
 
 ## Change log (append-only; newest first)
 
+- **2026-07-16** — WP16's default-build dependency isolation is accepted at
+  commit `ad9be42b12347acee4d2d4f17776199f0f6a9dd1`. The exact local
+  `cargo tree -p solar-sim --edges normal --no-default-features` check contains
+  no Steamworks crate, while `cargo tree -p solar-sim --edges normal --features
+  steam` resolves `steamworks v0.13.1` and `steamworks-sys v0.13.0`. Hosted PR
+  [run 29473492755](https://github.com/jiayanzeng/solar-sim-workspace/actions/runs/29473492755)
+  passed in 54m26s: `lint` 5m09s, `test-linux` 20m44s, `invariants` 33s,
+  `platform (macos-14)` 3m33s, and `platform (windows-latest)` 54m20s. The
+  opt-in Steam adapter compiled and linked on both hosted platform legs (23s
+  on `macos-14`, 17m44s on `windows-latest`); the macOS Metal smoke passed in
+  9s and the expected Windows `Microsoft Basic Render Driver` / `Cpu` / `Dx12`
+  soft smoke passed in 2m05s. This checks only WP16's first acceptance item;
+  the overlay, signing/SteamPipe, and bundle-size items remain open.
 - **2026-07-16** — WP16's Mac-first Steam adapter and interim-identity
   guardrails landed after the human closed Q14 and narrowed Q13. Optional
   `steamworks = "0.13.1"` is reachable only through the `steam` feature;
