@@ -208,6 +208,7 @@ impl LayerState {
 pub struct PresentationState {
     fullscreen: bool,
     settings_requested: bool,
+    settings_close_requested: bool,
 }
 
 impl PresentationState {
@@ -215,6 +216,7 @@ impl PresentationState {
         Self {
             fullscreen,
             settings_requested: false,
+            settings_close_requested: false,
         }
     }
 
@@ -230,12 +232,26 @@ impl PresentationState {
         std::mem::take(&mut self.settings_requested)
     }
 
+    pub const fn settings_close_requested(self) -> bool {
+        self.settings_close_requested
+    }
+
+    pub fn take_settings_close_request(&mut self) -> bool {
+        std::mem::take(&mut self.settings_close_requested)
+    }
+
     pub(crate) fn toggle_fullscreen(&mut self) {
         self.fullscreen = !self.fullscreen;
     }
 
     pub(crate) fn request_settings(&mut self) {
         self.settings_requested = true;
+        self.settings_close_requested = false;
+    }
+
+    pub(crate) fn request_settings_close(&mut self) {
+        self.settings_requested = false;
+        self.settings_close_requested = true;
     }
 }
 
@@ -960,6 +976,10 @@ mod tests {
         assert!(presentation.settings_requested());
         assert!(presentation.take_settings_request());
         assert!(!presentation.take_settings_request());
+        consume_presentation_command(&SimCommand::CloseSettings, &mut layers, &mut presentation);
+        assert!(presentation.settings_close_requested());
+        assert!(presentation.take_settings_close_request());
+        assert!(!presentation.take_settings_close_request());
         consume_presentation_command(
             &SimCommand::ToggleFullscreen,
             &mut layers,

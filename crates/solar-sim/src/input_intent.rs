@@ -5,6 +5,7 @@
 //! keyboard or mouse state; future UI widgets join at the command queue seam.
 
 use crate::control::{SimCommand, SimCommandQueue};
+use crate::settings::SettingsScreenState;
 use crate::{AppSettings, SimulationSet};
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
@@ -18,6 +19,7 @@ enum KeyIntent {
     Play,
     Pause,
     TogglePlay,
+    CloseSettings,
     #[cfg(debug_assertions)]
     SimulateDeviceLoss,
 }
@@ -76,6 +78,10 @@ const KEY_BINDINGS: &[KeyBinding] = &[
         key: KeyCode::Space,
         intent: KeyIntent::TogglePlay,
     },
+    KeyBinding {
+        key: KeyCode::Escape,
+        intent: KeyIntent::CloseSettings,
+    },
     #[cfg(debug_assertions)]
     KeyBinding {
         key: KeyCode::F9,
@@ -105,7 +111,18 @@ fn collect_raw_intents(
     mut motion: MessageReader<MouseMotion>,
     mut wheel: MessageReader<MouseWheel>,
     mut intents: ResMut<InputIntentQueue>,
+    settings_screen: Res<SettingsScreenState>,
 ) {
+    for binding in KEY_BINDINGS {
+        if keys.just_pressed(binding.key) && binding_enabled(*binding, settings_screen.is_open()) {
+            intents.0.push(InputIntent::Key(binding.intent));
+        }
+    }
+    if settings_screen.is_open() {
+        motion.clear();
+        wheel.clear();
+        return;
+    }
     if buttons.pressed(MouseButton::Right) {
         for event in motion.read() {
             intents.0.push(InputIntent::Orbit {
@@ -121,11 +138,10 @@ fn collect_raw_intents(
             delta: f64::from(event.y),
         });
     }
-    for binding in KEY_BINDINGS {
-        if keys.just_pressed(binding.key) {
-            intents.0.push(InputIntent::Key(binding.intent));
-        }
-    }
+}
+
+fn binding_enabled(binding: KeyBinding, settings_open: bool) -> bool {
+    settings_open == matches!(binding.intent, KeyIntent::CloseSettings)
 }
 
 fn translate_intents(
@@ -150,6 +166,7 @@ fn intent_to_command(intent: InputIntent) -> SimCommand {
         InputIntent::Key(KeyIntent::Play) => SimCommand::Play,
         InputIntent::Key(KeyIntent::Pause) => SimCommand::Pause,
         InputIntent::Key(KeyIntent::TogglePlay) => SimCommand::TogglePlay,
+        InputIntent::Key(KeyIntent::CloseSettings) => SimCommand::CloseSettings,
         #[cfg(debug_assertions)]
         InputIntent::Key(KeyIntent::SimulateDeviceLoss) => SimCommand::SimulateDeviceLoss,
         InputIntent::Orbit {
@@ -214,6 +231,22 @@ mod tests {
                 .collect();
             assert_eq!(matches.len(), 1, "{:?}", binding.key);
         }
+    }
+
+    #[test]
+    fn open_settings_modal_suppresses_gameplay_keys_but_keeps_escape() {
+        let enabled: Vec<_> = KEY_BINDINGS
+            .iter()
+            .copied()
+            .filter(|binding| binding_enabled(*binding, true))
+            .map(|binding| intent_to_command(InputIntent::Key(binding.intent)))
+            .collect();
+        assert_eq!(enabled, vec![SimCommand::CloseSettings]);
+        assert!(!KEY_BINDINGS
+            .iter()
+            .copied()
+            .filter(|binding| binding_enabled(*binding, false))
+            .any(|binding| matches!(binding.intent, KeyIntent::CloseSettings)));
     }
 
     #[test]

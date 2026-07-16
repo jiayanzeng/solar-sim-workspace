@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 208 passing** (53 `sim-core` · 104 `solar-sim` · 48 `xtask`
+**Test baseline: 212 passing** (53 `sim-core` · 108 `solar-sim` · 48 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -798,6 +798,27 @@ question.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-16** — Fixed the WP14 Settings-screen lock-in reported during the
+  Mac-first WP16 bring-up, without resuming overlay work. The screen is now a
+  full-window modal tab group with a blocking scrim and a real scroll position;
+  pointer scrolling is clamped to the content range. `CLOSE`, `APPLY`, and the
+  Escape key all route through the deterministic `SimCommand` boundary, closing
+  clears input focus, and gameplay orbit/dolly/key intents are suppressed while
+  the modal is open. `APPLY` also dismisses the modal, so applying a hidden-UI
+  layer state cannot strand the user behind an invisible settings screen.
+  Regression tests cover the spawned modal's close path, close-request focus
+  cleanup, line/pixel scroll clamping, modal input suppression, presentation
+  reduction, and replay serialization. Evidence: the pre-change `cargo test`
+  passed the 208-test baseline; post-change `cargo test` passes 212 tests (53
+  `sim-core`, 108 `solar-sim`, 48 `xtask` lib, two xtask smoke, one active
+  spot-check), and `cargo test -p solar-sim --features steam` passes 109 tests.
+  `cargo fmt --all -- --check`, `git diff --check`, `cargo clippy --workspace
+  --all-targets -- -D warnings`, and `cargo clippy -p solar-sim --all-targets
+  --features steam -- -D warnings` pass. The exact local `cargo run -p solar-sim
+  --release -- --smoke 120 --expect-backend metal --reject-software-adapter
+  --assert-nonblack` launch completes at 85.0 fps on the Apple M2 Pro and reports
+  a non-black 5120×2880 readback. Q15 remains open for the separate persisted
+  visual-cue recovery decision; no WP14 or WP16 status/acceptance text changed.
 - **2026-07-16** — The first real-client M2 Pro overlay attempt found four
   WP16 integration defects before it could count as spike evidence. The supplied
   terminal log shows Metal `AdapterInfo` before `[S_API] SteamAPI_Init()`,

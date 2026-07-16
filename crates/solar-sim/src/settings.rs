@@ -13,7 +13,11 @@ use crate::ui_kit::{
 };
 use crate::SimulationSet;
 use bevy::{
-    input_focus::tab_navigation::TabIndex,
+    input::mouse::MouseScrollUnit,
+    input_focus::{
+        tab_navigation::{TabGroup, TabIndex},
+        InputFocus,
+    },
     prelude::*,
     render::{
         error_handler::{ErrorType, RenderError, RenderErrorHandler, RenderErrorPolicy},
@@ -437,13 +441,22 @@ impl RenderRecoveryStatus {
 pub struct SettingsScreenRoot;
 
 #[derive(Component, Debug, Clone, Copy, Default)]
+struct SettingsScrollArea;
+
+#[derive(Component, Debug, Clone, Copy, Default)]
 pub struct RenderErrorScreen;
 
 #[derive(Resource, Debug, Clone, Default)]
-struct SettingsScreenState {
+pub(crate) struct SettingsScreenState {
     open: bool,
     draft: AppSettings,
     dirty: bool,
+}
+
+impl SettingsScreenState {
+    pub(crate) const fn is_open(&self) -> bool {
+        self.open
+    }
 }
 
 #[derive(Component, Debug, Clone, Copy)]
@@ -476,7 +489,7 @@ impl Plugin for ProductSettingsPlugin {
             .add_systems(
                 Update,
                 (
-                    open_requested_settings_screen,
+                    sync_requested_settings_screen,
                     apply_settings_to_runtime,
                     sync_external_presentation_to_settings,
                     rebuild_settings_screen,
@@ -493,21 +506,32 @@ impl Plugin for ProductSettingsPlugin {
     }
 }
 
-fn open_requested_settings_screen(
+fn sync_requested_settings_screen(
     mut presentation: ResMut<PresentationState>,
     settings: Res<AppSettings>,
     mut screen: ResMut<SettingsScreenState>,
+    mut focus: ResMut<InputFocus>,
 ) {
-    if !presentation.settings_requested() {
-        return;
+    if presentation.settings_close_requested() {
+        presentation
+            .bypass_change_detection()
+            .take_settings_close_request();
+        presentation.set_changed();
+        screen.open = false;
+        screen.draft = settings.clone();
+        screen.dirty = true;
+        focus.clear();
     }
-    presentation
-        .bypass_change_detection()
-        .take_settings_request();
-    presentation.set_changed();
-    screen.open = true;
-    screen.draft = settings.clone();
-    screen.dirty = true;
+    if presentation.settings_requested() {
+        presentation
+            .bypass_change_detection()
+            .take_settings_request();
+        presentation.set_changed();
+        screen.open = true;
+        screen.draft = settings.clone();
+        screen.dirty = true;
+        focus.clear();
+    }
 }
 
 fn apply_settings_to_runtime(
@@ -610,12 +634,30 @@ fn rebuild_settings_screen(
             SettingsScreenRoot,
             HudSurface,
             AccessibleLabel::new("Solar Sim settings"),
+            TabGroup::modal(),
             Node {
                 position_type: PositionType::Absolute,
-                left: percent(8),
-                right: percent(8),
-                top: percent(5),
-                bottom: percent(5),
+                left: px(0),
+                right: px(0),
+                top: px(0),
+                bottom: px(0),
+                width: percent(100),
+                height: percent(100),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(theme.colors.scrim.color()),
+            Pickable::default(),
+            GlobalZIndex(SETTINGS_Z_INDEX),
+        ))
+        .id();
+    let panel = commands
+        .spawn((
+            Name::new("Settings panel"),
+            Node {
+                width: percent(84),
+                height: percent(90),
                 padding: UiRect::all(px(theme.spacing.lg_px)),
                 border: UiRect::all(px(theme.spacing.hairline_px)),
                 border_radius: BorderRadius::all(px(theme.spacing.radius_px)),
@@ -625,7 +667,7 @@ fn rebuild_settings_screen(
             },
             BackgroundColor(theme.colors.background.color()),
             BorderColor::all(theme.colors.separator.color()),
-            GlobalZIndex(SETTINGS_Z_INDEX),
+            ChildOf(root),
         ))
         .id();
     commands.spawn((
@@ -637,10 +679,12 @@ fn rebuild_settings_screen(
         },
         TextColor(theme.colors.text_primary.color()),
         Pickable::IGNORE,
-        ChildOf(root),
+        ChildOf(panel),
     ));
     let content = commands
         .spawn((
+            Name::new("Settings scroll area"),
+            SettingsScrollArea,
             Node {
                 width: percent(100),
                 flex_grow: 1.0,
@@ -651,8 +695,10 @@ fn rebuild_settings_screen(
                 overflow: Overflow::scroll_y(),
                 ..default()
             },
-            ChildOf(root),
+            ScrollPosition::default(),
+            ChildOf(panel),
         ))
+        .observe(scroll_settings_content)
         .id();
 
     let draft = screen.draft.clone();
@@ -810,7 +856,7 @@ fn rebuild_settings_screen(
                 column_gap: px(theme.spacing.sm_px),
                 ..default()
             },
-            ChildOf(root),
+            ChildOf(panel),
         ))
         .id();
     spawn_choices(
@@ -824,6 +870,40 @@ fn rebuild_settings_screen(
         ],
     );
     screen.dirty = false;
+}
+
+fn scroll_settings_content(
+    mut scroll: On<Pointer<Scroll>>,
+    mut areas: Query<(&mut ScrollPosition, &ComputedNode), With<SettingsScrollArea>>,
+) {
+    let Ok((mut position, node)) = areas.get_mut(scroll.entity) else {
+        return;
+    };
+    position.y = next_settings_scroll_y(
+        position.y,
+        scroll.y,
+        scroll.unit,
+        node.content_size().y,
+        node.size().y,
+        node.inverse_scale_factor,
+    );
+    scroll.propagate(false);
+}
+
+fn next_settings_scroll_y(
+    current: f32,
+    input_y: f32,
+    unit: MouseScrollUnit,
+    content_height: f32,
+    visible_height: f32,
+    inverse_scale_factor: f32,
+) -> f32 {
+    let delta_y = match unit {
+        MouseScrollUnit::Line => input_y * 28.0,
+        MouseScrollUnit::Pixel => input_y,
+    };
+    let range = (content_height - visible_height).max(0.0) * inverse_scale_factor;
+    (current - delta_y).clamp(0.0, range)
 }
 
 fn spawn_section(commands: &mut Commands, parent: Entity, theme: UiTheme, label: &str) {
@@ -860,19 +940,19 @@ fn spawn_choices<const N: usize>(
         ))
         .id();
     for (label, selected, action) in choices {
-        commands
-            .spawn_scene(chip(
-                theme,
-                WidgetSpec::new(
-                    &label,
-                    format!("Set {label}"),
-                    if selected {
-                        WidgetVisualState::Active
-                    } else {
-                        WidgetVisualState::Default
-                    },
-                ),
-            ))
+        let mut entity = commands.spawn_scene(chip(
+            theme,
+            WidgetSpec::new(
+                &label,
+                format!("Set {label}"),
+                if selected {
+                    WidgetVisualState::Active
+                } else {
+                    WidgetVisualState::Default
+                },
+            ),
+        ));
+        entity
             .insert((action, TabIndex(200), ChildOf(row)))
             .observe(activate_setting_action);
     }
@@ -919,8 +999,7 @@ fn activate_setting_action(
     };
     match *action {
         SettingAction::Close => {
-            screen.open = false;
-            screen.draft = settings.clone();
+            sim_commands.push(SimCommand::CloseSettings);
         }
         SettingAction::Apply => {
             let committed = screen.draft.clone().normalized();
@@ -936,6 +1015,7 @@ fn activate_setting_action(
             *settings = committed.clone();
             screen.draft = committed;
             commands.queue(SaveSettingsDeferred(SETTINGS_SAVE_DELAY));
+            sim_commands.push(SimCommand::CloseSettings);
         }
         SettingAction::Revert => screen.draft = settings.clone(),
         SettingAction::SetDisplayMode(value) => screen.draft.display_mode = value,
@@ -1308,7 +1388,73 @@ mod tests {
             .resource_mut::<SimCommandQueue>()
             .drain()
             .collect();
-        assert_eq!(commands, vec![SimCommand::ToggleFullscreen]);
+        assert_eq!(
+            commands,
+            vec![SimCommand::ToggleFullscreen, SimCommand::CloseSettings]
+        );
+    }
+
+    #[test]
+    fn close_action_routes_through_the_command_queue() {
+        let mut app = App::new();
+        app.insert_resource(AppSettings::default())
+            .init_resource::<SettingsScreenState>()
+            .init_resource::<LayerState>()
+            .init_resource::<PresentationState>()
+            .init_resource::<SimCommandQueue>();
+        let close = app
+            .world_mut()
+            .spawn(SettingAction::Close)
+            .observe(activate_setting_action)
+            .id();
+
+        app.world_mut().trigger(Activate { entity: close });
+        let commands: Vec<_> = app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .collect();
+        assert_eq!(commands, vec![SimCommand::CloseSettings]);
+    }
+
+    #[test]
+    fn requested_close_dismisses_the_modal_and_clears_focus() {
+        let mut app = App::new();
+        app.insert_resource(AppSettings::default())
+            .insert_resource(SettingsScreenState {
+                open: true,
+                draft: AppSettings::default(),
+                dirty: false,
+            })
+            .init_resource::<PresentationState>()
+            .init_resource::<InputFocus>()
+            .add_systems(Update, sync_requested_settings_screen);
+        app.world_mut()
+            .resource_mut::<PresentationState>()
+            .request_settings_close();
+
+        app.update();
+
+        let screen = app.world().resource::<SettingsScreenState>();
+        assert!(!screen.open);
+        assert!(screen.dirty);
+        assert_eq!(app.world().resource::<InputFocus>().get(), None);
+    }
+
+    #[test]
+    fn settings_scroll_clamps_for_line_and_pixel_input() {
+        assert_eq!(
+            next_settings_scroll_y(100.0, -2.0, MouseScrollUnit::Line, 1_000.0, 600.0, 1.0,),
+            156.0
+        );
+        assert_eq!(
+            next_settings_scroll_y(390.0, -50.0, MouseScrollUnit::Pixel, 1_000.0, 600.0, 1.0,),
+            400.0
+        );
+        assert_eq!(
+            next_settings_scroll_y(10.0, 50.0, MouseScrollUnit::Pixel, 1_000.0, 600.0, 1.0,),
+            0.0
+        );
     }
 
     #[test]
@@ -1321,27 +1467,67 @@ mod tests {
         ))
         .init_asset::<Font>()
         .insert_resource(UiTheme::default())
+        .insert_resource(AppSettings::default())
+        .init_resource::<LayerState>()
+        .init_resource::<PresentationState>()
+        .init_resource::<SimCommandQueue>()
+        .init_resource::<InputFocus>()
         .insert_resource(SettingsScreenState {
             open: true,
             draft: AppSettings::default(),
             dirty: true,
         })
-        .add_systems(Startup, rebuild_settings_screen);
+        .add_systems(Startup, rebuild_settings_screen)
+        .add_systems(
+            Update,
+            (sync_requested_settings_screen, rebuild_settings_screen).chain(),
+        );
         app.update();
 
+        let close = {
+            let world = app.world_mut();
+            let mut roots = world.query::<(&SettingsScreenRoot, &TabGroup)>();
+            let roots: Vec<_> = roots.iter(world).map(|(_, group)| group.modal).collect();
+            assert_eq!(roots.len(), 1);
+            assert!(roots[0]);
+            let mut scroll_areas = world.query::<(&SettingsScrollArea, &ScrollPosition)>();
+            assert_eq!(scroll_areas.iter(world).count(), 1);
+            let mut close_controls =
+                world.query_filtered::<(Entity, &SettingAction), With<WidgetRoot>>();
+            let close_controls: Vec<_> = close_controls
+                .iter(world)
+                .filter_map(|(entity, action)| {
+                    matches!(action, SettingAction::Close).then_some(entity)
+                })
+                .collect();
+            assert_eq!(close_controls.len(), 1);
+            let mut controls = world.query::<(
+                &SettingAction,
+                &WidgetRoot,
+                &AccessibleLabel,
+                &AccessibilityNode,
+            )>();
+            let controls: Vec<_> = controls.iter(world).collect();
+            assert_eq!(controls.len(), 38);
+            assert!(controls
+                .iter()
+                .all(|(_, _, label, _)| !label.0.trim().is_empty()));
+            close_controls[0]
+        };
+
+        app.world_mut().trigger(Activate { entity: close });
+        let commands: Vec<_> = app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .collect();
+        assert_eq!(commands, vec![SimCommand::CloseSettings]);
+        app.world_mut()
+            .resource_mut::<PresentationState>()
+            .request_settings_close();
+        app.update();
         let world = app.world_mut();
         let mut roots = world.query::<&SettingsScreenRoot>();
-        assert_eq!(roots.iter(world).count(), 1);
-        let mut controls = world.query::<(
-            &SettingAction,
-            &WidgetRoot,
-            &AccessibleLabel,
-            &AccessibilityNode,
-        )>();
-        let controls: Vec<_> = controls.iter(world).collect();
-        assert_eq!(controls.len(), 38);
-        assert!(controls
-            .iter()
-            .all(|(_, _, label, _)| !label.0.trim().is_empty()));
+        assert_eq!(roots.iter(world).count(), 0);
     }
 }
