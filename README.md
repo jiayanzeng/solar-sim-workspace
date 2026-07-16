@@ -61,7 +61,13 @@ Keyboard (see `crates/solar-sim/src/input_intent.rs` for the source of truth):
 | `[` / `]` | step time rate down / up the ladder |
 | `1` | real-time rate |
 | `R` / `P` / `Space` | play / pause / toggle |
+| `Escape` | close the Settings modal |
 | `F9` | simulate device loss (debug builds only; exercises render recovery) |
+
+Open Settings from the right rail. Its 38 controls accept pointer input, the
+content area scrolls independently of the camera, `REVERT` restores the current
+persisted values, and both `APPLY` and `CLOSE` dismiss the modal. Gameplay input
+is suppressed while Settings is open.
 
 ### App CLI flags
 
@@ -86,7 +92,7 @@ cargo run -p solar-sim --release -- --smoke 60 --expect-backend metal --reject-s
 ## Testing & verification
 
 ```
-cargo test                                       # 201 tests, fully offline
+cargo test                                       # 212 tests, fully offline
 cargo fmt --all -- --check                       # rustfmt defaults
 cargo clippy --workspace --all-targets -- -D warnings
 scripts/check-texture-metadata.sh                # texture license/hash audit
@@ -96,8 +102,8 @@ cargo run -p xtask -- gen-catalog \
     --out assets/catalog.sample.ron              # offline end-to-end (6 bodies; 60 skipped is expected)
 ```
 
-The authoritative test baseline lives in `TASKS.md` (currently **206
-passing**: 53 `sim-core` · 103 `solar-sim` · 47 `xtask` lib · 2 xtask smoke ·
+The authoritative test baseline lives in `TASKS.md` (currently **212
+passing**: 53 `sim-core` · 108 `solar-sim` · 48 `xtask` lib · 2 xtask smoke ·
 1 position spot-check gate, **active**). If this README and `TASKS.md`
 disagree, `TASKS.md` wins.
 
@@ -159,8 +165,8 @@ captures are non-blocking.
 | 18 | deferred (Compare Size mode) |
 
 Open questions awaiting the human: **Q4** (constellation line-set licensing,
-fast-follow), **Q12** (CI-1…CI-6 brief scope), and **Q13** (Windows/reference
-hardware). Details in
+fast-follow), **Q12** (CI-1…CI-6 brief scope), **Q13** (Windows/reference
+hardware), and **Q15** (persisted visual-cue recovery policy). Details in
 `TASKS.md → Open questions`.
 
 ## Known limitations
@@ -169,6 +175,9 @@ hardware). Details in
   the dependency tree (CI-enforced). App ID 480 cannot pass release preflight.
 - Real-hardware Windows validation (launch, overlay, DX12 goldens, GTX 1650
   perf) is deferred to WP16/WP17 per Q10/Q13.
+- Q15 still needs a human choice between an explicit reset-settings path, a
+  minimum startup visual-cue floor, or preserving exact layer persistence with
+  a documented manual reset. The Settings modal itself is operational.
 - ~45 catalog `description` fields are still empty (generator lints them on
   regeneration); the Info panel renders for all 66 bodies regardless.
 

@@ -44,6 +44,21 @@ the client-side global/per-Spacewar overlay setting and launch injection still
 need the human UI check below. The macOS spike cannot be recorded as passing
 until that retest succeeds.
 
+## Validated application baseline before the overlay retest
+
+The overlay investigation briefly exposed a separate Settings-screen
+regression. That regression is no longer part of the overlay risk: on
+2026-07-16 the human validated the normal non-Steam release build at commit
+`60a19a6718edbc3b239606325f1b663c723d5a12`. Pointer adjustment of Settings,
+scrolling, `REVERT`, `APPLY`, `CLOSE`, and Escape all worked in the real macOS
+window. Hosted
+[CI run 29488349896](https://github.com/jiayanzeng/solar-sim-workspace/actions/runs/29488349896)
+passed `lint`, `test-linux`, `invariants`, `platform (macos-14)`, and `platform
+(windows-latest)` for the same commit.
+
+This usability result is only a preflight baseline. It does not establish
+overlay injection or change either platform row in the status table.
+
 ## macOS real-client commands
 
 From the repository root on the M2 Pro:

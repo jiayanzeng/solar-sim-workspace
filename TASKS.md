@@ -796,8 +796,29 @@ startup visual-cue floor, or preserve exact persistence and document a manual
 reset. Do not change WP14 status or acceptance text until the human closes this
 question.
 
+Human validation on 2026-07-16 narrows this question: at commit
+`60a19a6718edbc3b239606325f1b663c723d5a12`, the real macOS release build's
+Settings modal accepted pointer adjustments and scrolling, and `REVERT`,
+`APPLY`, `CLOSE`, and Escape all worked. Hosted
+[run 29488349896](https://github.com/jiayanzeng/solar-sim-workspace/actions/runs/29488349896)
+passed all five jobs for that commit. The modal defect is resolved; Q15 remains
+open only for the persisted visual-cue recovery decision above. Humans close
+questions.
+
 ## Change log (append-only; newest first)
 
+- **2026-07-16** — Finalized the Settings recovery follow-up after the human
+  reported that the real macOS release build now passes pointer adjustment,
+  scrolling, `REVERT`, `APPLY`, `CLOSE`, and Escape. Hosted
+  [run 29488349896](https://github.com/jiayanzeng/solar-sim-workspace/actions/runs/29488349896)
+  is green for commit `60a19a6718edbc3b239606325f1b663c723d5a12`:
+  `invariants` 30s, `lint` 47s, `test-linux` 1m54s, `platform (macos-14)`
+  3m03s, and `platform (windows-latest)` 8m17s. `README.md` now documents the
+  operational Settings controls and current 212-test baseline;
+  `docs/wp16-steam-overlay-spike.md` records the validated non-Steam usability
+  baseline so the later overlay retest is not confounded with this resolved
+  defect. Q15 is narrowed but remains open for the separate persisted
+  visual-cue recovery choice. No WP status or acceptance criterion changed.
 - **2026-07-16** — Follow-up to the Settings lock-in repair: the human
   confirmed that Escape dismissed the modal but every pointer-operated
   setting remained inert. A focused contract assertion added to
