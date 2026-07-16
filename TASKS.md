@@ -38,7 +38,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 4 | Propagation + floating origin: 66 colored spheres at 2026 positions | **✅ done** |
 | 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | **✅ done** |
 | 6 | Orbit lines (adaptive; hyperbolic arc), colors, fades | **✅ done** |
-| 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | **✅ done** |
+| 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | in-progress |
 | 8 | Time bar: detented log slider, editable date/clock, LIVE chip | **✅ done** |
 | 9 | Labels/reticles, tiered declutter, contextual moon visibility, picking | **✅ done** |
 | 10 | Left panel: Info tab, collection pages, View Options | **✅ done** |
@@ -815,6 +815,32 @@ task order, and acceptance evidence are recorded in
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Began the required pre-code review for stabilization Task
+  3, reopening WP7 as the coordinating UI work package after Task 2 returned
+  WP5 to done. Re-reading ARCHITECTURE §§8.2, 8.4, 8.5, 9, and 12 plus the
+  locked Task 3 matrix exposed coupled continuity and reachability defects:
+  non-modal HUD controls have `TabIndex` components but no `TabGroup`
+  ancestors; Settings, the left panel, and time controls reuse equal indices
+  instead of declaring semantic order; focus restoration can target despawned
+  entities or jump to an unrelated modal action; focused offscreen controls do
+  not scroll into view; and the Settings UI-scale action omits the supported
+  2.0 value. At 800×600 or 960×600 with scales 1.5–2.0, fixed top/time bars,
+  the absolute breadcrumb, the unconstrained right rail/layers panel, the
+  search dropdown, the left-panel chrome, and the fixed-height Settings footer
+  clip or overlap required controls. The integrated implementation will add
+  ordered surface tab groups and unique semantic indices, central
+  focus-to-scroll behavior at the existing `UiScrollSurface` boundary,
+  retained/constrained rail and layers scrolling, semantic focus snapshots
+  with explicit fallbacks, Browse expansion continuity, a flex-integrated
+  breadcrumb, a compact two-row time bar, a bounded scrollable search
+  dropdown, a narrower left panel with tabs inside its scroll region, an
+  auto-height Settings footer, and the missing 2.0 scale step. Acceptance
+  evidence will use actual Bevy layout across all eight required
+  resolution/scale pairs, first/last-control scroll reachability,
+  Tab/Shift-Tab order, real wheel-versus-Dolly routing, and rebuild focus/scroll
+  regressions before WP7 is returned to done. Full-tree repaint optimization
+  remains Task 7; no Steam, catalog, generated asset, dependency, physics, or
+  tolerance work is in scope.
 - **2026-07-17** — Completed stabilization Task 2 and returned WP5 to
   **✅ done** after an independent architecture review found no remaining
   blocker. `InteractionState` is the sole frame-latched interaction-context
