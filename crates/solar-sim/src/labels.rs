@@ -6,7 +6,7 @@
 //! into the existing `SimCommand` mutation boundary.
 
 use crate::control::{CameraController, SimCommand, SimCommandQueue};
-use crate::input_intent::InteractionState;
+use crate::input_intent::InteractionOwnership;
 use crate::layers::{LayerId, LayerState};
 use crate::left_panel::{body_passes_moon_visibility, ViewOptionsState};
 use crate::ui_kit::{UiTheme, INTER_FONT_ASSET, TOP_BAR_HEIGHT_PX};
@@ -709,10 +709,10 @@ fn activate_body_label(
     activate: On<Activate>,
     labels: Query<&BodyLabel>,
     loaded: Res<LoadedCatalog>,
-    interaction: Res<InteractionState>,
+    ownership: InteractionOwnership,
     mut commands: ResMut<SimCommandQueue>,
 ) {
-    if interaction.blocks_gameplay() {
+    if ownership.blocks_gameplay() {
         return;
     }
     let Ok(label) = labels.get(activate.entity) else {
@@ -747,10 +747,10 @@ fn pick_inflated_body_sphere(
     cameras: Query<(&Camera, &GlobalTransform, &Projection), With<Camera3d>>,
     bodies: Query<(&crate::BodyVisual, &GlobalTransform, &Visibility)>,
     loaded: Res<LoadedCatalog>,
-    interaction: Res<InteractionState>,
+    ownership: InteractionOwnership,
     mut commands: ResMut<SimCommandQueue>,
 ) {
-    if interaction.blocks_gameplay() || click.button != PointerButton::Primary {
+    if ownership.blocks_gameplay() || click.button != PointerButton::Primary {
         return;
     }
     let Ok((camera, camera_transform, projection)) = cameras.single() else {
@@ -848,12 +848,22 @@ fn distance3(left: [f64; 3], right: [f64; 3]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{load_catalog_text, propagate_catalog, MoonVisibilityMode};
+    use crate::input_intent::{InteractionContext, InteractionState};
+    use crate::search::BrowseUiState;
+    use crate::{load_catalog_text, propagate_catalog, MoonVisibilityMode, PresentationState};
     use bevy::{
         app::TaskPoolPlugin,
         asset::{AssetApp, AssetPlugin},
-        text::Font,
+        camera::NormalizedRenderTarget,
+        input_focus::InputFocus,
+        picking::{
+            backend::HitData,
+            pointer::{Location, PointerId},
+        },
+        text::{EditableText, Font},
+        window::WindowRef,
     };
+    use std::time::Duration;
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
 
@@ -1125,7 +1135,9 @@ mod tests {
         let jupiter = loaded.index_of("jupiter").unwrap();
         let mut app = App::new();
         app.insert_resource(loaded)
-            .insert_resource(InteractionState::default())
+            .init_resource::<InputFocus>()
+            .init_resource::<BrowseUiState>()
+            .init_resource::<PresentationState>()
             .insert_resource(SimCommandQueue::default());
         let label = app
             .world_mut()
@@ -1141,5 +1153,113 @@ mod tests {
             .drain()
             .collect();
         assert_eq!(queued, vec![SimCommand::TravelToBody("jupiter".into())]);
+    }
+
+    #[test]
+    fn text_and_modal_contexts_block_label_activation_from_canonical_state() {
+        let loaded = catalog();
+        let jupiter = loaded.index_of("jupiter").unwrap();
+        let mut app = App::new();
+        app.insert_resource(loaded)
+            .init_resource::<InputFocus>()
+            .init_resource::<BrowseUiState>()
+            .init_resource::<PresentationState>()
+            .insert_resource(SimCommandQueue::default());
+        let label = app
+            .world_mut()
+            .spawn(BodyLabel { index: jupiter })
+            .observe(activate_body_label)
+            .id();
+        let editable = app.world_mut().spawn(EditableText::new("")).id();
+
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(editable, bevy::input_focus::FocusCause::Navigated);
+        app.world_mut().trigger(Activate { entity: label });
+
+        app.world_mut().resource_mut::<InputFocus>().clear();
+        app.insert_resource(InteractionState::for_context(InteractionContext::TextEdit));
+        app.world_mut().trigger(Activate { entity: label });
+        app.world_mut().remove_resource::<InteractionState>();
+        crate::search::consume_search_command(
+            &SimCommand::SetBrowseOpen(true),
+            &mut app.world_mut().resource_mut::<BrowseUiState>(),
+        );
+        app.world_mut().trigger(Activate { entity: label });
+
+        crate::search::consume_search_command(
+            &SimCommand::SetBrowseOpen(false),
+            &mut app.world_mut().resource_mut::<BrowseUiState>(),
+        );
+        app.world_mut()
+            .resource_mut::<PresentationState>()
+            .open_settings();
+        app.world_mut().trigger(Activate { entity: label });
+
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn modal_state_blocks_viewport_click_before_camera_queries_run() {
+        let mut browse = BrowseUiState::default();
+        crate::search::consume_search_command(&SimCommand::SetBrowseOpen(true), &mut browse);
+        let mut app = App::new();
+        app.insert_resource(catalog())
+            .init_resource::<InputFocus>()
+            .insert_resource(browse)
+            .init_resource::<PresentationState>()
+            .insert_resource(SimCommandQueue::default());
+        let window = app.world_mut().spawn_empty().id();
+        let surface = app
+            .world_mut()
+            .spawn(ViewportPickSurface)
+            .observe(pick_inflated_body_sphere)
+            .id();
+        let location = Location {
+            target: NormalizedRenderTarget::Window(
+                WindowRef::Entity(window).normalize(None).unwrap(),
+            ),
+            position: Vec2::ZERO,
+        };
+        let click = Click {
+            button: PointerButton::Primary,
+            hit: HitData {
+                camera: Entity::PLACEHOLDER,
+                depth: 0.0,
+                position: None,
+                normal: None,
+                extra: None,
+            },
+            duration: Duration::ZERO,
+            count: 1,
+        };
+
+        app.world_mut().trigger(Pointer::new(
+            PointerId::Mouse,
+            location.clone(),
+            click.clone(),
+            surface,
+        ));
+        crate::search::consume_search_command(
+            &SimCommand::SetBrowseOpen(false),
+            &mut app.world_mut().resource_mut::<BrowseUiState>(),
+        );
+        app.insert_resource(InteractionState::for_context(InteractionContext::TextEdit));
+        app.world_mut()
+            .trigger(Pointer::new(PointerId::Mouse, location, click, surface));
+
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .count(),
+            0
+        );
     }
 }

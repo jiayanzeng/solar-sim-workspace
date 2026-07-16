@@ -1714,7 +1714,7 @@ mod tests {
             .is_visible(LayerId::Labels));
         let presentation = *app.world().resource::<PresentationState>();
         assert!(presentation.is_fullscreen());
-        assert!(presentation.is_settings_open());
+        assert!(!presentation.is_settings_open());
         assert!(app.world().resource::<search::BrowseUiState>().is_open());
         let settings = app.world().resource::<AppSettings>();
         assert_eq!(

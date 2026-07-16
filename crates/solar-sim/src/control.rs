@@ -326,6 +326,15 @@ pub(crate) fn consume_application_command(
     settings_screen: &mut settings::SettingsScreenState,
     settings_save: &mut settings::SettingsSaveRequest,
 ) {
+    match command {
+        SimCommand::OpenSettings if browse.is_open() => {
+            search::consume_search_command(&SimCommand::SetBrowseOpen(false), browse);
+        }
+        SimCommand::SetBrowseOpen(true) if presentation.is_settings_open() => {
+            presentation.close_settings();
+        }
+        _ => {}
+    }
     consume_presentation_command(command, layers, presentation);
     left_panel::consume_left_panel_command(command, loaded, view_options, left_panel, navigation);
     search::consume_search_command(command, browse);
@@ -1913,9 +1922,9 @@ mod tests {
                 visible: false,
             },
             SimCommand::ToggleFullscreen,
-            SimCommand::OpenSettings,
             SimCommand::SetBodySize(BodySizeScale::X10),
             SimCommand::SetBrowseOpen(true),
+            SimCommand::OpenSettings,
             SimCommand::SetMoonVisibility {
                 system_id: "unknown".into(),
                 mode: MoonVisibilityMode::All,
@@ -1941,11 +1950,11 @@ mod tests {
         assert!(presentation.is_fullscreen());
         assert!(presentation.is_settings_open());
         assert!(settings_screen.is_open());
+        assert!(!browse.is_open());
         assert_eq!(
             view_options.persistence_snapshot().body_size,
             BodySizeScale::X10
         );
-        assert!(browse.is_open());
         assert_eq!(
             app_settings.display_mode,
             crate::DisplayModeSetting::BorderlessFullscreen
@@ -1955,6 +1964,32 @@ mod tests {
             .persistence_snapshot()
             .moon_visibility_by_system
             .is_empty());
+    }
+
+    #[test]
+    fn later_modal_open_command_wins_and_closes_the_other_modal() {
+        let catalog = catalog();
+        let mut settings_wins = HeadlessSimulation::new(&catalog).unwrap();
+        settings_wins
+            .step(
+                FRAME_DT_S,
+                &[SimCommand::SetBrowseOpen(true), SimCommand::OpenSettings],
+                None,
+            )
+            .unwrap();
+        assert!(settings_wins.presentation.is_settings_open());
+        assert!(!settings_wins.browse.is_open());
+
+        let mut browse_wins = HeadlessSimulation::new(&catalog).unwrap();
+        browse_wins
+            .step(
+                FRAME_DT_S,
+                &[SimCommand::OpenSettings, SimCommand::SetBrowseOpen(true)],
+                None,
+            )
+            .unwrap();
+        assert!(!browse_wins.presentation.is_settings_open());
+        assert!(browse_wins.browse.is_open());
     }
 
     #[test]

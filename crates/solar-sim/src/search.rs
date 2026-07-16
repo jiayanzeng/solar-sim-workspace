@@ -6,7 +6,7 @@
 //! `SimCommand::TravelToBody` boundary.
 
 use crate::control::{SimCommand, SimCommandQueue};
-use crate::input_intent::UiScrollSurface;
+use crate::input_intent::{ModalSurfaceSet, UiScrollSurface};
 use crate::layers::HudSurface;
 use crate::ui_kit::{
     MenuBrowseButton, SearchHint, SearchInput, UiTheme, INTER_FONT_ASSET, TOP_BAR_HEIGHT_PX,
@@ -511,7 +511,10 @@ impl Plugin for SearchPlugin {
             )
             .add_systems(
                 Update,
-                (rebuild_search_dropdown, rebuild_browse_menu)
+                (
+                    rebuild_search_dropdown,
+                    rebuild_browse_menu.in_set(ModalSurfaceSet::Rebuild),
+                )
                     .chain()
                     .in_set(SimulationSet::Render),
             );
@@ -911,6 +914,7 @@ fn rebuild_browse_menu(
             state.scroll_y[column.kind.index()],
         );
     }
+    focus.set(close, FocusCause::Navigated);
     state.root = Some(root);
     state.dirty = false;
 }
@@ -937,6 +941,7 @@ fn spawn_browse_root(commands: &mut Commands, theme: UiTheme) -> Entity {
                 ..default()
             },
             BackgroundColor(theme.colors.scrim.color()),
+            Pickable::default(),
             GlobalZIndex(MENU_Z_INDEX),
         ))
         .id()
@@ -1168,13 +1173,21 @@ fn spawn_text(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input_intent::InputIntentPlugin;
     use crate::load_catalog_text;
+    use crate::{AppSettings, PresentationState};
     use bevy::{
         app::TaskPoolPlugin,
         asset::{AssetApp, AssetPlugin},
+        ecs::system::SystemState,
         input::{keyboard::Key, InputPlugin},
-        input_focus::{InputDispatchPlugin, InputFocusPlugin},
+        input_focus::{
+            tab_navigation::{NavAction, TabNavigation},
+            InputDispatchPlugin, InputFocusPlugin,
+        },
+        picking::hover::HoverMap,
         text::Font,
+        ui_widgets::ButtonPlugin,
         window::PrimaryWindow,
     };
     use std::cmp::Ordering;
@@ -1183,6 +1196,19 @@ mod tests {
 
     fn real_catalog() -> Catalog {
         load_catalog_text(REAL_CATALOG).expect("committed catalog must load")
+    }
+
+    fn is_descendant_of(world: &World, mut entity: Entity, ancestor: Entity) -> bool {
+        for _ in 0..32 {
+            if entity == ancestor {
+                return true;
+            }
+            let Some(parent) = world.entity(entity).get::<ChildOf>() else {
+                return false;
+            };
+            entity = parent.parent();
+        }
+        false
     }
 
     #[test]
@@ -1299,6 +1325,46 @@ mod tests {
 
         let world = app.world_mut();
         assert_eq!(world.query::<&BrowseMenuRoot>().iter(world).count(), 1);
+        let modal_groups: Vec<_> = world
+            .query::<(&BrowseMenuRoot, &TabGroup)>()
+            .iter(world)
+            .map(|(_, group)| group.modal)
+            .collect();
+        assert_eq!(modal_groups, vec![true]);
+        let focused = world
+            .resource::<InputFocus>()
+            .get()
+            .expect("Browse must seed focus inside its modal tab group");
+        assert!(world
+            .entity(focused)
+            .get::<BrowseAction>()
+            .is_some_and(|action| matches!(action, BrowseAction::Close)));
+        let browse_root = world
+            .query_filtered::<Entity, With<BrowseMenuRoot>>()
+            .single(world)
+            .unwrap();
+        for action in [
+            NavAction::Next,
+            NavAction::Next,
+            NavAction::Previous,
+            NavAction::Previous,
+        ] {
+            let focus = world.resource::<InputFocus>().clone();
+            let next = {
+                let mut navigation = SystemState::<TabNavigation>::new(world);
+                let next = navigation
+                    .get(world)
+                    .unwrap()
+                    .navigate(&focus, action)
+                    .unwrap();
+                navigation.apply(world);
+                next
+            };
+            world
+                .resource_mut::<InputFocus>()
+                .set(next, FocusCause::Navigated);
+            assert!(is_descendant_of(world, next, browse_root));
+        }
         let curated_entries = world
             .query::<(&BrowseAction, &AccessibleLabel)>()
             .iter(world)
@@ -1414,6 +1480,55 @@ mod tests {
             .drain()
             .collect();
         assert_eq!(queued, vec![SimCommand::TravelToBody("hale_bopp".into())]);
+        assert_eq!(app.world().resource::<InputFocus>().get(), None);
+    }
+
+    #[test]
+    fn keyboard_opening_browse_with_space_emits_only_the_button_command() {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            InputPlugin,
+            InputFocusPlugin,
+            InputDispatchPlugin,
+        ))
+        .add_plugins(ButtonPlugin)
+        .init_resource::<HoverMap>()
+        .init_resource::<BrowseUiState>()
+        .init_resource::<PresentationState>()
+        .init_resource::<AppSettings>()
+        .init_resource::<SimCommandQueue>()
+        .add_plugins(InputIntentPlugin);
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow))
+            .id();
+        let button = app
+            .world_mut()
+            .spawn((MenuBrowseButton, bevy::ui_widgets::Button))
+            .observe(open_browse_menu)
+            .id();
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(button, FocusCause::Navigated);
+        app.update();
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::Space,
+            logical_key: Key::Space,
+            state: ButtonState::Pressed,
+            text: Some(" ".into()),
+            repeat: false,
+            window,
+        });
+
+        app.update();
+
+        let queued: Vec<_> = app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .collect();
+        assert_eq!(queued, vec![SimCommand::SetBrowseOpen(true)]);
         assert_eq!(app.world().resource::<InputFocus>().get(), None);
     }
 

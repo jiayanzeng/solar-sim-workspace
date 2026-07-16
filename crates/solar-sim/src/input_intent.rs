@@ -5,14 +5,20 @@
 //! keyboard or mouse state; future UI widgets join at the command queue seam.
 
 use crate::control::{SimCommand, SimCommandQueue};
-use crate::search::BrowseUiState;
-use crate::settings::SettingsScreenState;
-use crate::{AppSettings, SimulationSet};
+use crate::search::{BrowseMenuRoot, BrowseUiState};
+use crate::settings::SettingsScreenRoot;
+use crate::{AppSettings, PresentationState, SimulationSet};
 use bevy::input::mouse::{MouseMotion, MouseWheel};
-use bevy::input_focus::InputFocus;
-use bevy::picking::hover::HoverMap;
+use bevy::input::InputSystems;
+use bevy::input_focus::{InputFocus, InputFocusSystems};
+use bevy::picking::{hover::HoverMap, PickingSystems};
 use bevy::prelude::*;
 use bevy::text::EditableText;
+use bevy::{
+    ecs::system::SystemParam,
+    input_focus::{tab_navigation::TabIndex, FocusCause},
+    ui_widgets::Button,
+};
 use sim_core::time::RateIndex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,21 +110,97 @@ pub(crate) enum InteractionContext {
 
 #[derive(Resource, Debug, Default)]
 pub(crate) struct InteractionState {
+    // Latched before keyboard and picking dispatch so a focus-clearing handler
+    // cannot release gameplay input during the remainder of the same frame.
     context: InteractionContext,
+    focused_widget_owns_activation: bool,
+}
+
+#[derive(Resource, Debug, Default)]
+struct PointerCaptureState {
+    // Scroll hover is pointer routing state, not a competing interaction context.
     pointer_over_scroll_surface: bool,
 }
 
+#[cfg(test)]
 impl InteractionState {
+    pub(crate) const fn for_context(context: InteractionContext) -> Self {
+        Self {
+            context,
+            focused_widget_owns_activation: false,
+        }
+    }
+}
+
+#[derive(SystemParam)]
+struct InteractionInputs<'w, 's> {
+    focus: Res<'w, InputFocus>,
+    editable: Query<'w, 's, (), With<EditableText>>,
+    browse: Res<'w, BrowseUiState>,
+    presentation: Res<'w, PresentationState>,
+    widget_buttons: Query<'w, 's, (), With<Button>>,
+}
+
+impl InteractionInputs<'_, '_> {
+    fn context(&self) -> InteractionContext {
+        let focused_editable = self
+            .focus
+            .get()
+            .is_some_and(|entity| self.editable.get(entity).is_ok());
+        resolve_interaction_context(
+            focused_editable,
+            self.browse.is_open(),
+            self.presentation.is_settings_open(),
+        )
+    }
+
+    fn focused_widget_owns_activation(&self) -> bool {
+        self.focus
+            .get()
+            .is_some_and(|entity| self.widget_buttons.get(entity).is_ok())
+    }
+}
+
+#[derive(SystemParam)]
+pub(crate) struct InteractionOwnership<'w, 's> {
+    current: InteractionInputs<'w, 's>,
+    state: Option<Res<'w, InteractionState>>,
+}
+
+impl InteractionOwnership<'_, '_> {
+    fn context(&self) -> InteractionContext {
+        let claimed = self
+            .state
+            .as_deref()
+            .map_or(InteractionContext::Gameplay, |state| state.context);
+        if matches!(claimed, InteractionContext::Gameplay) {
+            self.current.context()
+        } else {
+            claimed
+        }
+    }
+
+    pub(crate) fn blocks_gameplay(&self) -> bool {
+        !matches!(self.context(), InteractionContext::Gameplay)
+    }
+
+    fn focused_widget_owns_activation(&self) -> bool {
+        self.state
+            .as_deref()
+            .is_some_and(|state| state.focused_widget_owns_activation)
+            || self.current.focused_widget_owns_activation()
+    }
+}
+
+impl InteractionState {
+    #[cfg(test)]
     pub(crate) const fn context(&self) -> InteractionContext {
         self.context
     }
 
+    #[cfg(test)]
     pub(crate) const fn blocks_gameplay(&self) -> bool {
         !matches!(self.context, InteractionContext::Gameplay)
-    }
-
-    pub(crate) const fn captures_wheel(&self) -> bool {
-        self.blocks_gameplay() || self.pointer_over_scroll_surface
     }
 }
 
@@ -127,51 +209,120 @@ pub(crate) struct UiScrollSurface;
 
 pub(crate) struct InputIntentPlugin;
 
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ModalSurfaceSet {
+    Rebuild,
+    Focus,
+}
+
 impl Plugin for InputIntentPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<InputIntentQueue>()
             .init_resource::<InteractionState>()
+            .init_resource::<PointerCaptureState>()
+            .configure_sets(
+                Update,
+                (ModalSurfaceSet::Rebuild, ModalSurfaceSet::Focus)
+                    .chain()
+                    .in_set(SimulationSet::Render),
+            )
+            .add_systems(
+                PreUpdate,
+                latch_interaction_state
+                    .after(InputSystems)
+                    .before(InputFocusSystems::Dispatch)
+                    .before(PickingSystems::ProcessInput),
+            )
             .add_systems(
                 Update,
-                (
-                    sync_interaction_context,
-                    collect_raw_intents,
-                    translate_intents,
-                )
+                (sync_pointer_capture, collect_raw_intents, translate_intents)
                     .chain()
                     .in_set(SimulationSet::Input),
-            );
+            )
+            .add_systems(Update, reconcile_modal_focus.in_set(ModalSurfaceSet::Focus));
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn sync_interaction_context(
-    focus: Res<InputFocus>,
-    editable: Query<(), With<EditableText>>,
-    settings_screen: Res<SettingsScreenState>,
+fn latch_interaction_state(inputs: InteractionInputs, mut state: ResMut<InteractionState>) {
+    state.context = inputs.context();
+    state.focused_widget_owns_activation = inputs.focused_widget_owns_activation();
+}
+
+fn reconcile_modal_focus(
     browse: Res<BrowseUiState>,
+    presentation: Res<PresentationState>,
+    browse_roots: Query<Entity, With<BrowseMenuRoot>>,
+    settings_roots: Query<Entity, With<SettingsScreenRoot>>,
+    tab_indices: Query<(Entity, &TabIndex)>,
+    parents: Query<&ChildOf>,
+    mut focus: ResMut<InputFocus>,
+) {
+    let active_root = if browse.is_open() {
+        browse_roots.single().ok()
+    } else if presentation.is_settings_open() {
+        settings_roots.single().ok()
+    } else {
+        None
+    };
+    let Some(active_root) = active_root else {
+        return;
+    };
+    if focus
+        .get()
+        .is_some_and(|entity| is_descendant_of(entity, active_root, &parents))
+    {
+        return;
+    }
+    let next = tab_indices
+        .iter()
+        .filter(|(entity, index)| index.0 >= 0 && is_descendant_of(*entity, active_root, &parents))
+        .min_by_key(|(entity, index)| (index.0, entity.to_bits()))
+        .map(|(entity, _)| entity);
+    if let Some(next) = next {
+        focus.set(next, FocusCause::Navigated);
+    }
+}
+
+fn is_descendant_of(mut entity: Entity, ancestor: Entity, parents: &Query<&ChildOf>) -> bool {
+    for _ in 0..32 {
+        if entity == ancestor {
+            return true;
+        }
+        let Ok(parent) = parents.get(entity) else {
+            return false;
+        };
+        entity = parent.parent();
+    }
+    false
+}
+
+fn sync_pointer_capture(
     hover_map: Res<HoverMap>,
     scroll_surfaces: Query<(), With<UiScrollSurface>>,
     parents: Query<&ChildOf>,
-    mut interaction: ResMut<InteractionState>,
+    mut capture: ResMut<PointerCaptureState>,
 ) {
-    interaction.context = if settings_screen.is_open() {
-        InteractionContext::SettingsModal
-    } else if browse.is_open() {
-        InteractionContext::BrowseModal
-    } else if focus
-        .get()
-        .is_some_and(|entity| editable.get(entity).is_ok())
-    {
-        InteractionContext::TextEdit
-    } else {
-        InteractionContext::Gameplay
-    };
-    interaction.pointer_over_scroll_surface = hover_map.values().any(|hits| {
+    capture.pointer_over_scroll_surface = hover_map.values().any(|hits| {
         hits.keys()
             .copied()
             .any(|entity| is_within_scroll_surface(entity, &scroll_surfaces, &parents))
     });
+}
+
+const fn resolve_interaction_context(
+    focused_editable: bool,
+    browse_open: bool,
+    settings_open: bool,
+) -> InteractionContext {
+    if focused_editable {
+        InteractionContext::TextEdit
+    } else if browse_open {
+        InteractionContext::BrowseModal
+    } else if settings_open {
+        InteractionContext::SettingsModal
+    } else {
+        InteractionContext::Gameplay
+    }
 }
 
 fn is_within_scroll_surface(
@@ -197,9 +348,10 @@ fn collect_raw_intents(
     mut motion: MessageReader<MouseMotion>,
     mut wheel: MessageReader<MouseWheel>,
     mut intents: ResMut<InputIntentQueue>,
-    interaction: Res<InteractionState>,
+    capture: Res<PointerCaptureState>,
+    ownership: InteractionOwnership,
 ) {
-    match interaction.context() {
+    match ownership.context() {
         InteractionContext::SettingsModal => {
             if keys.just_pressed(KeyCode::Escape) {
                 intents.0.push(InputIntent::Key(KeyIntent::CloseSettings));
@@ -212,14 +364,18 @@ fn collect_raw_intents(
         }
         InteractionContext::TextEdit => {}
         InteractionContext::Gameplay => {
+            let focused_widget_owns_activation = ownership.focused_widget_owns_activation();
             for binding in KEY_BINDINGS {
+                if binding.key == KeyCode::Space && focused_widget_owns_activation {
+                    continue;
+                }
                 if keys.just_pressed(binding.key) {
                     intents.0.push(InputIntent::Key(binding.intent));
                 }
             }
         }
     }
-    if interaction.blocks_gameplay() {
+    if ownership.blocks_gameplay() {
         motion.clear();
         wheel.clear();
         return;
@@ -234,7 +390,7 @@ fn collect_raw_intents(
     } else {
         motion.clear();
     }
-    if interaction.captures_wheel() {
+    if ownership.blocks_gameplay() || capture.pointer_over_scroll_surface {
         wheel.clear();
     } else {
         for event in wheel.read() {
@@ -316,8 +472,25 @@ mod tests {
     use super::*;
     use crate::search::consume_search_command;
     use crate::{ZOOM_IN_DOLLY_DELTA, ZOOM_OUT_DOLLY_DELTA};
-    use bevy::input_focus::FocusCause;
+    use bevy::{
+        input::{
+            keyboard::{Key, KeyboardInput},
+            ButtonState, InputPlugin,
+        },
+        input_focus::{FocusCause, FocusedInput, InputDispatchPlugin, InputFocusPlugin},
+        window::PrimaryWindow,
+    };
     use std::collections::HashSet;
+
+    fn clear_focus_on_escape(
+        mut input: On<FocusedInput<KeyboardInput>>,
+        mut focus: ResMut<InputFocus>,
+    ) {
+        if input.input.state == ButtonState::Pressed && input.input.key_code == KeyCode::Escape {
+            focus.clear();
+            input.propagate(false);
+        }
+    }
 
     #[test]
     fn every_bound_key_produces_exactly_one_command() {
@@ -368,10 +541,14 @@ mod tests {
             .any(|binding| binding.key == KeyCode::Escape));
     }
 
-    fn interaction_test_app(browse_open: bool) -> App {
+    fn interaction_test_app(browse_open: bool, settings_open: bool) -> App {
         let mut browse = BrowseUiState::default();
         if browse_open {
             consume_search_command(&SimCommand::SetBrowseOpen(true), &mut browse);
+        }
+        let mut presentation = PresentationState::default();
+        if settings_open {
+            presentation.open_settings();
         }
         let mut app = App::new();
         app.init_resource::<ButtonInput<MouseButton>>()
@@ -380,8 +557,8 @@ mod tests {
             .add_message::<MouseWheel>()
             .init_resource::<InputFocus>()
             .init_resource::<HoverMap>()
-            .insert_resource(SettingsScreenState::default())
             .insert_resource(browse)
+            .insert_resource(presentation)
             .insert_resource(AppSettings::default())
             .init_resource::<SimCommandQueue>()
             .add_plugins(InputIntentPlugin);
@@ -390,7 +567,7 @@ mod tests {
 
     #[test]
     fn focused_editable_text_blocks_every_gameplay_hotkey() {
-        let mut app = interaction_test_app(false);
+        let mut app = interaction_test_app(false, false);
         let editable = app.world_mut().spawn(EditableText::new("")).id();
         app.world_mut()
             .resource_mut::<InputFocus>()
@@ -411,6 +588,19 @@ mod tests {
                 .resource_mut::<ButtonInput<KeyCode>>()
                 .press(key);
         }
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Right);
+        app.world_mut().write_message(MouseMotion {
+            delta: Vec2::new(6.0, -4.0),
+        });
+        app.world_mut().write_message(MouseWheel {
+            unit: bevy::input::mouse::MouseScrollUnit::Line,
+            x: 0.0,
+            y: 2.0,
+            window: Entity::PLACEHOLDER,
+            phase: bevy::input::touch::TouchPhase::Moved,
+        });
         app.update();
         assert_eq!(
             app.world_mut()
@@ -427,7 +617,7 @@ mod tests {
 
     #[test]
     fn browse_modal_blocks_hotkeys_and_escape_only_closes_browse() {
-        let mut app = interaction_test_app(true);
+        let mut app = interaction_test_app(true, false);
         {
             let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
             keys.press(KeyCode::KeyS);
@@ -445,7 +635,7 @@ mod tests {
 
     #[test]
     fn browse_modal_discards_right_drag_and_wheel_gameplay_input() {
-        let mut app = interaction_test_app(true);
+        let mut app = interaction_test_app(true, false);
         app.world_mut()
             .resource_mut::<ButtonInput<MouseButton>>()
             .press(MouseButton::Right);
@@ -468,6 +658,210 @@ mod tests {
                 .drain()
                 .count(),
             0
+        );
+    }
+
+    #[test]
+    fn settings_modal_blocks_all_gameplay_input_and_escape_only_closes_settings() {
+        let mut app = interaction_test_app(false, true);
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.press(KeyCode::KeyM);
+            keys.press(KeyCode::Space);
+            keys.press(KeyCode::Escape);
+        }
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Right);
+        app.world_mut().write_message(MouseMotion {
+            delta: Vec2::new(4.0, -2.0),
+        });
+        app.world_mut().write_message(MouseWheel {
+            unit: bevy::input::mouse::MouseScrollUnit::Line,
+            x: 0.0,
+            y: 1.0,
+            window: Entity::PLACEHOLDER,
+            phase: bevy::input::touch::TouchPhase::Moved,
+        });
+
+        app.update();
+
+        let queued: Vec<_> = app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .collect();
+        assert_eq!(queued, vec![SimCommand::CloseSettings]);
+    }
+
+    #[test]
+    fn focused_button_owns_space_without_a_second_global_toggle() {
+        let mut app = interaction_test_app(false, false);
+        let button = app.world_mut().spawn(bevy::ui_widgets::Button).id();
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(button, FocusCause::Navigated);
+        app.world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .push(SimCommand::SetBrowseOpen(true));
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Space);
+
+        app.update();
+
+        let queued: Vec<_> = app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .collect();
+        assert_eq!(queued, vec![SimCommand::SetBrowseOpen(true)]);
+    }
+
+    #[test]
+    fn defensive_context_priority_matches_escape_acceptance_order() {
+        assert_eq!(
+            resolve_interaction_context(true, true, true),
+            InteractionContext::TextEdit
+        );
+        assert_eq!(
+            resolve_interaction_context(false, true, true),
+            InteractionContext::BrowseModal
+        );
+        assert_eq!(
+            resolve_interaction_context(false, false, true),
+            InteractionContext::SettingsModal
+        );
+        assert_eq!(
+            resolve_interaction_context(false, false, false),
+            InteractionContext::Gameplay
+        );
+    }
+
+    #[test]
+    fn malformed_overlapping_modals_escape_closes_only_browse() {
+        let mut app = interaction_test_app(true, true);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Escape);
+
+        app.update();
+
+        let queued: Vec<_> = app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .collect();
+        assert_eq!(queued, vec![SimCommand::SetBrowseOpen(false)]);
+    }
+
+    #[test]
+    fn text_edit_claim_survives_preupdate_focus_clear_and_blocks_same_frame_gameplay() {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            InputPlugin,
+            InputFocusPlugin,
+            InputDispatchPlugin,
+        ))
+        .init_resource::<HoverMap>()
+        .init_resource::<BrowseUiState>()
+        .init_resource::<PresentationState>()
+        .init_resource::<AppSettings>()
+        .init_resource::<SimCommandQueue>()
+        .add_plugins(InputIntentPlugin);
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow))
+            .id();
+        let editable = app
+            .world_mut()
+            .spawn(EditableText::new(""))
+            .observe(clear_focus_on_escape)
+            .id();
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(editable, FocusCause::Navigated);
+        app.update();
+        for (key_code, logical_key) in [
+            (KeyCode::Escape, Key::Escape),
+            (KeyCode::KeyS, Key::Character("s".into())),
+        ] {
+            app.world_mut().write_message(KeyboardInput {
+                key_code,
+                logical_key,
+                state: ButtonState::Pressed,
+                text: None,
+                repeat: false,
+                window,
+            });
+        }
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Right);
+        app.world_mut().write_message(MouseMotion {
+            delta: Vec2::new(3.0, 2.0),
+        });
+        app.world_mut().write_message(MouseWheel {
+            unit: bevy::input::mouse::MouseScrollUnit::Line,
+            x: 0.0,
+            y: 1.0,
+            window,
+            phase: bevy::input::touch::TouchPhase::Moved,
+        });
+
+        app.update();
+
+        assert_eq!(app.world().resource::<InputFocus>().get(), None);
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn modal_focus_reconciliation_follows_the_canonical_active_modal() {
+        let mut app = interaction_test_app(true, false);
+        let browse_root = app.world_mut().spawn(BrowseMenuRoot).id();
+        let browse_button = app
+            .world_mut()
+            .spawn((TabIndex(10), ChildOf(browse_root)))
+            .id();
+        let settings_root = app.world_mut().spawn(SettingsScreenRoot).id();
+        let settings_button = app
+            .world_mut()
+            .spawn((TabIndex(10), ChildOf(settings_root)))
+            .id();
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(settings_button, FocusCause::Navigated);
+
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<InputFocus>().get(),
+            Some(browse_button)
+        );
+
+        consume_search_command(
+            &SimCommand::SetBrowseOpen(false),
+            &mut app.world_mut().resource_mut::<BrowseUiState>(),
+        );
+        app.world_mut()
+            .resource_mut::<PresentationState>()
+            .open_settings();
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(browse_button, FocusCause::Navigated);
+
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<InputFocus>().get(),
+            Some(settings_button)
         );
     }
 

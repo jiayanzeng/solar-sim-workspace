@@ -36,7 +36,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 2 | `sim-core::kepler` — elliptic + hyperbolic, guards | **✅ done** |
 | 3 | `xtask gen-catalog` + committed 66-body `catalog.ron` + validation | **✅ done** |
 | 4 | Propagation + floating origin: 66 colored spheres at 2026 positions | **✅ done** |
-| 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | in-progress |
+| 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | **✅ done** |
 | 6 | Orbit lines (adaptive; hyperbolic arc), colors, fades | **✅ done** |
 | 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | **✅ done** |
 | 8 | Time bar: detented log slider, editable date/clock, LIVE chip | **✅ done** |
@@ -815,6 +815,44 @@ task order, and acceptance evidence are recorded in
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Completed stabilization Task 2 and returned WP5 to
+  **✅ done** after an independent architecture review found no remaining
+  blocker. `InteractionState` is the sole frame-latched interaction-context
+  resource; it is captured after Bevy input collection and before both
+  focused-keyboard and picking dispatch, while scroll-hover capture remains
+  non-context pointer-routing data. Text editing, Browse, and Settings now
+  suppress gameplay keys, right-drag, wheel dolly, label activation, and
+  viewport picking for the whole owned frame. Browse and Settings are
+  command-reducer-exclusive, modal focus is seeded and reconciled inside the
+  active tab group, and focused buttons own Space without also triggering the
+  global playback binding. Date/time Escape restores the pre-edit display and
+  emits no command; Enter emits exactly one `SetTime`. Twelve new
+  ownership/focus/cancellation regressions raise the workspace suite from 233
+  to 245 tests (53 `sim-core` · 141 `solar-sim` · 48 `xtask` lib · 2 xtask
+  smoke · 1 active spot-check). `cargo test`,
+  `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo fmt --all -- --check`, and `git diff --check` are green. No Steam,
+  catalog, generated asset, dependency, or numerical-tolerance change is
+  included.
+- **2026-07-17** — Began the required pre-code review for stabilization Task
+  2 (WP5 input ownership) after re-reading ARCHITECTURE invariants 4 and 7
+  and the locked Task 2 acceptance. The audit found five coupled defects:
+  date/time Escape has no cancel path and valid edits commit on every focus
+  loss; Browse and Settings create modal tab groups without placing focus
+  inside them; focused UI buttons and the global Space binding can both act
+  on one keypress; Browse and Settings can coexist despite the single-context
+  model; and label/viewport guards depend on an `InteractionState` snapshot
+  that is stale during the next PreUpdate after a modal command. The scoped
+  design is therefore integrated: retain an explicit time-edit cancellation
+  snapshot, deterministically seed modal focus, suppress raw activation keys
+  owned by the focused widget, make ordered modal-open commands mutually
+  exclusive with a defensive TextEdit → Browse → Settings resolver, and
+  derive label/pick blocking from canonical focus/Browse/Settings state at
+  dispatch time. Acceptance evidence will include real focused-input,
+  Tab/Shift-Tab containment, same-key single-command, Escape-order, pointer,
+  label, and viewport regressions before Task 2 is marked complete. No Steam,
+  catalog, generated asset, dependency, or unrelated rendering work is in
+  scope.
 - **2026-07-17** — Completed stabilization Task 1 (WP5 command boundary and
   replay schema) before beginning Task 2. `ReplayStream` now retains an
   explicit v1/v2 version, v1 round-trips without upgrading, and v2 always

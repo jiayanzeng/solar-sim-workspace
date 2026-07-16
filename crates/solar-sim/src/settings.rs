@@ -6,7 +6,7 @@
 //! policy. The core simulation only receives the persisted `StartMode` at boot.
 
 use crate::control::{SimCommand, SimCommandQueue};
-use crate::input_intent::UiScrollSurface;
+use crate::input_intent::{ModalSurfaceSet, UiScrollSurface};
 use crate::layers::{HudSurface, LayerId, LayerState, LayerStateSnapshot, PresentationState};
 use crate::ui_kit::{
     checkbox_row, chip, section_header, slider, UiTheme, WidgetSpec, WidgetVisualState,
@@ -466,6 +466,7 @@ impl SettingsSaveRequest {
 }
 
 impl SettingsScreenState {
+    #[cfg(test)]
     pub(crate) const fn is_open(&self) -> bool {
         self.open
     }
@@ -507,7 +508,7 @@ impl Plugin for ProductSettingsPlugin {
                     apply_settings_to_runtime,
                     sync_external_presentation_to_settings,
                     persist_requested_settings,
-                    rebuild_settings_screen,
+                    rebuild_settings_screen.in_set(ModalSurfaceSet::Rebuild),
                     sync_recovery_completion,
                     sync_render_error_screen,
                 )
@@ -939,21 +940,20 @@ fn rebuild_settings_screen(
             ("APPLY".to_string(), true, SettingAction::Apply),
         ],
     );
-    if let Some(action) = screen.restore_focus.take() {
-        commands.queue(move |world: &mut World| {
-            let focused = {
-                let mut actions = world.query::<(Entity, &SettingAction)>();
-                actions
-                    .iter(world)
-                    .find_map(|(entity, candidate)| (*candidate == action).then_some(entity))
-            };
-            if let Some(entity) = focused {
-                world
-                    .resource_mut::<InputFocus>()
-                    .set(entity, FocusCause::Navigated);
-            }
-        });
-    }
+    let action = screen.restore_focus.take().unwrap_or(SettingAction::Close);
+    commands.queue(move |world: &mut World| {
+        let focused = {
+            let mut actions = world.query::<(Entity, &SettingAction)>();
+            actions
+                .iter(world)
+                .find_map(|(entity, candidate)| (*candidate == action).then_some(entity))
+        };
+        if let Some(entity) = focused {
+            world
+                .resource_mut::<InputFocus>()
+                .set(entity, FocusCause::Navigated);
+        }
+    });
     screen.dirty = false;
 }
 
@@ -1667,6 +1667,15 @@ mod tests {
             (sync_settings_screen, rebuild_settings_screen).chain(),
         );
         app.update();
+        let initially_focused = app
+            .world()
+            .resource::<InputFocus>()
+            .get()
+            .expect("Settings must seed focus inside its modal tab group");
+        assert_eq!(
+            app.world().entity(initially_focused).get::<SettingAction>(),
+            Some(&SettingAction::Close)
+        );
         {
             let mut screen = app.world_mut().resource_mut::<SettingsScreenState>();
             screen.scroll_y = 137.0;

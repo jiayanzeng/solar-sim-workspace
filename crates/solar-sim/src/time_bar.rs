@@ -86,6 +86,8 @@ struct TimeEditFieldComponent {
 #[derive(Resource, Debug, Default)]
 struct TimeEditFocus {
     active: Option<Entity>,
+    original_t_s: Option<f64>,
+    cancelled: Option<Entity>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -310,7 +312,7 @@ fn edit_field(
             TextLayout {
                 linebreak: LineBreak::NoWrap,
             }
-            on(finish_edit_on_enter)
+            on(finish_time_edit)
         )]
     }
 }
@@ -474,9 +476,26 @@ fn spawn_time_bar(mut commands: Commands, theme: Res<UiTheme>, clock: Res<Simula
     commands.spawn_scene(toast_stack(*theme));
 }
 
-fn finish_edit_on_enter(input: On<FocusedInput<KeyboardInput>>, mut focus: ResMut<InputFocus>) {
-    if input.input.state == ButtonState::Pressed && input.input.key_code == KeyCode::Enter {
-        focus.clear();
+fn finish_time_edit(
+    mut input: On<FocusedInput<KeyboardInput>>,
+    mut focus: ResMut<InputFocus>,
+    mut state: ResMut<TimeEditFocus>,
+) {
+    if input.input.state != ButtonState::Pressed {
+        return;
+    }
+    match input.input.key_code {
+        KeyCode::Enter | KeyCode::NumpadEnter => {
+            state.cancelled = None;
+            focus.clear();
+            input.propagate(false);
+        }
+        KeyCode::Escape => {
+            state.cancelled = Some(input.focused_entity);
+            focus.clear();
+            input.propagate(false);
+        }
+        _ => {}
     }
 }
 
@@ -513,29 +532,41 @@ fn update_time_edits(
 ) {
     let focused = focus.get().filter(|entity| fields.get(*entity).is_ok());
     let mut presentation_t = clock.0.t();
+    let mut cancelled_entity = None;
 
     if state.active != focused {
         if let Some(previous) = state.active {
             if let Ok((_entity, field, mut editable)) = fields.get_mut(previous) {
-                let outcome =
-                    commit_time_edit(presentation_t, field.field, &editable.value().to_string());
-                presentation_t = outcome.t_s;
-                if outcome.accepted {
-                    commands.push(SimCommand::SetTime(outcome.t_s));
+                if state.cancelled == Some(previous) {
+                    let original_t_s = state.original_t_s.unwrap_or(presentation_t);
+                    replace_editable_text(&mut editable, &display_value(field.field, original_t_s));
+                    cancelled_entity = Some(previous);
+                } else {
+                    let outcome = commit_time_edit(
+                        presentation_t,
+                        field.field,
+                        &editable.value().to_string(),
+                    );
+                    presentation_t = outcome.t_s;
+                    if outcome.accepted {
+                        commands.push(SimCommand::SetTime(outcome.t_s));
+                    }
+                    replace_editable_text(&mut editable, &outcome.display);
                 }
-                replace_editable_text(&mut editable, &outcome.display);
             }
         }
+        state.cancelled = None;
         if let Some(current) = focused {
             if let Ok((_entity, field, mut editable)) = fields.get_mut(current) {
                 replace_editable_text(&mut editable, &edit_value(field.field, presentation_t));
             }
         }
         state.active = focused;
+        state.original_t_s = focused.map(|_| presentation_t);
     }
 
     for (entity, field, mut editable) in &mut fields {
-        if Some(entity) != state.active {
+        if Some(entity) != state.active && Some(entity) != cancelled_entity {
             replace_editable_text(&mut editable, &display_value(field.field, presentation_t));
         }
     }
@@ -768,8 +799,93 @@ fn format_clock(datetime: DateTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::{
+        input::{keyboard::Key, InputPlugin},
+        input_focus::{FocusCause, InputDispatchPlugin, InputFocusPlugin},
+        window::PrimaryWindow,
+    };
     use sim_core::time::{t_from_jd_tdb, StartMode};
     use std::collections::HashMap;
+
+    fn time_edit_keypress(
+        field: TimeEditField,
+        replacement: &str,
+        key_code: KeyCode,
+        logical_key: Key,
+    ) -> (String, Vec<SimCommand>, Option<Entity>) {
+        let original_clock = SimClock::new(StartMode::default(), 0.0);
+        let expected_display = display_value(field, original_clock.t());
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            InputPlugin,
+            InputFocusPlugin,
+            InputDispatchPlugin,
+        ))
+        .insert_resource(SimulationClock(original_clock))
+        .init_resource::<TimeEditFocus>()
+        .init_resource::<SimCommandQueue>()
+        .add_systems(Update, update_time_edits);
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow))
+            .id();
+        let editable = app
+            .world_mut()
+            .spawn((
+                TimeEditFieldComponent { field },
+                EditableText::new(expected_display.clone()),
+            ))
+            .observe(finish_time_edit)
+            .id();
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(editable, FocusCause::Navigated);
+        app.update();
+        {
+            let world = app.world_mut();
+            let mut entity = world.entity_mut(editable);
+            let mut value = entity.get_mut::<EditableText>().unwrap();
+            value.editor_mut().set_text(replacement);
+            value.pending_edits.clear();
+        }
+        app.world_mut().write_message(KeyboardInput {
+            key_code,
+            logical_key,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window,
+        });
+        app.update();
+
+        let queued_replacement = app
+            .world()
+            .entity(editable)
+            .get::<EditableText>()
+            .unwrap()
+            .pending_edits
+            .iter()
+            .find_map(|edit| match edit {
+                TextEdit::Insert(value) => Some(value.to_string()),
+                _ => None,
+            })
+            .unwrap_or_else(|| {
+                app.world()
+                    .entity(editable)
+                    .get::<EditableText>()
+                    .unwrap()
+                    .value()
+                    .to_string()
+            });
+        let commands = app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .collect();
+        let focus = app.world().resource::<InputFocus>().get();
+        (queued_replacement, commands, focus)
+    }
 
     #[test]
     fn slider_round_trips_every_rate_index_detent_through_wp1_mapping() {
@@ -795,6 +911,34 @@ mod tests {
         assert_eq!(invalid_time.t_s.to_bits(), original_t.to_bits());
         assert_eq!(invalid_date.display, "JUL 11, 2026");
         assert_eq!(invalid_time.display, "12:00:00");
+    }
+
+    #[test]
+    fn escape_reverts_date_and_clock_edits_without_a_command() {
+        for (field, replacement) in [
+            (TimeEditField::Date, "2026-01-02"),
+            (TimeEditField::Clock, "13:00:00"),
+        ] {
+            let expected = display_value(field, SimClock::new(StartMode::default(), 0.0).t());
+            let (display, commands, focus) =
+                time_edit_keypress(field, replacement, KeyCode::Escape, Key::Escape);
+            assert_eq!(display, expected);
+            assert!(commands.is_empty());
+            assert_eq!(focus, None);
+        }
+    }
+
+    #[test]
+    fn enter_commits_one_set_time_and_no_background_gameplay_command() {
+        let (_display, commands, focus) = time_edit_keypress(
+            TimeEditField::Date,
+            "2026-01-02",
+            KeyCode::Enter,
+            Key::Enter,
+        );
+        assert_eq!(commands.len(), 1);
+        assert!(matches!(commands[0], SimCommand::SetTime(_)));
+        assert_eq!(focus, None);
     }
 
     #[test]
