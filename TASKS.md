@@ -44,7 +44,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 10 | Left panel: Info tab, collection pages, View Options | **✅ done** |
 | 11 | Layers quick panel, right rail, Icons layer, UI-off mode | **✅ done** |
 | 12 | Search (alias-aware) + Menu browse with live counts | **✅ done** |
-| 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | **✅ done** |
+| 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | in-progress |
 | 14 | Settings screen + render-recovery policies | **✅ done** |
 | 15 | Texture pass (2K KTX2) + visual polish + golden screenshots | **✅ done** |
 | 16 | Steam: Steamworks init, overlay spike, packaging/signing/depots | deferred |
@@ -813,8 +813,57 @@ is off. Exact WP14 layer persistence remains intact. The integrated design,
 task order, and acceptance evidence are recorded in
 `docs/ui-gameplay-stabilization-2026-07-16.md`.
 
+### Q16 — OPEN.
+
+Stabilization Task 6 says Saturn's sphere, rings, label, and icon must share
+one orbit-emphasis blend, but ARCHITECTURE §10.3 deliberately makes the Sun and
+all planets text-only and reserves circular Icons-layer reticles for
+"everything else." The implementation and its 57-reticle invariant enforce
+that design, so no Saturn icon exists to fade. Should Task 6 be read
+architecture-preservingly as Saturn's complete actual aggregate
+(sphere/rings/text label) plus a representative icon-bearing fast body such as
+Io, or is a planet icon an intended architecture revision? Recommendation:
+preserve Rev C, keep Saturn text-only, and use Io to prove the shared
+Icons-layer reticle blend. Agents must not add a Saturn reticle without a human
+ruling and corresponding architecture update.
+
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Began the required pre-code review for stabilization Task
+  6, reopening WP13 as the coordinating high-rate rendering package from the
+  green 295-test Task 5 commit. Re-reading ARCHITECTURE §§7, 8.2, 10.3–10.4,
+  and 12 plus the locked Task 6 acceptance found that orbit emphasis currently
+  derives phase advance from nominal `rate × wall delta`, not the simulation
+  clock's actual tick. LIVE easing can therefore move Mercury by radians in
+  one rendered frame while leaving its dot fully visible, whereas a clock
+  pinned at 1800/2300 can remain faded with bright orbits despite zero
+  propagation. The frame-flow fix will publish
+  `abs(t_after_tick − t_before_tick)` from `tick_clock`, after commands but
+  before propagation, so eased LIVE motion and clamps are truthful while an
+  instantaneous `SetTime` edit is not misclassified as sustained aliasing.
+
+  The render aggregate is also only implicitly associated. Every
+  `SaturnRing` marker receives hard-coded Saturn alpha even if it is detached
+  or mis-parented; ring attachments will instead carry their owning catalog
+  body index from spawn and resolve the blend through that identity. Orbit
+  updates already run after the emphasis set, but onset-toast consumption does
+  not; it will be explicitly ordered so a transition is consumed in the same
+  frame. A label whose root becomes `Display::None` at the reviewed near-zero
+  cutoff can retain keyboard focus, so hidden label roots will relinquish
+  focus rather than remain invisibly activatable. Stable label-color rewrite
+  optimization is deliberately recorded for Task 7, where all steady-state
+  render work is reviewed together.
+
+  Acceptance evidence will drive the real catalog at ±100 yr/s and 60 Hz
+  through intermediate/full fade and smooth release. It will cover
+  Mercury–Saturn sphere materials, Saturn's owned ring, text-label alpha/root
+  visibility, a real non-primary Icons-layer reticle pending Q16, orbit
+  brightness with global/local visibility precedence, Uranus remaining
+  initially un-emphasized, one onset/toast per crossing, LIVE snap and
+  pinned-edge truth, and unchanged f64 `BodyStates`, transforms, material
+  handles, inflated-pick radius, and ray-hit results. No Steam, dependency,
+  catalog, generated asset, starfield, physics, or tolerance change is in
+  scope.
 - **2026-07-17** — Completed stabilization Task 5 and returned WP14 to
   **✅ done** after the independent final review found no blockers. Startup
   `--reset-settings` now consumes the same semantic
