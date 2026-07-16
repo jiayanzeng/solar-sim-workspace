@@ -7,13 +7,16 @@
 use crate::control::{SimCommand, SimCommandQueue};
 use crate::search::{BrowseMenuRoot, BrowseUiState};
 use crate::settings::SettingsScreenRoot;
-use crate::{AppSettings, PresentationState, SimulationSet};
+use crate::{
+    AppSettings, LayerId, LayerState, PresentationState, SimulationSet, UiRestoreAffordance,
+};
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::input::InputSystems;
 use bevy::input_focus::{InputFocus, InputFocusSystems};
 use bevy::picking::{hover::HoverMap, PickingSystems};
 use bevy::prelude::*;
 use bevy::text::EditableText;
+use bevy::ui_widgets::ScrollIntoView;
 use bevy::{
     ecs::system::SystemParam,
     input_focus::{tab_navigation::TabIndex, FocusCause},
@@ -239,7 +242,14 @@ impl Plugin for InputIntentPlugin {
                     .chain()
                     .in_set(SimulationSet::Input),
             )
-            .add_systems(Update, reconcile_modal_focus.in_set(ModalSurfaceSet::Focus));
+            .add_systems(Update, reconcile_modal_focus.in_set(ModalSurfaceSet::Focus))
+            .add_systems(
+                Update,
+                ensure_focused_control_visible
+                    .after(ModalSurfaceSet::Focus)
+                    .in_set(SimulationSet::Render),
+            )
+            .add_observer(scroll_registered_surface_into_view);
     }
 }
 
@@ -248,15 +258,47 @@ fn latch_interaction_state(inputs: InteractionInputs, mut state: ResMut<Interact
     state.focused_widget_owns_activation = inputs.focused_widget_owns_activation();
 }
 
-fn reconcile_modal_focus(
-    browse: Res<BrowseUiState>,
-    presentation: Res<PresentationState>,
-    browse_roots: Query<Entity, With<BrowseMenuRoot>>,
-    settings_roots: Query<Entity, With<SettingsScreenRoot>>,
-    tab_indices: Query<(Entity, &TabIndex)>,
-    parents: Query<&ChildOf>,
-    mut focus: ResMut<InputFocus>,
-) {
+#[derive(SystemParam)]
+struct ModalFocusParams<'w, 's> {
+    browse: Res<'w, BrowseUiState>,
+    presentation: Res<'w, PresentationState>,
+    layers: Option<Res<'w, LayerState>>,
+    restore_affordances: Query<'w, 's, Entity, With<UiRestoreAffordance>>,
+    browse_roots: Query<'w, 's, Entity, With<BrowseMenuRoot>>,
+    settings_roots: Query<'w, 's, Entity, With<SettingsScreenRoot>>,
+    tab_indices: Query<'w, 's, (Entity, &'static TabIndex)>,
+    parents: Query<'w, 's, &'static ChildOf>,
+    focus: ResMut<'w, InputFocus>,
+}
+
+fn reconcile_modal_focus(params: ModalFocusParams) {
+    let ModalFocusParams {
+        browse,
+        presentation,
+        layers,
+        restore_affordances,
+        browse_roots,
+        settings_roots,
+        tab_indices,
+        parents,
+        mut focus,
+    } = params;
+    // UI-off retains the normal HUD entities in a hidden state. Do not let
+    // those retained Browse/Settings tab groups steal focus from the sole
+    // reachable recovery control on the following frame.
+    if layers
+        .as_deref()
+        .is_some_and(|layers| !layers.is_visible(LayerId::UserInterface))
+    {
+        if let Ok(restore) = restore_affordances.single() {
+            if focus.get() != Some(restore) {
+                focus.set(restore, FocusCause::Navigated);
+            }
+        } else {
+            focus.clear();
+        }
+        return;
+    }
     let active_root = if browse.is_open() {
         browse_roots.single().ok()
     } else if presentation.is_settings_open() {
@@ -294,6 +336,72 @@ fn is_descendant_of(mut entity: Entity, ancestor: Entity, parents: &Query<&Child
         entity = parent.parent();
     }
     false
+}
+
+fn ensure_focused_control_visible(
+    focus: Res<InputFocus>,
+    mut previous: Local<Option<Entity>>,
+    mut commands: Commands,
+) {
+    let focused = focus.get();
+    if *previous == focused {
+        return;
+    }
+    *previous = focused;
+    if let Some(entity) = focused {
+        commands.trigger(ScrollIntoView { entity });
+    }
+}
+
+fn scroll_registered_surface_into_view(
+    mut scroll: On<ScrollIntoView>,
+    nodes: Query<(&Node, &UiGlobalTransform, &ComputedNode)>,
+    parents: Query<&ChildOf>,
+    mut surfaces: Query<&mut ScrollPosition, With<UiScrollSurface>>,
+) {
+    let Ok((_target_node, target_transform, target_node)) = nodes.get(scroll.entity) else {
+        return;
+    };
+    let Some(surface_entity) = parents
+        .iter_ancestors(scroll.entity)
+        .find(|entity| surfaces.contains(*entity))
+    else {
+        return;
+    };
+    let Ok((surface_node, surface_transform, surface_computed)) = nodes.get(surface_entity) else {
+        return;
+    };
+    let Ok(mut position) = surfaces.get_mut(surface_entity) else {
+        return;
+    };
+
+    let target_size = target_node.size() * target_node.inverse_scale_factor;
+    let target_top_left = target_transform.affine().translation * target_node.inverse_scale_factor
+        - target_size * 0.5;
+    let surface_size = surface_computed.size() * surface_computed.inverse_scale_factor;
+    let surface_top_left = surface_transform.affine().translation
+        * surface_computed.inverse_scale_factor
+        - surface_size * 0.5;
+    let target_local_min = target_top_left - surface_top_left + position.0;
+    let target_local_max = target_local_min + target_size;
+    let content_size = surface_computed.content_size() * surface_computed.inverse_scale_factor;
+    let max_range = (content_size - surface_size).max(Vec2::ZERO);
+
+    if surface_node.overflow.x == OverflowAxis::Scroll {
+        if target_local_min.x < position.x {
+            position.x = target_local_min.x.clamp(0.0, max_range.x);
+        } else if target_local_max.x > position.x + surface_size.x {
+            position.x = (target_local_max.x - surface_size.x).clamp(0.0, max_range.x);
+        }
+    }
+    if surface_node.overflow.y == OverflowAxis::Scroll {
+        if target_local_min.y < position.y {
+            position.y = target_local_min.y.clamp(0.0, max_range.y);
+        } else if target_local_max.y > position.y + surface_size.y {
+            position.y = (target_local_max.y - surface_size.y).clamp(0.0, max_range.y);
+        }
+    }
+    scroll.propagate(false);
 }
 
 fn sync_pointer_capture(
@@ -471,13 +579,16 @@ pub(crate) fn dolly_command(delta: f64) -> SimCommand {
 mod tests {
     use super::*;
     use crate::search::consume_search_command;
+    use crate::ui_kit::test_layout;
     use crate::{ZOOM_IN_DOLLY_DELTA, ZOOM_OUT_DOLLY_DELTA};
     use bevy::{
+        ecs::entity::EntityHashMap,
         input::{
             keyboard::{Key, KeyboardInput},
             ButtonState, InputPlugin,
         },
         input_focus::{FocusCause, FocusedInput, InputDispatchPlugin, InputFocusPlugin},
+        picking::{backend::HitData, pointer::PointerId},
         window::PrimaryWindow,
     };
     use std::collections::HashSet;
@@ -557,6 +668,7 @@ mod tests {
             .add_message::<MouseWheel>()
             .init_resource::<InputFocus>()
             .init_resource::<HoverMap>()
+            .init_resource::<LayerState>()
             .insert_resource(browse)
             .insert_resource(presentation)
             .insert_resource(AppSettings::default())
@@ -659,6 +771,128 @@ mod tests {
                 .count(),
             0
         );
+    }
+
+    #[test]
+    fn hovered_scroll_surface_owns_wheel_while_viewport_wheel_still_dollies() {
+        let mut app = interaction_test_app(false, false);
+        let camera = app.world_mut().spawn_empty().id();
+        let surface = app.world_mut().spawn(UiScrollSurface).id();
+        let hovered_child = app.world_mut().spawn(ChildOf(surface)).id();
+        let mut hits = EntityHashMap::default();
+        hits.insert(
+            hovered_child,
+            HitData {
+                camera,
+                depth: 0.0,
+                position: None,
+                normal: None,
+                extra: None,
+            },
+        );
+        app.world_mut()
+            .resource_mut::<HoverMap>()
+            .insert(PointerId::Mouse, hits);
+        app.world_mut().write_message(MouseWheel {
+            unit: bevy::input::mouse::MouseScrollUnit::Line,
+            x: 0.0,
+            y: 2.0,
+            window: Entity::PLACEHOLDER,
+            phase: bevy::input::touch::TouchPhase::Moved,
+        });
+
+        app.update();
+
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .count(),
+            0
+        );
+
+        app.world_mut().resource_mut::<HoverMap>().clear();
+        app.world_mut().write_message(MouseWheel {
+            unit: bevy::input::mouse::MouseScrollUnit::Line,
+            x: 0.0,
+            y: 2.0,
+            window: Entity::PLACEHOLDER,
+            phase: bevy::input::touch::TouchPhase::Moved,
+        });
+
+        app.update();
+
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .collect::<Vec<_>>(),
+            vec![SimCommand::Dolly { delta: 2.0 }]
+        );
+    }
+
+    #[test]
+    fn keyboard_focus_scrolls_the_target_into_its_registered_surface() {
+        let mut app = test_layout::app(800, 600, 2.0);
+        app.add_systems(Update, ensure_focused_control_visible)
+            .add_observer(scroll_registered_surface_into_view);
+        let surface = app
+            .world_mut()
+            .spawn((
+                UiScrollSurface,
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: px(0),
+                    top: px(0),
+                    width: px(200),
+                    height: px(100),
+                    flex_direction: FlexDirection::Column,
+                    overflow: Overflow::scroll_y(),
+                    ..default()
+                },
+                ScrollPosition::default(),
+            ))
+            .id();
+        let mut last = Entity::PLACEHOLDER;
+        for index in 0..5 {
+            last = app
+                .world_mut()
+                .spawn((
+                    TabIndex(index),
+                    Node {
+                        width: percent(100),
+                        min_height: px(50),
+                        flex_shrink: 0.0,
+                        ..default()
+                    },
+                    ChildOf(surface),
+                ))
+                .id();
+        }
+        test_layout::settle(&mut app);
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(last, FocusCause::Navigated);
+        test_layout::settle(&mut app);
+
+        let position = app.world().entity(surface).get::<ScrollPosition>().unwrap();
+        assert!(position.y > 0.0);
+        let surface_rect = layout_node_rect(app.world(), surface);
+        let target_rect = layout_node_rect(app.world(), last);
+        assert!(
+            target_rect.min.y >= surface_rect.min.y - 1.0
+                && target_rect.max.y <= surface_rect.max.y + 1.0
+        );
+    }
+
+    fn layout_node_rect(world: &World, entity: Entity) -> Rect {
+        let node = world.get::<ComputedNode>(entity).unwrap();
+        let center = world
+            .get::<UiGlobalTransform>(entity)
+            .unwrap()
+            .affine()
+            .translation;
+        Rect::from_center_size(center, node.size())
     }
 
     #[test]
@@ -862,6 +1096,50 @@ mod tests {
         assert_eq!(
             app.world().resource::<InputFocus>().get(),
             Some(settings_button)
+        );
+    }
+
+    #[test]
+    fn ui_off_restore_focus_outranks_hidden_modals_until_ui_returns() {
+        let mut app = interaction_test_app(true, true);
+        let restore = app
+            .world_mut()
+            .spawn((UiRestoreAffordance, TabIndex(0)))
+            .id();
+        let browse_root = app.world_mut().spawn(BrowseMenuRoot).id();
+        let browse_button = app
+            .world_mut()
+            .spawn((TabIndex(0), ChildOf(browse_root)))
+            .id();
+        let settings_root = app.world_mut().spawn(SettingsScreenRoot).id();
+        let settings_button = app
+            .world_mut()
+            .spawn((TabIndex(0), ChildOf(settings_root)))
+            .id();
+        app.world_mut()
+            .resource_mut::<LayerState>()
+            .set_visible(LayerId::UserInterface, false);
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(settings_button, FocusCause::Navigated);
+
+        app.update();
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(restore));
+
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(browse_button, FocusCause::Navigated);
+        app.update();
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(restore));
+
+        app.world_mut()
+            .resource_mut::<LayerState>()
+            .set_visible(LayerId::UserInterface, true);
+        app.update();
+        assert_eq!(
+            app.world().resource::<InputFocus>().get(),
+            Some(browse_button),
+            "Browse remains the canonical higher-priority modal once UI returns"
         );
     }
 

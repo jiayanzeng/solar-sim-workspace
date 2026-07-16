@@ -38,7 +38,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 4 | Propagation + floating origin: 66 colored spheres at 2026 positions | **✅ done** |
 | 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | **✅ done** |
 | 6 | Orbit lines (adaptive; hyperbolic arc), colors, fades | **✅ done** |
-| 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | in-progress |
+| 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | **✅ done** |
 | 8 | Time bar: detented log slider, editable date/clock, LIVE chip | **✅ done** |
 | 9 | Labels/reticles, tiered declutter, contextual moon visibility, picking | **✅ done** |
 | 10 | Left panel: Info tab, collection pages, View Options | **✅ done** |
@@ -815,6 +815,67 @@ task order, and acceptance evidence are recorded in
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Completed stabilization Task 3 and returned WP7 to
+  **✅ done** after two independent source gates and a final no-blocker
+  acceptance review. Non-modal surfaces now use ordered tab groups
+  (top/search/left/time/rail/layers/recovery), unique semantic indices, and a
+  central `ScrollIntoView` observer for registered scroll surfaces. Settings,
+  the left panel, all three Browse columns, the search dropdown, right rail,
+  layers panel, and breadcrumb retain or deliberately reset scroll/focus
+  across rebuilds; semantic left-panel transitions cannot be overwritten by
+  outgoing live scroll, Browse close/reopen cannot recover stale actions, and
+  UI-off plus cue-recovery paths always hand focus to a live modal or rail
+  control. The top bar uses a flex-integrated scrollable breadcrumb, the time
+  bar uses two compact rows, long Browse labels wrap inside bounded controls,
+  the left-panel tabs live inside its scroll region, Settings has an
+  auto-height wrapping footer and the supported 2.0 scale step, and all
+  transient rails/dropdowns are constrained between fixed HUD bars. The
+  headless matrix fixture now runs Bevy's real Inter text measurement,
+  editable-content sizing, Taffy layout, glyph layout, transforms, and
+  clipping. Twenty-nine new regressions raise the workspace suite from 245 to
+  274 tests (53 `sim-core` · 170 `solar-sim` · 48 `xtask` lib · 2 xtask smoke
+  · 1 active spot-check), including all seven UI surfaces at 800×600 and
+  960×600 with scales 0.75, 1.0, 1.5, and 2.0, real Tab/Shift-Tab search
+  activation, line/pixel scroll clamping, wheel-versus-Dolly ownership, and
+  command/replay-driven focus recovery. `cargo test`,
+  `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo fmt --all -- --check`, and `git diff --check` are green. No Steam,
+  catalog, generated asset, dependency, physics, or tolerance scope changed.
+- **2026-07-17** — A second independent Task 3 source gate found three more
+  acceptance blockers before closure. The headless layout fixture currently
+  replaces Bevy's `PostUpdate` UI pipeline with layout/transforms only, so it
+  omits text/editable-content measurement and can falsely pass controls whose
+  real text would overlap or clip. The newly tabbable search-results group is
+  also incompatible with the existing edit lifecycle: moving focus from the
+  Search input to a result ends editing and despawns that focused dropdown in
+  the same frame. Finally, activating the cue-recovery action despawns its
+  focused entity without choosing a semantic successor. The integrated
+  correction must restore a representative Bevy text-measurement/layout
+  pipeline in the fixture; keep the search session alive while focus is
+  within its input-or-dropdown ownership surface and prove keyboard result
+  activation; and restore cue-recovery focus to a stable rail action after
+  its command removes the notice. These regressions join the four already
+  documented gate failures and all must pass the real eight-case matrix
+  before Task 3 can be completed.
+- **2026-07-17** — Task 3 remains in progress after the independent
+  acceptance gate found four coupled continuity defects in the first
+  implementation. Intentional left-panel resets from tab, breadcrumb, and
+  selected-body transitions are currently overwritten by the outgoing live
+  `ScrollPosition`; Browse close clears its semantic focus target in the
+  reducer but the closing rebuild captures that stale target again; a
+  command-driven UI restore can leave focus on the now-hidden modal `SHOW UI`
+  affordance; and the three-column Browse layout still gives long no-wrap
+  labels no horizontal or wrapping path at 800×600 with UI scale 2.0. The
+  reviewed correction keeps these concerns integrated: mark semantic
+  left-panel scroll resets so rebuild snapshotting cannot override them;
+  capture Browse action focus only while the menu remains open and prove a
+  close/reopen starts at `CLOSE`; treat `SHOW UI` as the canonical modal
+  focus while UI is off and move command-restored focus to the rebuilt rail
+  (or the active higher-priority modal); and make Browse titles/actions
+  width-constrained and wrapping, with the eight-case Bevy layout regression
+  checking text bounds as well as button reachability. Dedicated regressions
+  for each failure are required before the full Task 3 verification suite and
+  WP7 completion evidence are rerun.
 - **2026-07-17** — Began the required pre-code review for stabilization Task
   3, reopening WP7 as the coordinating UI work package after Task 2 returned
   WP5 to done. Re-reading ARCHITECTURE §§8.2, 8.4, 8.5, 9, and 12 plus the

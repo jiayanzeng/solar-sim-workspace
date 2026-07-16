@@ -14,7 +14,7 @@ use crate::{
 use bevy::{
     input::{keyboard::KeyboardInput, ButtonState},
     input_focus::{
-        tab_navigation::{TabIndex, TabNavigationPlugin},
+        tab_navigation::{TabGroup, TabIndex, TabNavigationPlugin},
         FocusedInput, InputFocus,
     },
     prelude::*,
@@ -229,32 +229,60 @@ fn time_bar_scene(theme: UiTheme, clock: &SimClock) -> impl Scene {
             height: px(TIME_BAR_HEIGHT_PX),
             padding: UiRect::horizontal(px(theme.spacing.lg_px)),
             border: UiRect::top(px(theme.spacing.hairline_px)),
-            align_items: AlignItems::Center,
-            column_gap: px(theme.spacing.md_px),
+            flex_direction: FlexDirection::Column,
+            justify_content: JustifyContent::Center,
+            row_gap: px(theme.spacing.xs_px),
         }
         TimeBarRoot
         HudSurface
         AccessibleLabel("Simulation time bar")
+        template_value(TabGroup::new(20))
         BackgroundColor({theme.colors.top_bar.color()})
         BorderColor::all(theme.colors.separator.color())
         GlobalZIndex(95)
         Children [
-            edit_field(theme, TimeEditField::Date, format_date_eyes(&datetime), "Simulation date"),
-            edit_field(theme, TimeEditField::Clock, format_clock(datetime), "Simulation clock"),
             (
                 Node {
-                    width: px(theme.spacing.hairline_px),
-                    height: px(32),
+                    width: percent(100),
+                    height: px(38),
+                    align_items: AlignItems::Center,
+                    column_gap: px(theme.spacing.sm_px),
                 }
-                BackgroundColor({theme.colors.separator.color()})
+                Children [
+                    edit_field(
+                        theme,
+                        TimeEditField::Date,
+                        format_date_eyes(&datetime),
+                        "Simulation date",
+                    ),
+                    edit_field(
+                        theme,
+                        TimeEditField::Clock,
+                        format_clock(datetime),
+                        "Simulation clock",
+                    ),
+                    (
+                        Node {
+                            width: px(theme.spacing.hairline_px),
+                            height: px(32),
+                        }
+                        BackgroundColor({theme.colors.separator.color()})
+                    ),
+                    play_pause_button(theme, clock.is_playing()),
+                    (
+                        Node {
+                            flex_grow: 1.0,
+                            min_width: px(0),
+                        }
+                    ),
+                    live_chip(theme),
+                ]
             ),
-            play_pause_button(theme, clock.is_playing()),
             (
                 Node {
-                    flex_grow: 1.0,
-                    min_width: px(280),
+                    width: percent(100),
                     flex_direction: FlexDirection::Column,
-                    row_gap: px(theme.spacing.sm_px),
+                    row_gap: px(theme.spacing.xs_px),
                 }
                 Children [
                     (
@@ -270,7 +298,6 @@ fn time_bar_scene(theme: UiTheme, clock: &SimClock) -> impl Scene {
                     rate_slider(theme, clock),
                 ]
             ),
-            live_chip(theme),
         ]
     }
 }
@@ -281,14 +308,16 @@ fn edit_field(
     value: String,
     accessible_label: &'static str,
 ) -> impl Scene {
-    let width = match field {
-        TimeEditField::Date => 154.0,
-        TimeEditField::Clock => 92.0,
+    let (width, min_width) = match field {
+        TimeEditField::Date => (154.0, 110.0),
+        TimeEditField::Clock => (92.0, 72.0),
     };
     bsn! {
         Node {
             width: px(width),
+            min_width: px(min_width),
             height: px(38),
+            flex_shrink: 1.0,
             padding: UiRect::horizontal(px(theme.spacing.sm_px)),
             border: UiRect::all(px(theme.spacing.hairline_px)),
             border_radius: BorderRadius::all(px(theme.spacing.radius_px)),
@@ -300,7 +329,10 @@ fn edit_field(
             template_value(EditableText::new(value))
             TimeEditFieldComponent { field }
             AccessibleLabel(accessible_label)
-            TabIndex(0)
+            template_value(TabIndex(match field {
+                TimeEditField::Date => 0,
+                TimeEditField::Clock => 1,
+            }))
             Node {
                 width: percent(100),
             }
@@ -336,7 +368,7 @@ fn play_pause_button(theme: UiTheme, playing: bool) -> impl Scene {
         bevy::ui_widgets::Button
         PlayPauseButton
         AccessibleLabel("Pause or resume simulation time")
-        TabIndex(0)
+        TabIndex(2)
         BackgroundColor(background)
         BorderColor::all(theme.colors.accent.color())
         on(toggle_play_pause)
@@ -374,7 +406,7 @@ fn rate_slider(theme: UiTheme, clock: &SimClock) -> impl Scene {
         SliderStep(1.0)
         SliderPrecision(0)
         AccessibleLabel("Simulation rate: 24 signed detents and paused center")
-        TabIndex(0)
+        TabIndex(4)
         on(change_rate_slider)
         Children [
             (
@@ -427,7 +459,7 @@ fn live_chip(theme: UiTheme) -> impl Scene {
         bevy::ui_widgets::Button
         LiveChip
         AccessibleLabel("Snap simulation to LIVE time")
-        TabIndex(0)
+        TabIndex(3)
         BackgroundColor({theme.colors.background.color()})
         BorderColor::all(theme.colors.separator.color())
         on(snap_to_live)
@@ -799,6 +831,7 @@ fn format_clock(datetime: DateTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui_kit::test_layout;
     use bevy::{
         input::{keyboard::Key, InputPlugin},
         input_focus::{FocusCause, InputDispatchPlugin, InputFocusPlugin},
@@ -999,5 +1032,64 @@ mod tests {
         assert_eq!(counts.get(&TimeToastKind::Extrapolation), Some(&1));
         assert_eq!(counts.get(&TimeToastKind::SnappedLive), Some(&1));
         assert_eq!(counts.get(&TimeToastKind::RangeMaximum), None);
+    }
+
+    #[test]
+    fn time_controls_fit_every_required_viewport_and_scale() {
+        for (width, height, scale) in test_layout::required_viewports() {
+            let mut app = test_layout::app(width, height, scale);
+            app.insert_resource(UiTheme::default())
+                .insert_resource(SimulationClock(SimClock::new(StartMode::default(), 0.0)))
+                .add_systems(Startup, spawn_time_bar);
+            test_layout::settle(&mut app);
+
+            let world = app.world_mut();
+            let root = world
+                .query_filtered::<Entity, With<TimeBarRoot>>()
+                .single(world)
+                .unwrap();
+            let group = world.get::<TabGroup>(root).unwrap();
+            assert_eq!(group.order, 20);
+            assert!(!group.modal);
+            let root_rect = node_rect(world, root);
+            let mut controls = world.query_filtered::<Entity, Or<(
+                With<TimeEditFieldComponent>,
+                With<PlayPauseButton>,
+                With<TimeRateSlider>,
+                With<LiveChip>,
+            )>>();
+            let controls: Vec<_> = controls.iter(world).collect();
+            assert_eq!(controls.len(), 5);
+            for entity in controls {
+                let rect = node_rect(world, entity);
+                assert!(
+                    rect.min.x >= root_rect.min.x - 1.0
+                        && rect.max.x <= root_rect.max.x + 1.0
+                        && rect.min.y >= root_rect.min.y - 1.0
+                        && rect.max.y <= root_rect.max.y + 1.0,
+                    "{width}×{height} scale {scale}: time control {entity:?} {rect:?} escaped {root_rect:?}"
+                );
+            }
+
+            let mut indices = world.query_filtered::<&TabIndex, Or<(
+                With<TimeEditFieldComponent>,
+                With<PlayPauseButton>,
+                With<TimeRateSlider>,
+                With<LiveChip>,
+            )>>();
+            let mut indices: Vec<_> = indices.iter(world).map(|index| index.0).collect();
+            indices.sort_unstable();
+            assert_eq!(indices, vec![0, 1, 2, 3, 4]);
+        }
+    }
+
+    fn node_rect(world: &World, entity: Entity) -> Rect {
+        let node = world.get::<ComputedNode>(entity).unwrap();
+        let center = world
+            .get::<UiGlobalTransform>(entity)
+            .unwrap()
+            .affine()
+            .translation;
+        Rect::from_center_size(center, node.size())
     }
 }

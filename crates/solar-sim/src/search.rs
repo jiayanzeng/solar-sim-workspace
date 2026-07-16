@@ -11,7 +11,7 @@ use crate::layers::HudSurface;
 use crate::ui_kit::{
     MenuBrowseButton, SearchHint, SearchInput, UiTheme, INTER_FONT_ASSET, TOP_BAR_HEIGHT_PX,
 };
-use crate::{LoadedCatalog, SimulationSet};
+use crate::{LoadedCatalog, SimulationSet, TIME_BAR_HEIGHT_PX};
 use bevy::{
     input::mouse::MouseScrollUnit,
     input::{keyboard::KeyboardInput, ButtonState},
@@ -404,7 +404,7 @@ struct SearchResultAction(usize);
 #[derive(Component, Debug, Clone, Copy)]
 pub struct BrowseMenuRoot;
 
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 enum BrowseAction {
     Close,
     ToggleExpanded(usize),
@@ -420,6 +420,14 @@ struct BrowseButtonSpec<'a> {
 
 #[derive(Component, Debug, Clone, Copy)]
 struct BrowseScrollColumn(u8);
+
+#[cfg(test)]
+#[derive(Component, Debug, Clone, Copy)]
+struct BrowseColumnTitle;
+
+#[cfg(test)]
+#[derive(Component, Debug, Clone, Copy)]
+struct BrowseActionLabel;
 
 #[derive(Resource, Debug, Default)]
 struct SearchUiState {
@@ -459,6 +467,8 @@ pub(crate) struct BrowseUiState {
     dirty: bool,
     scroll_y: [f32; 3],
     restore_focus: bool,
+    restore_action: Option<BrowseAction>,
+    reset_scroll_column: Option<usize>,
 }
 
 impl BrowseUiState {
@@ -474,14 +484,20 @@ impl BrowseUiState {
 pub(crate) fn consume_search_command(command: &SimCommand, state: &mut BrowseUiState) {
     match command {
         SimCommand::SetBrowseOpen(open) => {
-            state.restore_focus = state.open && !open;
+            let was_open = state.open;
+            state.restore_focus = was_open && !open;
+            if !was_open || !open {
+                state.restore_action = None;
+            }
             state.open = *open;
             state.dirty = true;
         }
         SimCommand::SetBrowseColumnExpanded { column, expanded } => {
-            if let Some(value) = state.expanded.get_mut(usize::from(*column)) {
+            let column = usize::from(*column);
+            if let Some(value) = state.expanded.get_mut(column) {
                 *value = *expanded;
-                state.scroll_y[usize::from(*column)] = 0.0;
+                state.scroll_y[column] = 0.0;
+                state.reset_scroll_column = Some(column);
                 state.dirty = true;
             }
         }
@@ -491,6 +507,8 @@ pub(crate) fn consume_search_command(command: &SimCommand, state: &mut BrowseUiS
             state.expanded = [false; 3];
             state.scroll_y = [0.0; 3];
             state.restore_focus = was_open;
+            state.restore_action = None;
+            state.reset_scroll_column = None;
             state.dirty = true;
         }
         _ => {}
@@ -548,6 +566,7 @@ fn sync_search_input(
     loaded: Option<Res<LoadedCatalog>>,
     mut state: ResMut<SearchUiState>,
     inputs: Query<(Entity, &EditableText), With<SearchInput>>,
+    parents: Query<&ChildOf>,
     mut hints: Query<&mut Visibility, With<SearchHint>>,
 ) {
     let Ok((entity, editable)) = inputs.single() else {
@@ -562,10 +581,14 @@ fn sync_search_input(
         };
     }
 
-    let is_focused = focus.get() == Some(entity);
+    let focused = focus.get();
+    let is_focused = focused == Some(entity);
+    let dropdown_owns_focus = focused
+        .zip(state.dropdown_root)
+        .is_some_and(|(focused, root)| is_descendant_or_self(focused, root, &parents));
     if is_focused && state.active_input != Some(entity) {
         state.begin_edit(entity, &value);
-    } else if !is_focused && state.active_input == Some(entity) {
+    } else if !is_focused && !dropdown_owns_focus && state.active_input == Some(entity) {
         state.end_edit();
     }
 
@@ -585,6 +608,20 @@ fn sync_search_input(
             state.dirty = true;
         }
     }
+}
+
+fn is_descendant_or_self(entity: Entity, ancestor: Entity, parents: &Query<&ChildOf>) -> bool {
+    let mut current = entity;
+    for _ in 0..32 {
+        if current == ancestor {
+            return true;
+        }
+        let Ok(parent) = parents.get(current) else {
+            return false;
+        };
+        current = parent.parent();
+    }
+    false
 }
 
 fn handle_search_key(
@@ -679,7 +716,8 @@ fn activate_browse_action(
     activate: On<Activate>,
     actions: Query<&BrowseAction>,
     loaded: Res<LoadedCatalog>,
-    browse: Res<BrowseUiState>,
+    focus: Res<InputFocus>,
+    mut browse: ResMut<BrowseUiState>,
     mut sim_commands: ResMut<SimCommandQueue>,
 ) {
     let Ok(action) = actions.get(activate.entity) else {
@@ -688,6 +726,9 @@ fn activate_browse_action(
     match *action {
         BrowseAction::Close => sim_commands.push(SimCommand::SetBrowseOpen(false)),
         BrowseAction::ToggleExpanded(column) => {
+            if focus.get() == Some(activate.entity) {
+                browse.restore_action = Some(*action);
+            }
             if let Some(expanded) = browse.expanded.get(column) {
                 sim_commands.push(SimCommand::SetBrowseColumnExpanded {
                     column: column as u8,
@@ -728,22 +769,29 @@ fn rebuild_search_dropdown(
             SearchDropdownRoot,
             HudSurface,
             AccessibleLabel::new(format!("Search results, {} matches", state.hits.len())),
+            TabGroup::new(1),
+            UiScrollSurface,
             Node {
                 position_type: PositionType::Absolute,
                 top: px(TOP_BAR_HEIGHT_PX + theme.spacing.xs_px),
+                bottom: px(TIME_BAR_HEIGHT_PX + theme.spacing.xs_px),
                 right: px(theme.spacing.lg_px),
                 width: px(SEARCH_DROPDOWN_WIDTH_PX),
+                min_height: px(0),
                 padding: UiRect::all(px(theme.spacing.sm_px)),
                 border: UiRect::all(px(theme.spacing.hairline_px)),
                 border_radius: BorderRadius::all(px(theme.spacing.radius_px)),
                 flex_direction: FlexDirection::Column,
                 row_gap: px(theme.spacing.xs_px),
+                overflow: Overflow::scroll_y(),
                 ..default()
             },
+            ScrollPosition::default(),
             BackgroundColor(theme.colors.panel_elevated.color()),
             BorderColor::all(theme.colors.separator.color()),
             GlobalZIndex(SEARCH_DROPDOWN_Z_INDEX),
         ))
+        .observe(scroll_search_dropdown)
         .id();
     let font = asset_server.load(INTER_FONT_ASSET);
     if state.hits.is_empty() {
@@ -819,17 +867,36 @@ fn rebuild_search_dropdown(
     state.dirty = false;
 }
 
+#[allow(clippy::too_many_arguments)]
 fn rebuild_browse_menu(
     mut commands: Commands,
     theme: Res<UiTheme>,
     asset_server: Res<AssetServer>,
     loaded: Option<Res<LoadedCatalog>>,
     search_inputs: Query<Entity, With<SearchInput>>,
+    browse_actions: Query<&BrowseAction>,
+    browse_scrolls: Query<(&BrowseScrollColumn, &ScrollPosition)>,
     mut focus: ResMut<InputFocus>,
     mut state: ResMut<BrowseUiState>,
 ) {
     if !state.dirty {
         return;
+    }
+    if state.open && state.restore_action.is_none() {
+        state.restore_action = focus
+            .get()
+            .and_then(|entity| browse_actions.get(entity).ok())
+            .copied();
+    }
+    let reset_scroll_column = state.reset_scroll_column.take();
+    for (column, position) in &browse_scrolls {
+        let column = usize::from(column.0);
+        if Some(column) == reset_scroll_column {
+            continue;
+        }
+        if let Some(scroll_y) = state.scroll_y.get_mut(column) {
+            *scroll_y = position.y;
+        }
     }
     if let Some(root) = state.root.take() {
         commands.entity(root).despawn();
@@ -914,9 +981,41 @@ fn rebuild_browse_menu(
             state.scroll_y[column.kind.index()],
         );
     }
-    focus.set(close, FocusCause::Navigated);
+    if let Some(action) = state.restore_action.take() {
+        commands.queue(move |world: &mut World| {
+            let restored = {
+                let mut actions = world.query::<(Entity, &BrowseAction)>();
+                actions
+                    .iter(world)
+                    .find_map(|(entity, candidate)| (*candidate == action).then_some(entity))
+            };
+            world
+                .resource_mut::<InputFocus>()
+                .set(restored.unwrap_or(close), FocusCause::Navigated);
+        });
+    } else {
+        focus.set(close, FocusCause::Navigated);
+    }
     state.root = Some(root);
     state.dirty = false;
+}
+
+fn scroll_search_dropdown(
+    mut scroll: On<Pointer<Scroll>>,
+    mut dropdowns: Query<(&mut ScrollPosition, &ComputedNode), With<SearchDropdownRoot>>,
+) {
+    let Ok((mut position, node)) = dropdowns.get_mut(scroll.entity) else {
+        return;
+    };
+    position.y = next_browse_scroll_y(
+        position.y,
+        scroll.y,
+        scroll.unit,
+        node.content_size().y,
+        node.size().y,
+        node.inverse_scale_factor,
+    );
+    scroll.propagate(false);
 }
 
 fn spawn_browse_root(commands: &mut Commands, theme: UiTheme) -> Entity {
@@ -963,7 +1062,7 @@ fn spawn_browse_column(
                 width: percent(33),
                 flex_grow: 1.0,
                 min_width: px(0),
-                padding: UiRect::all(px(theme.spacing.md_px)),
+                padding: UiRect::all(px(theme.spacing.xs_px)),
                 border: UiRect::all(px(theme.spacing.hairline_px)),
                 border_radius: BorderRadius::all(px(theme.spacing.radius_px)),
                 flex_direction: FlexDirection::Column,
@@ -976,33 +1075,6 @@ fn spawn_browse_column(
             ChildOf(parent),
         ))
         .id();
-    spawn_text(
-        commands,
-        column_root,
-        font,
-        column.title,
-        theme.type_scale.title_px,
-        theme.colors.text_primary.color(),
-        true,
-    );
-    spawn_text(
-        commands,
-        column_root,
-        font,
-        &column.count_label,
-        theme.type_scale.caption_px,
-        theme.colors.text_muted.color(),
-        true,
-    );
-    commands.spawn((
-        Node {
-            width: percent(100),
-            height: px(theme.spacing.hairline_px),
-            ..default()
-        },
-        BackgroundColor(theme.colors.separator.color()),
-        ChildOf(column_root),
-    ));
     let scroll_position = ScrollPosition(Vec2::new(0.0, scroll_y));
     let list = commands
         .spawn((
@@ -1022,6 +1094,59 @@ fn spawn_browse_column(
         ))
         .observe(scroll_browse_column)
         .id();
+    let title = spawn_text(
+        commands,
+        list,
+        font,
+        column.title,
+        theme.type_scale.label_px,
+        theme.colors.text_primary.color(),
+        true,
+    );
+    commands.entity(title).insert((
+        LetterSpacing::Px(theme.type_scale.uppercase_tracking_px * 0.5),
+        TextLayout {
+            linebreak: LineBreak::AnyCharacter,
+            ..default()
+        },
+        Node {
+            width: percent(100),
+            min_width: px(0),
+            ..default()
+        },
+    ));
+    #[cfg(test)]
+    commands.entity(title).insert(BrowseColumnTitle);
+    let count = spawn_text(
+        commands,
+        list,
+        font,
+        &column.count_label,
+        theme.type_scale.caption_px,
+        theme.colors.text_muted.color(),
+        true,
+    );
+    commands.entity(count).insert((
+        LetterSpacing::Px(theme.type_scale.uppercase_tracking_px * 0.5),
+        TextLayout {
+            linebreak: LineBreak::AnyCharacter,
+            ..default()
+        },
+        Node {
+            width: percent(100),
+            min_width: px(0),
+            ..default()
+        },
+    ));
+    commands.spawn((
+        Node {
+            width: percent(100),
+            height: px(theme.spacing.hairline_px),
+            ..default()
+        },
+        BackgroundColor(theme.colors.separator.color()),
+        ChildOf(list),
+    ));
     let entries = if expanded {
         &column.all
     } else {
@@ -1034,7 +1159,7 @@ fn spawn_browse_column(
             theme,
             font,
             BrowseButtonSpec {
-                label: &format!("{}  →", entry.name),
+                label: &format!("{} →", entry.name),
                 accessible_label: &format!("Select and travel to {}", entry.name),
                 action: BrowseAction::TravelTo(entry.body_index),
                 tab_index: 30 + (column.kind.index() * 100 + row) as i32,
@@ -1117,7 +1242,7 @@ fn spawn_button(
             Node {
                 width: percent(100),
                 min_height: px(32),
-                padding: UiRect::horizontal(px(theme.spacing.sm_px)),
+                padding: UiRect::horizontal(px(theme.spacing.xs_px)),
                 border_radius: BorderRadius::all(px(theme.spacing.radius_px)),
                 align_items: AlignItems::Center,
                 ..default()
@@ -1126,7 +1251,7 @@ fn spawn_button(
             ChildOf(parent),
         ))
         .id();
-    spawn_text(
+    let label = spawn_text(
         commands,
         button,
         font,
@@ -1135,6 +1260,19 @@ fn spawn_button(
         theme.colors.text_primary.color(),
         false,
     );
+    commands.entity(label).insert((
+        TextLayout {
+            linebreak: LineBreak::AnyCharacter,
+            ..default()
+        },
+        Node {
+            width: percent(100),
+            min_width: px(0),
+            ..default()
+        },
+    ));
+    #[cfg(test)]
+    commands.entity(label).insert(BrowseActionLabel);
     button
 }
 
@@ -1175,6 +1313,7 @@ mod tests {
     use super::*;
     use crate::input_intent::InputIntentPlugin;
     use crate::load_catalog_text;
+    use crate::ui_kit::test_layout;
     use crate::{AppSettings, PresentationState};
     use bevy::{
         app::TaskPoolPlugin,
@@ -1182,11 +1321,11 @@ mod tests {
         ecs::system::SystemState,
         input::{keyboard::Key, InputPlugin},
         input_focus::{
-            tab_navigation::{NavAction, TabNavigation},
+            tab_navigation::{NavAction, TabNavigation, TabNavigationPlugin},
             InputDispatchPlugin, InputFocusPlugin,
         },
         picking::hover::HoverMap,
-        text::Font,
+        text::{Font, TextLayoutInfo},
         ui_widgets::ButtonPlugin,
         window::PrimaryWindow,
     };
@@ -1533,6 +1672,132 @@ mod tests {
     }
 
     #[test]
+    fn tab_navigation_keeps_search_dropdown_alive_until_keyboard_activation() {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            InputPlugin,
+            InputFocusPlugin,
+            InputDispatchPlugin,
+            TabNavigationPlugin,
+        ))
+        .add_plugins((AssetPlugin::default(), ButtonPlugin))
+        .init_asset::<Font>()
+        .insert_resource(LoadedCatalog::new(real_catalog()))
+        .insert_resource(UiTheme::default())
+        .init_resource::<SearchUiState>()
+        .init_resource::<SimCommandQueue>()
+        .add_systems(
+            Update,
+            (
+                attach_search_observers,
+                sync_search_input,
+                rebuild_search_dropdown,
+            )
+                .chain(),
+        );
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow))
+            .id();
+        let input_group = app.world_mut().spawn(TabGroup::new(0)).id();
+        let input = app
+            .world_mut()
+            .spawn((
+                SearchInput,
+                EditableText::new("a"),
+                TabIndex(101),
+                ChildOf(input_group),
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(input, FocusCause::Navigated);
+        app.update();
+        app.update();
+
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::Tab,
+            logical_key: Key::Tab,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window,
+        });
+        app.update();
+
+        let first_result = app.world().resource::<InputFocus>().get().unwrap();
+        assert!(app
+            .world()
+            .get::<SearchResultAction>(first_result)
+            .is_some());
+        assert!(app
+            .world()
+            .resource::<SearchUiState>()
+            .dropdown_root
+            .is_some());
+        assert_eq!(
+            app.world().resource::<SearchUiState>().active_input,
+            Some(input)
+        );
+
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::ShiftLeft);
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::Tab,
+            logical_key: Key::Tab,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window,
+        });
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .release(KeyCode::ShiftLeft);
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(input));
+        assert!(app
+            .world()
+            .resource::<SearchUiState>()
+            .dropdown_root
+            .is_some());
+
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::Tab,
+            logical_key: Key::Tab,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window,
+        });
+        app.update();
+        let result = app.world().resource::<InputFocus>().get().unwrap();
+        let expected_body = app.world().get::<SearchResultAction>(result).unwrap().0;
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::Enter,
+            logical_key: Key::Enter,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window,
+        });
+        app.update();
+
+        let expected_id = app.world().resource::<LoadedCatalog>().catalog.bodies[expected_body]
+            .id
+            .clone();
+        let queued: Vec<_> = app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .collect();
+        assert_eq!(queued, vec![SimCommand::TravelToBody(expected_id)]);
+        assert_eq!(app.world().resource::<InputFocus>().get(), None);
+        assert_eq!(app.world().resource::<SearchUiState>().dropdown_root, None);
+    }
+
+    #[test]
     fn ranking_is_deterministic_for_tied_short_queries() {
         let catalog = real_catalog();
         let first = search_catalog(&catalog, "ma");
@@ -1541,5 +1806,308 @@ mod tests {
         assert!(first
             .windows(2)
             .all(|pair| pair[0].sort_key().cmp(&pair[1].sort_key()) != Ordering::Greater));
+    }
+
+    #[test]
+    fn search_dropdown_reaches_last_result_for_required_viewports() {
+        for (width, height, scale) in test_layout::required_viewports() {
+            let catalog = real_catalog();
+            let mut app = test_layout::app(width, height, scale);
+            let input = app.world_mut().spawn_empty().id();
+            let mut state = SearchUiState::default();
+            state.begin_edit(input, "");
+            state.set_query(&catalog, "a".into());
+            assert!(state.hits.len() >= MAX_DROPDOWN_RESULTS);
+            app.insert_resource(UiTheme::default())
+                .insert_resource(LoadedCatalog::new(catalog))
+                .insert_resource(state)
+                .add_systems(Update, rebuild_search_dropdown);
+            test_layout::settle(&mut app);
+
+            let root = app
+                .world_mut()
+                .query_filtered::<Entity, With<SearchDropdownRoot>>()
+                .single(app.world())
+                .unwrap();
+            let group = app.world().get::<TabGroup>(root).unwrap();
+            assert_eq!(group.order, 1);
+            assert!(!group.modal);
+            app.world_mut()
+                .entity_mut(root)
+                .get_mut::<ScrollPosition>()
+                .unwrap()
+                .y = f32::MAX;
+            test_layout::settle(&mut app);
+
+            let world = app.world_mut();
+            let root_rect = node_rect(world, root);
+            let last = world
+                .query::<(Entity, &SearchResultAction, &TabIndex)>()
+                .iter(world)
+                .max_by_key(|(_, _, index)| index.0)
+                .map(|(entity, _, _)| entity)
+                .unwrap();
+            let last_rect = node_rect(world, last);
+            assert!(
+                rect_contains(root_rect, last_rect),
+                "{width}×{height} scale {scale}: final search result {last_rect:?} is not reachable inside {root_rect:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn expanded_browse_columns_reach_their_last_entries_for_required_viewports() {
+        for (width, height, scale) in test_layout::required_viewports() {
+            let mut app = test_layout::app(width, height, scale);
+            app.insert_resource(UiTheme::default())
+                .insert_resource(LoadedCatalog::new(real_catalog()))
+                .insert_resource(BrowseUiState {
+                    open: true,
+                    expanded: [true; 3],
+                    dirty: true,
+                    ..default()
+                })
+                .init_resource::<InputFocus>()
+                .add_systems(Update, rebuild_browse_menu);
+            test_layout::settle(&mut app);
+
+            let lists: Vec<_> = {
+                let world = app.world_mut();
+                world
+                    .query::<(Entity, &BrowseScrollColumn)>()
+                    .iter(world)
+                    .map(|(entity, column)| (entity, usize::from(column.0)))
+                    .collect()
+            };
+            assert_eq!(lists.len(), 3);
+            for (list, _) in &lists {
+                app.world_mut()
+                    .entity_mut(*list)
+                    .get_mut::<ScrollPosition>()
+                    .unwrap()
+                    .y = f32::MAX;
+            }
+            test_layout::settle(&mut app);
+
+            let world = app.world_mut();
+            let titles: Vec<_> = world
+                .query_filtered::<Entity, With<BrowseColumnTitle>>()
+                .iter(world)
+                .collect();
+            assert_eq!(titles.len(), 3);
+            for title in titles {
+                assert_text_fits_parent_horizontally(
+                    world,
+                    title,
+                    width,
+                    height,
+                    scale,
+                    "Browse column title",
+                );
+            }
+            let action_labels: Vec<_> = world
+                .query_filtered::<Entity, With<BrowseActionLabel>>()
+                .iter(world)
+                .collect();
+            assert_eq!(action_labels.len(), 70);
+            for label in action_labels {
+                assert_text_fits_parent_horizontally(
+                    world,
+                    label,
+                    width,
+                    height,
+                    scale,
+                    "Browse action label",
+                );
+            }
+            for (list, column) in lists {
+                let list_rect = node_rect(world, list);
+                assert!(
+                    world.get::<ComputedNode>(list).unwrap().size().y > 0.0,
+                    "{width}×{height} scale {scale}: Browse column {column} has no viewport"
+                );
+                let last = world
+                    .query::<(Entity, &BrowseAction, &TabIndex, &ChildOf)>()
+                    .iter(world)
+                    .filter(|(_, action, _, parent)| {
+                        parent.parent() == list && matches!(action, BrowseAction::TravelTo(_))
+                    })
+                    .max_by_key(|(_, _, index, _)| index.0)
+                    .map(|(entity, _, _, _)| entity)
+                    .unwrap();
+                let last_rect = node_rect(world, last);
+                assert!(
+                    rect_contains(list_rect, last_rect),
+                    "{width}×{height} scale {scale}: Browse column {column} final entry {last_rect:?} is not reachable inside {list_rect:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn browse_expand_restores_toggle_focus_and_preserves_other_column_scrolls() {
+        let mut app = App::new();
+        app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default()))
+            .init_asset::<Font>()
+            .insert_resource(LoadedCatalog::new(real_catalog()))
+            .insert_resource(UiTheme::default())
+            .insert_resource(BrowseUiState {
+                open: true,
+                dirty: true,
+                scroll_y: [12.0, 34.0, 56.0],
+                ..default()
+            })
+            .init_resource::<InputFocus>()
+            .init_resource::<SimCommandQueue>()
+            .add_systems(
+                Update,
+                (attach_search_observers, rebuild_browse_menu).chain(),
+            );
+        app.update();
+        app.update();
+        let toggle = {
+            let world = app.world_mut();
+            world
+                .query::<(Entity, &BrowseAction)>()
+                .iter(world)
+                .find_map(|(entity, action)| {
+                    (*action == BrowseAction::ToggleExpanded(1)).then_some(entity)
+                })
+                .unwrap()
+        };
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(toggle, FocusCause::Navigated);
+        app.world_mut().trigger(Activate { entity: toggle });
+        let command = app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .next()
+            .unwrap();
+        assert_eq!(
+            command,
+            SimCommand::SetBrowseColumnExpanded {
+                column: 1,
+                expanded: true,
+            }
+        );
+        consume_search_command(
+            &command,
+            &mut app.world_mut().resource_mut::<BrowseUiState>(),
+        );
+        app.update();
+
+        let focused = app.world().resource::<InputFocus>().get().unwrap();
+        assert_eq!(
+            app.world().entity(focused).get::<BrowseAction>(),
+            Some(&BrowseAction::ToggleExpanded(1))
+        );
+        assert_eq!(
+            app.world().resource::<BrowseUiState>().scroll_y,
+            [12.0, 0.0, 56.0]
+        );
+    }
+
+    #[test]
+    fn closing_and_reopening_browse_focuses_close_instead_of_a_stale_action() {
+        let mut app = App::new();
+        app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default()))
+            .init_asset::<Font>()
+            .insert_resource(LoadedCatalog::new(real_catalog()))
+            .insert_resource(UiTheme::default())
+            .insert_resource(BrowseUiState {
+                open: true,
+                dirty: true,
+                ..default()
+            })
+            .init_resource::<InputFocus>()
+            .add_systems(Update, rebuild_browse_menu);
+        let search_input = app.world_mut().spawn(SearchInput).id();
+        app.update();
+
+        let stale_action = {
+            let world = app.world_mut();
+            world
+                .query::<(Entity, &BrowseAction)>()
+                .iter(world)
+                .find_map(|(entity, action)| {
+                    (*action == BrowseAction::ToggleExpanded(1)).then_some(entity)
+                })
+                .unwrap()
+        };
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(stale_action, FocusCause::Navigated);
+        consume_search_command(
+            &SimCommand::SetBrowseOpen(false),
+            &mut app.world_mut().resource_mut::<BrowseUiState>(),
+        );
+        app.update();
+        assert_eq!(
+            app.world().resource::<InputFocus>().get(),
+            Some(search_input)
+        );
+        assert_eq!(app.world().resource::<BrowseUiState>().restore_action, None);
+
+        consume_search_command(
+            &SimCommand::SetBrowseOpen(true),
+            &mut app.world_mut().resource_mut::<BrowseUiState>(),
+        );
+        app.update();
+
+        let focused = app.world().resource::<InputFocus>().get().unwrap();
+        assert_eq!(
+            app.world().entity(focused).get::<BrowseAction>(),
+            Some(&BrowseAction::Close)
+        );
+    }
+
+    fn node_rect(world: &World, entity: Entity) -> Rect {
+        let node = world.get::<ComputedNode>(entity).unwrap();
+        let center = world
+            .get::<UiGlobalTransform>(entity)
+            .unwrap()
+            .affine()
+            .translation;
+        Rect::from_center_size(center, node.size())
+    }
+
+    fn rect_contains(outer: Rect, inner: Rect) -> bool {
+        inner.min.x >= outer.min.x - 1.0
+            && inner.max.x <= outer.max.x + 1.0
+            && inner.min.y >= outer.min.y - 1.0
+            && inner.max.y <= outer.max.y + 1.0
+    }
+
+    fn assert_text_fits_parent_horizontally(
+        world: &World,
+        text: Entity,
+        width: u32,
+        height: u32,
+        scale: f32,
+        label: &str,
+    ) {
+        let node = world.get::<ComputedNode>(text).unwrap();
+        let layout = world.get::<TextLayoutInfo>(text).unwrap();
+        let value = world.get::<Text>(text).unwrap();
+        let parent = world.get::<ChildOf>(text).unwrap().parent();
+        let parent_rect = node_rect(world, parent);
+        let text_rect = node_rect(world, text);
+        let logical_content_width = node.content_box().width() * node.inverse_scale_factor();
+        assert!(
+            layout.size.x > 0.0,
+            "{width}×{height} scale {scale}: {label} produced no text bounds"
+        );
+        assert!(
+            layout.size.x <= logical_content_width + 1.0,
+            "{width}×{height} scale {scale}: {label} {value:?} glyph width {} exceeds its constrained content width {logical_content_width}",
+            layout.size.x,
+        );
+        assert!(
+            text_rect.min.x >= parent_rect.min.x - 1.0
+                && text_rect.max.x <= parent_rect.max.x + 1.0,
+            "{width}×{height} scale {scale}: {label} node {text_rect:?} clips outside parent {parent_rect:?}"
+        );
     }
 }

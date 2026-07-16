@@ -17,7 +17,10 @@ use crate::{
 };
 use bevy::{
     input::mouse::MouseScrollUnit,
-    input_focus::{tab_navigation::TabIndex, FocusCause, InputFocus},
+    input_focus::{
+        tab_navigation::{TabGroup, TabIndex},
+        FocusCause, InputFocus,
+    },
     prelude::*,
     text::{Font, LetterSpacing, LineBreak, TextLayout},
     ui_widgets::Activate,
@@ -31,6 +34,7 @@ const PANEL_WIDTH_PX: f32 = 340.0;
 const PANEL_COLLAPSED_SIZE_PX: f32 = 44.0;
 const PANEL_MARGIN_PX: f32 = 16.0;
 const PANEL_Z_INDEX: i32 = 85;
+const PANEL_TAB_GROUP_ORDER: i32 = 10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LeftPanelTab {
@@ -483,6 +487,7 @@ pub(crate) struct LeftPanelUiState {
     page: ActivePanelPage,
     dirty: bool,
     scroll_y: f32,
+    reset_scroll_on_rebuild: bool,
     restore_focus: Option<PanelAction>,
 }
 
@@ -554,6 +559,7 @@ pub(crate) fn consume_left_panel_command(
             };
             state.dirty = true;
             state.scroll_y = 0.0;
+            state.reset_scroll_on_rebuild = true;
             if let (Some(loaded), Some(selected)) = (loaded, state.selected_body_index) {
                 sync_navigation_to_body(loaded, selected, navigation);
                 if *tab == LeftPanelTab::Collection {
@@ -584,6 +590,7 @@ pub(crate) fn consume_left_panel_command(
                 ActivePanelPage::Info
             };
             state.scroll_y = 0.0;
+            state.reset_scroll_on_rebuild = true;
             state.dirty = true;
         }
         _ => {}
@@ -604,6 +611,7 @@ pub(crate) fn sync_left_panel_selection_state(
     state.page = ActivePanelPage::Info;
     state.dirty = true;
     state.scroll_y = 0.0;
+    state.reset_scroll_on_rebuild = true;
     sync_navigation_to_body(loaded, selected, navigation);
 }
 
@@ -663,6 +671,9 @@ fn rebuild_left_panel(
     app_settings: Res<AppSettings>,
     mut state: ResMut<LeftPanelUiState>,
     existing_roots: Query<Entity, With<LeftPanelRoot>>,
+    focus: Option<Res<InputFocus>>,
+    panel_actions: Query<&PanelAction>,
+    contents: Query<&ScrollPosition, With<LeftPanelContent>>,
 ) {
     if !state.dirty && !view_options.is_changed() && !app_settings.is_changed() {
         return;
@@ -670,6 +681,16 @@ fn rebuild_left_panel(
     let (Some(loaded), Some(body_index)) = (loaded, state.selected_body_index) else {
         return;
     };
+    if let Some(focused) = focus.as_deref().and_then(InputFocus::get) {
+        if let Ok(action) = panel_actions.get(focused) {
+            state.restore_focus = Some(*action);
+        }
+    }
+    if !std::mem::take(&mut state.reset_scroll_on_rebuild) {
+        if let Ok(position) = contents.single() {
+            state.scroll_y = position.y;
+        }
+    }
     for root in &existing_roots {
         commands.entity(root).despawn();
     }
@@ -687,7 +708,11 @@ fn rebuild_left_panel(
             PanelAction::ToggleCollapsed,
             true,
         );
-        queue_panel_focus_restore(&mut commands, state.restore_focus.take());
+        queue_panel_focus_restore(
+            &mut commands,
+            state.restore_focus.take(),
+            PanelAction::ToggleCollapsed,
+        );
         state.dirty = false;
         return;
     }
@@ -706,19 +731,26 @@ fn rebuild_left_panel(
         ),
         Err(error) => spawn_panel_error(&mut commands, root, *theme, &font, &error.to_string()),
     }
-    queue_panel_focus_restore(&mut commands, state.restore_focus.take());
+    queue_panel_focus_restore(
+        &mut commands,
+        state.restore_focus.take(),
+        page_focus_action(state.page),
+    );
     state.dirty = false;
 }
 
-fn queue_panel_focus_restore(commands: &mut Commands, action: Option<PanelAction>) {
+fn page_focus_action(page: ActivePanelPage) -> PanelAction {
+    PanelAction::SelectPage(page)
+}
+
+fn queue_panel_focus_restore(
+    commands: &mut Commands,
+    action: Option<PanelAction>,
+    fallback: PanelAction,
+) {
     if let Some(action) = action {
         commands.queue(move |world: &mut World| {
-            let focused = {
-                let mut actions = world.query::<(Entity, &PanelAction)>();
-                actions
-                    .iter(world)
-                    .find_map(|(entity, candidate)| (*candidate == action).then_some(entity))
-            };
+            let focused = panel_focus_entity(world, action, fallback);
             if let Some(entity) = focused {
                 world
                     .resource_mut::<InputFocus>()
@@ -728,6 +760,22 @@ fn queue_panel_focus_restore(commands: &mut Commands, action: Option<PanelAction
     }
 }
 
+fn panel_focus_entity(
+    world: &mut World,
+    requested: PanelAction,
+    fallback: PanelAction,
+) -> Option<Entity> {
+    let mut actions = world.query::<(Entity, &PanelAction)>();
+    let exact = actions
+        .iter(world)
+        .find_map(|(entity, candidate)| (*candidate == requested).then_some(entity));
+    exact.or_else(|| {
+        actions
+            .iter(world)
+            .find_map(|(entity, candidate)| (*candidate == fallback).then_some(entity))
+    })
+}
+
 fn spawn_panel_root(commands: &mut Commands, theme: UiTheme, collapsed: bool) -> Entity {
     commands
         .spawn((
@@ -735,6 +783,7 @@ fn spawn_panel_root(commands: &mut Commands, theme: UiTheme, collapsed: bool) ->
             LeftPanelRoot,
             HudSurface,
             AccessibleLabel::new("Contextual body information and view options"),
+            TabGroup::new(PANEL_TAB_GROUP_ORDER),
             Node {
                 position_type: PositionType::Absolute,
                 top: px(TOP_BAR_HEIGHT_PX + PANEL_MARGIN_PX),
@@ -745,6 +794,7 @@ fn spawn_panel_root(commands: &mut Commands, theme: UiTheme, collapsed: bool) ->
                 } else {
                     PANEL_WIDTH_PX
                 }),
+                max_width: if collapsed { auto() } else { percent(78) },
                 height: if collapsed {
                     px(PANEL_COLLAPSED_SIZE_PX)
                 } else {
@@ -813,36 +863,6 @@ fn spawn_expanded_panel(
         false,
     );
 
-    let tabs = commands
-        .spawn((
-            Node {
-                width: percent(100),
-                height: px(34),
-                align_items: AlignItems::Center,
-                column_gap: px(theme.spacing.xs_px),
-                ..default()
-            },
-            ChildOf(root),
-        ))
-        .id();
-    for tab in &model.tabs {
-        let tab_page = match tab {
-            LeftPanelTab::Info => ActivePanelPage::Info,
-            LeftPanelTab::Collection => ActivePanelPage::Collection,
-            LeftPanelTab::ViewOptions => ActivePanelPage::ViewOptions,
-        };
-        spawn_action_button(
-            commands,
-            tabs,
-            theme,
-            font,
-            tab.label(),
-            &format!("Show {} for {}", tab.label(), model.body.name),
-            PanelAction::SelectPage(tab_page),
-            page == tab_page,
-        );
-    }
-
     let scroll_position = ScrollPosition(Vec2::new(0.0, scroll_y));
     let content = commands
         .spawn((
@@ -863,6 +883,36 @@ fn spawn_expanded_panel(
         ))
         .observe(scroll_left_panel_content)
         .id();
+
+    let tabs = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                min_height: px(34),
+                align_items: AlignItems::Center,
+                column_gap: px(theme.spacing.xs_px),
+                ..default()
+            },
+            ChildOf(content),
+        ))
+        .id();
+    for tab in &model.tabs {
+        let tab_page = match tab {
+            LeftPanelTab::Info => ActivePanelPage::Info,
+            LeftPanelTab::Collection => ActivePanelPage::Collection,
+            LeftPanelTab::ViewOptions => ActivePanelPage::ViewOptions,
+        };
+        spawn_action_button(
+            commands,
+            tabs,
+            theme,
+            font,
+            tab.label(),
+            &format!("Show {} for {}", tab.label(), model.body.name),
+            PanelAction::SelectPage(tab_page),
+            page == tab_page,
+        );
+    }
 
     match page {
         ActivePanelPage::Info => spawn_info_page(commands, content, theme, font, model),
@@ -1266,7 +1316,7 @@ fn spawn_action_button(
             bevy::ui_widgets::Button,
             action,
             AccessibleLabel::new(accessible_label),
-            TabIndex(20),
+            TabIndex(panel_tab_index(action)),
             Node {
                 min_width: px(34),
                 max_width: if compact { px(44) } else { auto() },
@@ -1314,6 +1364,28 @@ fn spawn_action_button(
         false,
     );
     entity
+}
+
+fn panel_tab_index(action: PanelAction) -> i32 {
+    match action {
+        PanelAction::ToggleCollapsed => 0,
+        PanelAction::SelectPage(ActivePanelPage::Info) => 10,
+        PanelAction::SelectPage(ActivePanelPage::Collection) => 11,
+        PanelAction::SelectPage(ActivePanelPage::ViewOptions) => 12,
+        PanelAction::TravelTo(body_index) => 100 + body_index as i32,
+        PanelAction::SetBodySize(BodySizeScale::X1) => 200,
+        PanelAction::SetBodySize(BodySizeScale::X10) => 201,
+        PanelAction::SetBodySize(BodySizeScale::X50) => 202,
+        PanelAction::SetMoonVisibility {
+            mode: MoonVisibilityMode::Major,
+            ..
+        } => 210,
+        PanelAction::SetMoonVisibility {
+            mode: MoonVisibilityMode::All,
+            ..
+        } => 211,
+        PanelAction::ToggleLocalOrbit(_) => 220,
+    }
 }
 
 fn spawn_disabled_button(
@@ -1549,6 +1621,7 @@ fn apply_view_options(
 mod tests {
     use super::*;
     use crate::labels::{inflated_pick_radius, ray_sphere_hit_distance};
+    use crate::ui_kit::test_layout;
     use crate::{load_catalog_text, propagate_catalog, BodyStates};
     use bevy::{
         app::TaskPoolPlugin,
@@ -1557,11 +1630,68 @@ mod tests {
         scene::ScenePlugin,
         text::Font,
     };
+    use std::collections::HashSet;
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
 
     fn catalog() -> Catalog {
         load_catalog_text(REAL_CATALOG).unwrap()
+    }
+
+    fn rendered_panel_app(selected_body_index: usize) -> App {
+        let mut app = App::new();
+        app.add_plugins((
+            TaskPoolPlugin::default(),
+            AssetPlugin::default(),
+            ScenePlugin,
+        ))
+        .init_asset::<Font>()
+        .insert_resource(UiTheme::default())
+        .insert_resource(LoadedCatalog::new(catalog()))
+        .insert_resource(ViewOptionsState::default())
+        .insert_resource(AppSettings::default())
+        .init_resource::<InputFocus>()
+        .insert_resource(LeftPanelUiState {
+            selected_body_index: Some(selected_body_index),
+            page: ActivePanelPage::Info,
+            dirty: true,
+            scroll_y: 0.0,
+            reset_scroll_on_rebuild: false,
+            restore_focus: None,
+        })
+        .add_systems(Update, rebuild_left_panel);
+        app.update();
+        app
+    }
+
+    fn descendant_of(world: &World, mut entity: Entity, ancestor: Entity) -> bool {
+        for _ in 0..16 {
+            if entity == ancestor {
+                return true;
+            }
+            let Some(parent) = world.entity(entity).get::<ChildOf>() else {
+                return false;
+            };
+            entity = parent.parent();
+        }
+        false
+    }
+
+    fn layout_node_rect(world: &World, entity: Entity) -> Rect {
+        let node = world.get::<ComputedNode>(entity).unwrap();
+        let center = world
+            .get::<UiGlobalTransform>(entity)
+            .unwrap()
+            .affine()
+            .translation;
+        Rect::from_center_size(center, node.size())
+    }
+
+    fn layout_rect_contains(outer: Rect, inner: Rect) -> bool {
+        inner.min.x >= outer.min.x - 1.0
+            && inner.max.x <= outer.max.x + 1.0
+            && inner.min.y >= outer.min.y - 1.0
+            && inner.max.y <= outer.max.y + 1.0
     }
 
     #[test]
@@ -1619,6 +1749,7 @@ mod tests {
             page: ActivePanelPage::Info,
             dirty: true,
             scroll_y: 0.0,
+            reset_scroll_on_rebuild: false,
             restore_focus: None,
         })
         .add_systems(Update, rebuild_left_panel);
@@ -1629,6 +1760,341 @@ mod tests {
         app.update();
         assert!(visible_text_contains(&mut app, "3959 mi"));
         assert!(!visible_text_contains(&mut app, "6371 km"));
+    }
+
+    #[test]
+    fn expanded_panel_is_an_ordered_tab_group_with_tabs_inside_scroll_content() {
+        let loaded = LoadedCatalog::new(catalog());
+        let earth = loaded.index_of("earth").unwrap();
+        let mut app = rendered_panel_app(earth);
+        let world = app.world_mut();
+        let root = world
+            .query_filtered::<Entity, With<LeftPanelRoot>>()
+            .single(world)
+            .unwrap();
+        let group = world.entity(root).get::<TabGroup>().unwrap();
+        let node = world.entity(root).get::<Node>().unwrap();
+        assert_eq!(group.order, PANEL_TAB_GROUP_ORDER);
+        assert!(!group.modal);
+        assert_eq!(node.max_width, percent(78));
+
+        let content = world
+            .query_filtered::<Entity, With<LeftPanelContent>>()
+            .single(world)
+            .unwrap();
+        assert!(descendant_of(world, content, root));
+        let page_actions: Vec<_> = world
+            .query::<(Entity, &PanelAction)>()
+            .iter(world)
+            .filter_map(|(entity, action)| {
+                matches!(action, PanelAction::SelectPage(_)).then_some(entity)
+            })
+            .collect();
+        assert!(!page_actions.is_empty());
+        assert!(page_actions
+            .into_iter()
+            .all(|entity| descendant_of(world, entity, content)));
+    }
+
+    #[test]
+    fn left_panel_reaches_last_action_for_required_viewports() {
+        for (width, height, scale) in test_layout::required_viewports() {
+            let loaded = LoadedCatalog::new(catalog());
+            let jupiter = loaded.index_of("jupiter").unwrap();
+            let mut app = test_layout::app(width, height, scale);
+            app.insert_resource(UiTheme::default())
+                .insert_resource(loaded)
+                .insert_resource(ViewOptionsState::default())
+                .insert_resource(AppSettings::default())
+                .init_resource::<InputFocus>()
+                .insert_resource(LeftPanelUiState {
+                    selected_body_index: Some(jupiter),
+                    page: ActivePanelPage::Collection,
+                    dirty: true,
+                    scroll_y: 0.0,
+                    reset_scroll_on_rebuild: false,
+                    restore_focus: None,
+                })
+                .add_systems(Update, rebuild_left_panel);
+            test_layout::settle(&mut app);
+
+            let root = app
+                .world_mut()
+                .query_filtered::<Entity, With<LeftPanelRoot>>()
+                .single(app.world())
+                .unwrap();
+            let content = app
+                .world_mut()
+                .query_filtered::<Entity, With<LeftPanelContent>>()
+                .single(app.world())
+                .unwrap();
+            let root_rect = layout_node_rect(app.world(), root);
+            let viewport = Rect::from_corners(Vec2::ZERO, Vec2::new(width as f32, height as f32));
+            assert!(
+                layout_rect_contains(viewport, root_rect),
+                "{width}×{height} scale {scale}: left panel {root_rect:?} escaped viewport"
+            );
+            assert!(
+                root_rect.width() <= width as f32 * 0.78 + 1.0,
+                "{width}×{height} scale {scale}: left panel ignored responsive width cap"
+            );
+            assert!(
+                app.world().get::<ComputedNode>(content).unwrap().size().y >= 30.0 * scale,
+                "{width}×{height} scale {scale}: left panel cannot expose one action"
+            );
+
+            app.world_mut()
+                .entity_mut(content)
+                .get_mut::<ScrollPosition>()
+                .unwrap()
+                .y = f32::MAX;
+            test_layout::settle(&mut app);
+            let last = app
+                .world_mut()
+                .query::<(Entity, &PanelAction, &TabIndex)>()
+                .iter(app.world())
+                .filter(|(_, action, _)| matches!(action, PanelAction::TravelTo(_)))
+                .max_by_key(|(_, _, index)| index.0)
+                .map(|(entity, _, _)| entity)
+                .unwrap();
+            let last_rect = layout_node_rect(app.world(), last);
+            let content_rect = layout_node_rect(app.world(), content);
+            assert!(
+                layout_rect_contains(content_rect, last_rect),
+                "{width}×{height} scale {scale}: final left-panel action {last_rect:?} is not reachable inside {content_rect:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn panel_actions_use_unique_stable_semantic_tab_indices() {
+        let actions = [
+            PanelAction::ToggleCollapsed,
+            PanelAction::SelectPage(ActivePanelPage::Info),
+            PanelAction::SelectPage(ActivePanelPage::Collection),
+            PanelAction::SelectPage(ActivePanelPage::ViewOptions),
+            PanelAction::TravelTo(0),
+            PanelAction::TravelTo(65),
+            PanelAction::SetBodySize(BodySizeScale::X1),
+            PanelAction::SetBodySize(BodySizeScale::X10),
+            PanelAction::SetBodySize(BodySizeScale::X50),
+            PanelAction::SetMoonVisibility {
+                system_index: 5,
+                mode: MoonVisibilityMode::Major,
+            },
+            PanelAction::SetMoonVisibility {
+                system_index: 5,
+                mode: MoonVisibilityMode::All,
+            },
+            PanelAction::ToggleLocalOrbit(5),
+        ];
+        let indices: HashSet<_> = actions.into_iter().map(panel_tab_index).collect();
+        assert_eq!(indices.len(), actions.len());
+        assert_eq!(panel_tab_index(PanelAction::TravelTo(42)), 142);
+    }
+
+    #[test]
+    fn focused_panel_actions_survive_rebuilds_and_missing_travel_uses_info_fallback() {
+        let loaded = LoadedCatalog::new(catalog());
+        let earth = loaded.index_of("earth").unwrap();
+        let sun = loaded.index_of("sun").unwrap();
+        let mut app = rendered_panel_app(earth);
+        {
+            let mut state = app.world_mut().resource_mut::<LeftPanelUiState>();
+            state.page = ActivePanelPage::ViewOptions;
+            state.dirty = true;
+        }
+        app.update();
+
+        let size_button = {
+            let world = app.world_mut();
+            world
+                .query::<(Entity, &PanelAction)>()
+                .iter(world)
+                .find_map(|(entity, action)| {
+                    (*action == PanelAction::SetBodySize(BodySizeScale::X10)).then_some(entity)
+                })
+                .unwrap()
+        };
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(size_button, FocusCause::Navigated);
+        app.world_mut()
+            .resource_mut::<ViewOptionsState>()
+            .set_body_size(BodySizeScale::X10);
+        {
+            let scroll = {
+                let world = app.world_mut();
+                world
+                    .query_filtered::<Entity, With<LeftPanelContent>>()
+                    .single(world)
+                    .unwrap()
+            };
+            app.world_mut()
+                .entity_mut(scroll)
+                .get_mut::<ScrollPosition>()
+                .unwrap()
+                .y = 37.0;
+        }
+        app.update();
+
+        let rebuilt_size_button = {
+            let world = app.world_mut();
+            world
+                .query::<(Entity, &PanelAction)>()
+                .iter(world)
+                .find_map(|(entity, action)| {
+                    (*action == PanelAction::SetBodySize(BodySizeScale::X10)).then_some(entity)
+                })
+                .unwrap()
+        };
+        assert_eq!(
+            app.world().resource::<InputFocus>().get(),
+            Some(rebuilt_size_button)
+        );
+        let scroll_y = {
+            let world = app.world_mut();
+            world
+                .query_filtered::<&ScrollPosition, With<LeftPanelContent>>()
+                .single(world)
+                .unwrap()
+                .y
+        };
+        assert_eq!(scroll_y, 37.0);
+
+        {
+            let mut state = app.world_mut().resource_mut::<LeftPanelUiState>();
+            state.page = ActivePanelPage::Info;
+            state.dirty = true;
+        }
+        app.update();
+        let parent_button = {
+            let world = app.world_mut();
+            world
+                .query::<(Entity, &PanelAction)>()
+                .iter(world)
+                .find_map(|(entity, action)| {
+                    (*action == PanelAction::TravelTo(sun)).then_some(entity)
+                })
+                .unwrap()
+        };
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(parent_button, FocusCause::Navigated);
+        {
+            let mut state = app.world_mut().resource_mut::<LeftPanelUiState>();
+            state.selected_body_index = Some(sun);
+            state.page = ActivePanelPage::Info;
+            state.dirty = true;
+        }
+        app.update();
+
+        let focused = app.world().resource::<InputFocus>().get().unwrap();
+        assert_eq!(
+            app.world().entity(focused).get::<PanelAction>(),
+            Some(&PanelAction::SelectPage(ActivePanelPage::Info))
+        );
+    }
+
+    #[test]
+    fn semantic_page_and_body_transitions_keep_their_intentional_scroll_reset() {
+        let loaded = LoadedCatalog::new(catalog());
+        let earth = loaded.index_of("earth").unwrap();
+        let jupiter = loaded.index_of("jupiter").unwrap();
+        let mut state = LeftPanelUiState {
+            selected_body_index: Some(jupiter),
+            page: ActivePanelPage::Info,
+            dirty: false,
+            scroll_y: 81.0,
+            reset_scroll_on_rebuild: false,
+            restore_focus: None,
+        };
+        let mut view_options = ViewOptionsState::default();
+        let mut navigation = NavigationStack::root();
+
+        consume_left_panel_command(
+            &SimCommand::SetLeftPanelTab(LeftPanelTab::Collection),
+            Some(&loaded),
+            &mut view_options,
+            &mut state,
+            &mut navigation,
+        );
+        assert_eq!(state.scroll_y, 0.0);
+        assert!(state.reset_scroll_on_rebuild);
+
+        state.scroll_y = 52.0;
+        state.reset_scroll_on_rebuild = false;
+        consume_left_panel_command(
+            &SimCommand::NavigateBreadcrumb {
+                depth: 1,
+                target_id: "jupiter".into(),
+            },
+            Some(&loaded),
+            &mut view_options,
+            &mut state,
+            &mut navigation,
+        );
+        assert_eq!(state.scroll_y, 0.0);
+        assert!(state.reset_scroll_on_rebuild);
+
+        state.scroll_y = 29.0;
+        state.reset_scroll_on_rebuild = false;
+        sync_left_panel_selection_state(
+            &CameraController::new(earth, [0.0; 3], 1.0),
+            &loaded,
+            &mut state,
+            &mut navigation,
+        );
+        assert_eq!(state.scroll_y, 0.0);
+        assert!(state.reset_scroll_on_rebuild);
+
+        let mut app = rendered_panel_app(jupiter);
+        let content = {
+            let world = app.world_mut();
+            world
+                .query_filtered::<Entity, With<LeftPanelContent>>()
+                .single(world)
+                .unwrap()
+        };
+        app.world_mut()
+            .entity_mut(content)
+            .get_mut::<ScrollPosition>()
+            .unwrap()
+            .y = 97.0;
+        {
+            let mut state = app.world_mut().resource_mut::<LeftPanelUiState>();
+            state.page = ActivePanelPage::Collection;
+            state.dirty = true;
+            state.scroll_y = 0.0;
+            state.reset_scroll_on_rebuild = true;
+        }
+        app.update();
+
+        let rebuilt_scroll_y = {
+            let world = app.world_mut();
+            world
+                .query_filtered::<&ScrollPosition, With<LeftPanelContent>>()
+                .single(world)
+                .unwrap()
+                .y
+        };
+        assert_eq!(rebuilt_scroll_y, 0.0);
+    }
+
+    #[test]
+    fn absent_requested_panel_action_resolves_to_the_explicit_fallback() {
+        let mut world = World::new();
+        let info = world
+            .spawn(PanelAction::SelectPage(ActivePanelPage::Info))
+            .id();
+        assert_eq!(
+            panel_focus_entity(
+                &mut world,
+                PanelAction::TravelTo(42),
+                PanelAction::SelectPage(ActivePanelPage::Info),
+            ),
+            Some(info)
+        );
     }
 
     fn visible_text_contains(app: &mut App, needle: &str) -> bool {
@@ -1888,6 +2354,7 @@ mod tests {
                 page: ActivePanelPage::Info,
                 dirty: false,
                 scroll_y: 0.0,
+                reset_scroll_on_rebuild: false,
                 restore_focus: None,
             })
             .insert_resource(ViewOptionsState::default())

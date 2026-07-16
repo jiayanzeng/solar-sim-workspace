@@ -38,6 +38,7 @@ use std::time::Duration;
 pub const SETTINGS_IDENTIFIER: &str = "com.github.jiayanzeng.solar-sim";
 const SETTINGS_SAVE_DELAY: Duration = Duration::from_millis(100);
 const SETTINGS_Z_INDEX: i32 = 140;
+const SETTINGS_FIRST_TAB_INDEX: i32 = 200;
 
 #[derive(Reflect, Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[cfg_attr(test, derive(serde::Serialize, serde::Deserialize))]
@@ -673,15 +674,29 @@ fn save_settings_on_window_close(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn rebuild_settings_screen(
     mut commands: Commands,
     theme: Res<UiTheme>,
     asset_server: Res<AssetServer>,
     mut screen: ResMut<SettingsScreenState>,
     roots: Query<Entity, With<SettingsScreenRoot>>,
+    actions: Query<&SettingAction>,
+    scroll_areas: Query<&ScrollPosition, With<SettingsScrollArea>>,
+    focus: Res<InputFocus>,
 ) {
     if !screen.dirty {
         return;
+    }
+    if screen.open {
+        if screen.restore_focus.is_none() {
+            screen.restore_focus = focus
+                .get()
+                .and_then(|entity| actions.get(entity).ok().copied());
+        }
+        if let Ok(position) = scroll_areas.single() {
+            screen.scroll_y = position.y;
+        }
     }
     for root in &roots {
         commands.entity(root).despawn();
@@ -768,6 +783,7 @@ fn rebuild_settings_screen(
         .id();
 
     let draft = screen.draft.clone();
+    let mut next_tab_index = SETTINGS_FIRST_TAB_INDEX;
     spawn_section(&mut commands, content, *theme, "DISPLAY MODE");
     spawn_choices(
         &mut commands,
@@ -780,6 +796,7 @@ fn rebuild_settings_screen(
                 SettingAction::SetDisplayMode(value),
             )
         }),
+        &mut next_tab_index,
     );
     spawn_section(&mut commands, content, *theme, "RESOLUTION");
     spawn_choices(
@@ -793,6 +810,7 @@ fn rebuild_settings_screen(
                 SettingAction::SetResolution(value),
             )
         }),
+        &mut next_tab_index,
     );
     spawn_checkbox(
         &mut commands,
@@ -801,6 +819,7 @@ fn rebuild_settings_screen(
         "Vertical sync",
         draft.vsync,
         SettingAction::ToggleVsync,
+        &mut next_tab_index,
     );
     spawn_section(&mut commands, content, *theme, "FRAME CAP");
     spawn_choices(
@@ -814,6 +833,7 @@ fn rebuild_settings_screen(
                 SettingAction::SetFrameCap(value),
             )
         }),
+        &mut next_tab_index,
     );
     spawn_section(&mut commands, content, *theme, "QUALITY PRESET");
     spawn_choices(
@@ -827,7 +847,9 @@ fn rebuild_settings_screen(
                 SettingAction::SetQuality(value),
             )
         }),
+        &mut next_tab_index,
     );
+    let ui_scale_tab_index = next_settings_tab_index(&mut next_tab_index);
     commands
         .spawn_scene(slider(
             *theme,
@@ -837,7 +859,11 @@ fn rebuild_settings_screen(
                 WidgetVisualState::Active,
             ),
         ))
-        .insert((SettingAction::CycleUiScale, TabIndex(200), ChildOf(content)))
+        .insert((
+            SettingAction::CycleUiScale,
+            ui_scale_tab_index,
+            ChildOf(content),
+        ))
         .observe(activate_setting_action);
 
     spawn_section(&mut commands, content, *theme, "DISTANCE UNITS");
@@ -852,6 +878,7 @@ fn rebuild_settings_screen(
                 SettingAction::SetUnits(value),
             )
         }),
+        &mut next_tab_index,
     );
 
     spawn_section(&mut commands, content, *theme, "START TIME");
@@ -882,6 +909,7 @@ fn rebuild_settings_screen(
                 SettingAction::AdjustStartEpoch(365.25),
             ),
         ],
+        &mut next_tab_index,
     );
     spawn_checkbox(
         &mut commands,
@@ -890,6 +918,7 @@ fn rebuild_settings_screen(
         "Invert horizontal orbit axis",
         draft.invert_horizontal,
         SettingAction::ToggleInvertHorizontal,
+        &mut next_tab_index,
     );
     spawn_checkbox(
         &mut commands,
@@ -898,6 +927,7 @@ fn rebuild_settings_screen(
         "Invert vertical orbit axis",
         draft.invert_vertical,
         SettingAction::ToggleInvertVertical,
+        &mut next_tab_index,
     );
 
     spawn_section(&mut commands, content, *theme, "LAYERS");
@@ -909,6 +939,7 @@ fn rebuild_settings_screen(
             layer.label(),
             draft.layers.visible(layer),
             SettingAction::ToggleLayer(layer),
+            &mut next_tab_index,
         );
     }
 
@@ -916,9 +947,10 @@ fn rebuild_settings_screen(
         .spawn((
             Node {
                 width: percent(100),
-                height: px(42),
+                height: auto(),
+                min_height: px(42),
+                flex_shrink: 0.0,
                 justify_content: JustifyContent::FlexEnd,
-                align_items: AlignItems::Center,
                 column_gap: px(theme.spacing.sm_px),
                 ..default()
             },
@@ -939,7 +971,9 @@ fn rebuild_settings_screen(
             ),
             ("APPLY".to_string(), true, SettingAction::Apply),
         ],
+        &mut next_tab_index,
     );
+    debug_assert_eq!(next_tab_index, SETTINGS_FIRST_TAB_INDEX + 39);
     let action = screen.restore_focus.take().unwrap_or(SettingAction::Close);
     commands.queue(move |world: &mut World| {
         let focused = {
@@ -1011,6 +1045,7 @@ fn spawn_choices<const N: usize>(
     parent: Entity,
     theme: UiTheme,
     choices: [(String, bool, SettingAction); N],
+    next_tab_index: &mut i32,
 ) {
     let row = commands
         .spawn((
@@ -1040,7 +1075,11 @@ fn spawn_choices<const N: usize>(
             ),
         ));
         entity
-            .insert((action, TabIndex(200), ChildOf(row)))
+            .insert((
+                action,
+                next_settings_tab_index(next_tab_index),
+                ChildOf(row),
+            ))
             .observe(activate_setting_action);
     }
 }
@@ -1052,6 +1091,7 @@ fn spawn_checkbox(
     label: &str,
     checked: bool,
     action: SettingAction,
+    next_tab_index: &mut i32,
 ) {
     commands
         .spawn_scene(checkbox_row(
@@ -1066,8 +1106,18 @@ fn spawn_checkbox(
                 },
             ),
         ))
-        .insert((action, TabIndex(200), ChildOf(parent)))
+        .insert((
+            action,
+            next_settings_tab_index(next_tab_index),
+            ChildOf(parent),
+        ))
         .observe(activate_setting_action);
+}
+
+fn next_settings_tab_index(next_tab_index: &mut i32) -> TabIndex {
+    let tab_index = *next_tab_index;
+    *next_tab_index += 1;
+    TabIndex(tab_index)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1111,12 +1161,7 @@ fn activate_setting_action(
         SettingAction::SetFrameCap(value) => screen.draft.frame_cap = value,
         SettingAction::SetQuality(value) => screen.draft.quality = value,
         SettingAction::CycleUiScale => {
-            screen.draft.ui_scale = match screen.draft.ui_scale {
-                value if value < 1.0 => 1.0,
-                value if value < 1.25 => 1.25,
-                value if value < 1.5 => 1.5,
-                _ => 0.75,
-            };
+            screen.draft.ui_scale = next_ui_scale(screen.draft.ui_scale);
         }
         SettingAction::SetUnits(value) => screen.draft.units = value,
         SettingAction::SetStartLive => screen.draft.start_mode = StartModeSetting::Live,
@@ -1139,6 +1184,16 @@ fn activate_setting_action(
         SettingAction::ToggleLayer(layer) => screen.draft.layers.toggle(layer),
     }
     screen.dirty = true;
+}
+
+fn next_ui_scale(current: f32) -> f32 {
+    match current {
+        value if value < 1.0 => 1.0,
+        value if value < 1.25 => 1.25,
+        value if value < 1.5 => 1.5,
+        value if value < 2.0 => 2.0,
+        _ => 0.75,
+    }
 }
 
 fn product_render_error_policy(
@@ -1268,6 +1323,7 @@ fn simulate_device_loss(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui_kit::test_layout;
     use crate::WidgetRoot;
     use bevy::{
         a11y::AccessibilityNode,
@@ -1316,6 +1372,78 @@ mod tests {
         app.register_type::<AppSettings>()
             .add_plugins(BevySettingsPlugin::new(SETTINGS_IDENTIFIER));
         app
+    }
+
+    fn settings_screen_test_app() -> App {
+        let mut presentation = PresentationState::default();
+        presentation.open_settings();
+        let mut app = App::new();
+        app.add_plugins((
+            TaskPoolPlugin::default(),
+            AssetPlugin::default(),
+            ScenePlugin,
+        ))
+        .init_asset::<Font>()
+        .insert_resource(UiTheme::default())
+        .insert_resource(AppSettings::default())
+        .init_resource::<LayerState>()
+        .insert_resource(presentation)
+        .init_resource::<SimCommandQueue>()
+        .init_resource::<SettingsSaveRequest>()
+        .init_resource::<InputFocus>()
+        .insert_resource(SettingsScreenState {
+            open: true,
+            draft: AppSettings::default(),
+            dirty: true,
+            scroll_y: 0.0,
+            restore_focus: None,
+        })
+        .add_systems(Startup, rebuild_settings_screen)
+        .add_systems(
+            Update,
+            (sync_settings_screen, rebuild_settings_screen).chain(),
+        );
+        app
+    }
+
+    fn settings_action_entity(world: &mut World, expected: SettingAction) -> Entity {
+        let mut actions = world.query::<(Entity, &SettingAction)>();
+        actions
+            .iter(world)
+            .find_map(|(entity, action)| (*action == expected).then_some(entity))
+            .expect("settings action must exist")
+    }
+
+    fn settings_scroll_entity(world: &mut World) -> Entity {
+        let mut areas = world.query_filtered::<Entity, With<SettingsScrollArea>>();
+        areas.single(world).expect("one settings scroll area")
+    }
+
+    fn expected_settings_tab_order() -> Vec<SettingAction> {
+        let mut actions = Vec::with_capacity(39);
+        actions.extend(DisplayModeSetting::ALL.map(SettingAction::SetDisplayMode));
+        actions.extend(ResolutionSetting::PRESETS.map(SettingAction::SetResolution));
+        actions.push(SettingAction::ToggleVsync);
+        actions.extend(FrameCap::ALL.map(SettingAction::SetFrameCap));
+        actions.extend(QualityPreset::ALL.map(SettingAction::SetQuality));
+        actions.push(SettingAction::CycleUiScale);
+        actions.extend(DistanceUnit::ALL.map(SettingAction::SetUnits));
+        actions.extend([
+            SettingAction::SetStartLive,
+            SettingAction::SetStartFixed,
+            SettingAction::AdjustStartEpoch(-365.25),
+            SettingAction::AdjustStartEpoch(365.25),
+            SettingAction::ToggleInvertHorizontal,
+            SettingAction::ToggleInvertVertical,
+        ]);
+        actions.extend(LayerId::ALL.map(SettingAction::ToggleLayer));
+        actions.extend([
+            SettingAction::Close,
+            SettingAction::Revert,
+            SettingAction::RestoreDefaults,
+            SettingAction::Apply,
+        ]);
+        actions
     }
 
     #[test]
@@ -1638,34 +1766,270 @@ mod tests {
     }
 
     #[test]
-    fn settings_screen_renders_every_control_with_accessibility_labels() {
-        let mut presentation = PresentationState::default();
-        presentation.open_settings();
-        let mut app = App::new();
-        app.add_plugins((
-            TaskPoolPlugin::default(),
-            AssetPlugin::default(),
-            ScenePlugin,
-        ))
-        .init_asset::<Font>()
-        .insert_resource(UiTheme::default())
-        .insert_resource(AppSettings::default())
-        .init_resource::<LayerState>()
-        .insert_resource(presentation)
-        .init_resource::<SimCommandQueue>()
-        .init_resource::<InputFocus>()
-        .insert_resource(SettingsScreenState {
-            open: true,
-            draft: AppSettings::default(),
-            dirty: true,
-            scroll_y: 0.0,
-            restore_focus: None,
-        })
-        .add_systems(Startup, rebuild_settings_screen)
-        .add_systems(
-            Update,
-            (sync_settings_screen, rebuild_settings_screen).chain(),
+    fn ui_scale_cycle_reaches_every_supported_scale() {
+        let mut scale = 0.75;
+        let mut observed = Vec::new();
+        for _ in 0..5 {
+            scale = next_ui_scale(scale);
+            observed.push(scale);
+        }
+        assert_eq!(observed, vec![1.0, 1.25, 1.5, 2.0, 0.75]);
+    }
+
+    #[test]
+    fn settings_tab_indices_are_unique_and_follow_semantic_order() {
+        let mut app = settings_screen_test_app();
+        app.update();
+
+        let mut controls = {
+            let world = app.world_mut();
+            let mut query = world.query::<(&SettingAction, &TabIndex)>();
+            query
+                .iter(world)
+                .map(|(action, index)| (index.0, *action))
+                .collect::<Vec<_>>()
+        };
+        controls.sort_by_key(|(index, _)| *index);
+        assert_eq!(controls.len(), 39);
+        assert_eq!(
+            controls.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
+            (SETTINGS_FIRST_TAB_INDEX..SETTINGS_FIRST_TAB_INDEX + 39).collect::<Vec<_>>()
         );
+        assert_eq!(
+            controls
+                .into_iter()
+                .map(|(_, action)| action)
+                .collect::<Vec<_>>(),
+            expected_settings_tab_order()
+        );
+
+        let close = settings_action_entity(app.world_mut(), SettingAction::Close);
+        let row = app
+            .world()
+            .entity(close)
+            .get::<ChildOf>()
+            .expect("close action row")
+            .parent();
+        let footer = app
+            .world()
+            .entity(row)
+            .get::<ChildOf>()
+            .expect("footer parent")
+            .parent();
+        let row_node = app.world().entity(row).get::<Node>().expect("footer row");
+        assert_eq!(row_node.flex_wrap, FlexWrap::Wrap);
+        let footer_node = app
+            .world()
+            .entity(footer)
+            .get::<Node>()
+            .expect("settings footer");
+        assert_eq!(footer_node.height, auto());
+        assert_eq!(footer_node.min_height, px(42));
+        assert_eq!(footer_node.flex_shrink, 0.0);
+    }
+
+    #[test]
+    fn every_nonclosing_draft_action_retains_scroll_and_focus() {
+        let mut app = settings_screen_test_app();
+        app.update();
+        let actions = expected_settings_tab_order()
+            .into_iter()
+            .filter(|action| {
+                !matches!(
+                    action,
+                    SettingAction::Close | SettingAction::Apply | SettingAction::RestoreDefaults
+                )
+            })
+            .collect::<Vec<_>>();
+
+        for action in actions {
+            let entity = settings_action_entity(app.world_mut(), action);
+            let scroll = settings_scroll_entity(app.world_mut());
+            app.world_mut()
+                .entity_mut(scroll)
+                .get_mut::<ScrollPosition>()
+                .expect("settings scroll position")
+                .y = 137.0;
+            app.world_mut()
+                .resource_mut::<InputFocus>()
+                .set(entity, FocusCause::Navigated);
+            app.world_mut().trigger(Activate { entity });
+            app.update();
+
+            let focused = app
+                .world()
+                .resource::<InputFocus>()
+                .get()
+                .expect("draft rebuild restores focus");
+            assert_eq!(
+                app.world().entity(focused).get::<SettingAction>(),
+                Some(&action)
+            );
+            let scroll = settings_scroll_entity(app.world_mut());
+            assert_eq!(
+                app.world()
+                    .entity(scroll)
+                    .get::<ScrollPosition>()
+                    .expect("rebuilt settings scroll position")
+                    .y,
+                137.0,
+                "{action:?}"
+            );
+            assert_eq!(
+                app.world().resource::<SettingsScreenState>().scroll_y,
+                137.0,
+                "{action:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn model_driven_rebuild_preserves_actual_focus_and_scroll() {
+        let mut app = settings_screen_test_app();
+        app.update();
+        let action = SettingAction::ToggleInvertVertical;
+        let focused = settings_action_entity(app.world_mut(), action);
+        let scroll = settings_scroll_entity(app.world_mut());
+        app.world_mut()
+            .entity_mut(scroll)
+            .get_mut::<ScrollPosition>()
+            .expect("settings scroll position")
+            .y = 211.0;
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(focused, FocusCause::Navigated);
+
+        let mut committed = app.world().resource::<AppSettings>().clone();
+        committed.units = DistanceUnit::Miles;
+        let mut screen = app
+            .world_mut()
+            .remove_resource::<SettingsScreenState>()
+            .expect("settings screen state");
+        let mut settings = app
+            .world_mut()
+            .remove_resource::<AppSettings>()
+            .expect("app settings");
+        let mut save = app
+            .world_mut()
+            .remove_resource::<SettingsSaveRequest>()
+            .expect("settings save request");
+        consume_settings_command(
+            &SimCommand::ApplySettings(Box::new(committed)),
+            &mut screen,
+            &mut settings,
+            &mut save,
+        );
+        assert_eq!(screen.restore_focus, None);
+        app.insert_resource(screen)
+            .insert_resource(settings)
+            .insert_resource(save);
+
+        app.update();
+
+        let focused = app
+            .world()
+            .resource::<InputFocus>()
+            .get()
+            .expect("model rebuild restores focus");
+        assert_eq!(
+            app.world().entity(focused).get::<SettingAction>(),
+            Some(&action)
+        );
+        let scroll = settings_scroll_entity(app.world_mut());
+        assert_eq!(
+            app.world()
+                .entity(scroll)
+                .get::<ScrollPosition>()
+                .expect("model rebuild restores scroll")
+                .y,
+            211.0
+        );
+        assert_eq!(
+            app.world().resource::<SettingsScreenState>().scroll_y,
+            211.0
+        );
+    }
+
+    #[test]
+    fn settings_controls_are_reachable_for_required_viewports() {
+        for (width, height, scale) in test_layout::required_viewports() {
+            let mut app = test_layout::app(width, height, scale);
+            app.insert_resource(UiTheme::default())
+                .init_resource::<InputFocus>()
+                .insert_resource(SettingsScreenState {
+                    open: true,
+                    draft: AppSettings::default(),
+                    dirty: true,
+                    scroll_y: 0.0,
+                    restore_focus: None,
+                })
+                .add_systems(Update, rebuild_settings_screen);
+            test_layout::settle(&mut app);
+
+            let scroll_area = settings_scroll_entity(app.world_mut());
+            let root = app
+                .world_mut()
+                .query_filtered::<Entity, With<SettingsScreenRoot>>()
+                .single(app.world())
+                .unwrap();
+            let root_rect = node_rect(app.world(), root);
+            let scroll_rect = node_rect(app.world(), scroll_area);
+            assert!(
+                scroll_rect.height() > 0.0 && rect_contains(root_rect, scroll_rect),
+                "{width}×{height} scale {scale}: Settings scroll viewport {scroll_rect:?} is invalid inside {root_rect:?}"
+            );
+
+            for action in [
+                SettingAction::Close,
+                SettingAction::Revert,
+                SettingAction::RestoreDefaults,
+                SettingAction::Apply,
+            ] {
+                let entity = settings_action_entity(app.world_mut(), action);
+                let rect = node_rect(app.world(), entity);
+                assert!(
+                    rect_contains(root_rect, rect),
+                    "{width}×{height} scale {scale}: footer action {action:?} escaped Settings root"
+                );
+            }
+
+            app.world_mut()
+                .entity_mut(scroll_area)
+                .get_mut::<ScrollPosition>()
+                .unwrap()
+                .y = f32::MAX;
+            test_layout::settle(&mut app);
+            let last_content =
+                settings_action_entity(app.world_mut(), SettingAction::ToggleLayer(LayerId::Icons));
+            let last_rect = node_rect(app.world(), last_content);
+            let scroll_rect = node_rect(app.world(), scroll_area);
+            assert!(
+                rect_contains(scroll_rect, last_rect),
+                "{width}×{height} scale {scale}: final Settings content action {last_rect:?} is not reachable inside {scroll_rect:?}"
+            );
+        }
+    }
+
+    fn node_rect(world: &World, entity: Entity) -> Rect {
+        let node = world.get::<ComputedNode>(entity).unwrap();
+        let center = world
+            .get::<UiGlobalTransform>(entity)
+            .unwrap()
+            .affine()
+            .translation;
+        Rect::from_center_size(center, node.size())
+    }
+
+    fn rect_contains(outer: Rect, inner: Rect) -> bool {
+        inner.min.x >= outer.min.x - 1.0
+            && inner.max.x <= outer.max.x + 1.0
+            && inner.min.y >= outer.min.y - 1.0
+            && inner.max.y <= outer.max.y + 1.0
+    }
+
+    #[test]
+    fn settings_screen_renders_every_control_with_accessibility_labels() {
+        let mut app = settings_screen_test_app();
         app.update();
         let initially_focused = app
             .world()
@@ -1676,9 +2040,14 @@ mod tests {
             app.world().entity(initially_focused).get::<SettingAction>(),
             Some(&SettingAction::Close)
         );
+        let scroll = settings_scroll_entity(app.world_mut());
+        app.world_mut()
+            .entity_mut(scroll)
+            .get_mut::<ScrollPosition>()
+            .expect("settings scroll position")
+            .y = 137.0;
         {
             let mut screen = app.world_mut().resource_mut::<SettingsScreenState>();
-            screen.scroll_y = 137.0;
             screen.dirty = true;
         }
         app.update();

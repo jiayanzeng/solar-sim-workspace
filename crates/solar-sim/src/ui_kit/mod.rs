@@ -8,6 +8,8 @@
 mod gallery;
 mod hud;
 mod navigation;
+#[cfg(test)]
+pub(crate) mod test_layout;
 mod theme;
 mod widgets;
 
