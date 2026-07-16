@@ -7,8 +7,9 @@
 
 use crate::{
     left_panel, propagate_into, search, settings, AppSettings, BodySizeScale, BodyStates, LayerId,
-    LayerState, LeftPanelTab, LoadedCatalog, MoonVisibilityMode, NavigationStack,
-    PresentationState, PropagationError, DEFAULT_CAMERA_DISTANCE_UNITS, KM_PER_RENDER_UNIT,
+    LayerState, LeftPanelTab, LoadedCatalog, MoonVisibilityMode, NavigationDestination,
+    NavigationStack, PresentationState, PropagationError, DEFAULT_CAMERA_DISTANCE_UNITS,
+    KM_PER_RENDER_UNIT,
 };
 use bevy::prelude::{Resource, Vec3};
 use sim_core::catalog::{Catalog, CatalogError, Category};
@@ -199,6 +200,7 @@ pub(crate) fn consume_sim_command(
     clock: &mut SimClock,
     camera: &mut CameraController,
     loaded: &LoadedCatalog,
+    navigation: &NavigationStack,
 ) -> TickReport {
     let mut report = TickReport::default();
     match command {
@@ -243,15 +245,18 @@ pub(crate) fn consume_sim_command(
         SimCommand::Pause => clock.pause(),
         SimCommand::TogglePlay => clock.toggle_play(),
         SimCommand::SnapToLive => clock.snap_to_live(),
-        SimCommand::NavigateBreadcrumb { target_id, .. } => {
-            let resolved_id = if target_id == "solar_system" {
-                "sun"
-            } else {
-                target_id.as_str()
-            };
-            let Some(target_index) = loaded.index_of(resolved_id) else {
+        SimCommand::NavigateBreadcrumb { depth, target_id } => {
+            let Some(destination) = navigation.destination_at(*depth, target_id) else {
                 return report;
             };
+            let Some(resolved) = left_panel::resolve_navigation_destination(loaded, destination)
+            else {
+                return report;
+            };
+            let target_index = resolved.body_index;
+            if camera.selected_body_index == target_index {
+                return report;
+            }
             camera.selected_body_index = target_index;
             camera.travel = Some(TravelTween {
                 target_index,
@@ -835,7 +840,19 @@ impl HeadlessSimulation {
                 &mut self.settings_screen,
                 &mut self.settings_save,
             );
-            consume_sim_command(command, &mut self.clock, &mut self.camera, &self.loaded);
+            consume_sim_command(
+                command,
+                &mut self.clock,
+                &mut self.camera,
+                &self.loaded,
+                &self.navigation,
+            );
+            left_panel::sync_left_panel_selection_state(
+                &self.camera,
+                &self.loaded,
+                &mut self.left_panel,
+                &mut self.navigation,
+            );
         }
         settings::sync_settings_screen_state(
             &self.presentation,
@@ -906,6 +923,19 @@ impl HeadlessSimulation {
             hash.bytes(item.id.as_bytes());
             hash.u64(item.label.len() as u64);
             hash.bytes(item.label.as_bytes());
+            match &item.destination {
+                NavigationDestination::Root => hash.u8(0),
+                NavigationDestination::Body { body_id } => {
+                    hash.u8(1);
+                    hash.u64(body_id.len() as u64);
+                    hash.bytes(body_id.as_bytes());
+                }
+                NavigationDestination::Collection { parent_id } => {
+                    hash.u8(2);
+                    hash.u64(parent_id.len() as u64);
+                    hash.bytes(parent_id.as_bytes());
+                }
+            }
         }
         match self.camera.travel {
             Some(travel) => {
@@ -1500,10 +1530,37 @@ mod tests {
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
     const FRAME_DT_S: f64 = 1.0 / 60.0;
-    const PORTABLE_REPLAY_HASH: u64 = 1_553_394_718_950_124_988;
+    // Task 4 makes the semantic Root/Body/Collection destination part of the
+    // deterministic navigation identity instead of hashing route text alone.
+    const PORTABLE_REPLAY_HASH: u64 = 1_535_747_298_578_131_566;
 
     fn catalog() -> Catalog {
         load_catalog_text(REAL_CATALOG).expect("committed catalog must load")
+    }
+
+    fn jupiter_collection_simulation() -> HeadlessSimulation {
+        let catalog = catalog();
+        let mut simulation = HeadlessSimulation::new(&catalog).unwrap();
+        simulation
+            .step(
+                FRAME_DT_S,
+                &[
+                    SimCommand::TravelToBody("jupiter".into()),
+                    SimCommand::SetLeftPanelTab(LeftPanelTab::Collection),
+                ],
+                None,
+            )
+            .unwrap();
+        simulation
+    }
+
+    fn navigation_snapshot(simulation: &HeadlessSimulation) -> (usize, LeftPanelTab, String) {
+        let (_, tab) = left_panel::left_panel_replay_state(&simulation.left_panel);
+        (
+            simulation.camera.selected_body_index(),
+            tab,
+            simulation.navigation.label(),
+        )
     }
 
     #[test]
@@ -1561,6 +1618,7 @@ mod tests {
             &mut clock,
             &mut camera,
             &loaded,
+            &NavigationStack::root(),
         );
         for _ in 0..30 {
             clock.tick(FRAME_DT_S, 0.0);
@@ -1576,6 +1634,7 @@ mod tests {
             &mut clock,
             &mut camera,
             &loaded,
+            &NavigationStack::root(),
         );
         assert_eq!(camera.travel.unwrap().start_focus_km, interrupted_focus);
         assert_eq!(camera.selected_body_index(), mercury);
@@ -1599,6 +1658,7 @@ mod tests {
             &mut clock,
             &mut camera,
             &loaded,
+            &NavigationStack::root(),
         );
         for _ in 0..76 {
             clock.tick(FRAME_DT_S, 0.0);
@@ -1634,6 +1694,7 @@ mod tests {
                 &mut clock,
                 &mut camera,
                 &loaded,
+                &NavigationStack::root(),
             );
         }
         assert_eq!(camera.distance_units(), minimum);
@@ -1644,6 +1705,7 @@ mod tests {
                 &mut clock,
                 &mut camera,
                 &loaded,
+                &NavigationStack::root(),
             );
         }
         assert_eq!(camera.distance_units(), maximum);
@@ -2061,6 +2123,316 @@ mod tests {
     }
 
     #[test]
+    fn documented_jupiter_and_io_navigation_paths_are_exact() {
+        let catalog = catalog();
+        let loaded = LoadedCatalog::new(catalog.clone());
+        let jupiter = loaded.index_of("jupiter").unwrap();
+        let io = loaded.index_of("io").unwrap();
+        let mut simulation = HeadlessSimulation::new(&catalog).unwrap();
+
+        simulation
+            .step(
+                FRAME_DT_S,
+                &[
+                    SimCommand::TravelToBody("jupiter".into()),
+                    SimCommand::SetLeftPanelTab(LeftPanelTab::Collection),
+                ],
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            navigation_snapshot(&simulation),
+            (
+                jupiter,
+                LeftPanelTab::Collection,
+                "Solar System › Jupiter › Moons".into()
+            )
+        );
+
+        simulation
+            .step(
+                FRAME_DT_S,
+                &[SimCommand::SetLeftPanelTab(LeftPanelTab::Info)],
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            navigation_snapshot(&simulation),
+            (jupiter, LeftPanelTab::Info, "Solar System › Jupiter".into())
+        );
+
+        simulation
+            .step(
+                FRAME_DT_S,
+                &[
+                    SimCommand::SetLeftPanelTab(LeftPanelTab::Collection),
+                    SimCommand::SetLeftPanelTab(LeftPanelTab::ViewOptions),
+                ],
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            navigation_snapshot(&simulation),
+            (
+                jupiter,
+                LeftPanelTab::ViewOptions,
+                "Solar System › Jupiter".into()
+            )
+        );
+
+        simulation
+            .step(FRAME_DT_S, &[SimCommand::TravelToBody("io".into())], None)
+            .unwrap();
+        assert_eq!(
+            navigation_snapshot(&simulation),
+            (io, LeftPanelTab::Info, "Solar System › Jupiter › Io".into())
+        );
+    }
+
+    #[test]
+    fn breadcrumb_routes_current_collection_ancestors_and_root_canonically() {
+        let catalog = catalog();
+        let loaded = LoadedCatalog::new(catalog.clone());
+        let sun = loaded.index_of("sun").unwrap();
+        let jupiter = loaded.index_of("jupiter").unwrap();
+        let io = loaded.index_of("io").unwrap();
+
+        let mut current = jupiter_collection_simulation();
+        let mut baseline = jupiter_collection_simulation();
+        current
+            .step(
+                FRAME_DT_S,
+                &[SimCommand::NavigateBreadcrumb {
+                    depth: 2,
+                    target_id: "jupiter_moons".into(),
+                }],
+                None,
+            )
+            .unwrap();
+        baseline.step(FRAME_DT_S, &[], None).unwrap();
+        assert_eq!(current.state_hash(), baseline.state_hash());
+        assert_eq!(
+            navigation_snapshot(&current),
+            (
+                jupiter,
+                LeftPanelTab::Collection,
+                "Solar System › Jupiter › Moons".into()
+            )
+        );
+
+        current
+            .step(FRAME_DT_S, &[SimCommand::TravelToBody("io".into())], None)
+            .unwrap();
+        assert_eq!(current.camera.selected_body_index(), io);
+        current
+            .step(
+                FRAME_DT_S,
+                &[SimCommand::NavigateBreadcrumb {
+                    depth: 1,
+                    target_id: "jupiter".into(),
+                }],
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            navigation_snapshot(&current),
+            (jupiter, LeftPanelTab::Info, "Solar System › Jupiter".into())
+        );
+
+        current
+            .step(
+                FRAME_DT_S,
+                &[SimCommand::NavigateBreadcrumb {
+                    depth: 0,
+                    target_id: "solar_system".into(),
+                }],
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            navigation_snapshot(&current),
+            (sun, LeftPanelTab::Info, "Solar System".into())
+        );
+    }
+
+    #[test]
+    fn malformed_breadcrumbs_and_unsupported_collection_tabs_mutate_nothing() {
+        let mut malformed = jupiter_collection_simulation();
+        let mut baseline = jupiter_collection_simulation();
+        malformed
+            .step(
+                FRAME_DT_S,
+                &[
+                    SimCommand::NavigateBreadcrumb {
+                        depth: 0,
+                        target_id: "jupiter".into(),
+                    },
+                    SimCommand::NavigateBreadcrumb {
+                        depth: 99,
+                        target_id: "jupiter".into(),
+                    },
+                    SimCommand::NavigateBreadcrumb {
+                        depth: 1,
+                        target_id: "io".into(),
+                    },
+                    SimCommand::NavigateBreadcrumb {
+                        depth: 2,
+                        target_id: "unknown".into(),
+                    },
+                ],
+                None,
+            )
+            .unwrap();
+        baseline.step(FRAME_DT_S, &[], None).unwrap();
+        assert_eq!(malformed.state_hash(), baseline.state_hash());
+
+        let catalog = catalog();
+        let mut unsupported = HeadlessSimulation::new(&catalog).unwrap();
+        let mut untouched = HeadlessSimulation::new(&catalog).unwrap();
+        unsupported
+            .step(FRAME_DT_S, &[SimCommand::TravelToBody("io".into())], None)
+            .unwrap();
+        untouched
+            .step(FRAME_DT_S, &[SimCommand::TravelToBody("io".into())], None)
+            .unwrap();
+        unsupported
+            .step(
+                FRAME_DT_S,
+                &[SimCommand::SetLeftPanelTab(LeftPanelTab::Collection)],
+                None,
+            )
+            .unwrap();
+        untouched.step(FRAME_DT_S, &[], None).unwrap();
+        assert_eq!(unsupported.state_hash(), untouched.state_hash());
+        assert_eq!(
+            unsupported.navigation.label(),
+            "Solar System › Jupiter › Io"
+        );
+    }
+
+    #[test]
+    fn same_frame_and_split_frame_navigation_commands_honor_recorded_order() {
+        let catalog = catalog();
+        let mut same_frame = HeadlessSimulation::new(&catalog).unwrap();
+        let mut split_frame = HeadlessSimulation::new(&catalog).unwrap();
+
+        same_frame
+            .step(
+                FRAME_DT_S,
+                &[
+                    SimCommand::TravelToBody("jupiter".into()),
+                    SimCommand::SetLeftPanelTab(LeftPanelTab::Collection),
+                ],
+                None,
+            )
+            .unwrap();
+        same_frame.step(FRAME_DT_S, &[], None).unwrap();
+
+        split_frame
+            .step(
+                FRAME_DT_S,
+                &[SimCommand::TravelToBody("jupiter".into())],
+                None,
+            )
+            .unwrap();
+        split_frame
+            .step(
+                FRAME_DT_S,
+                &[SimCommand::SetLeftPanelTab(LeftPanelTab::Collection)],
+                None,
+            )
+            .unwrap();
+        assert_eq!(same_frame.state_hash(), split_frame.state_hash());
+
+        same_frame
+            .step(
+                FRAME_DT_S,
+                &[
+                    SimCommand::NavigateBreadcrumb {
+                        depth: 1,
+                        target_id: "jupiter".into(),
+                    },
+                    SimCommand::SetLeftPanelTab(LeftPanelTab::ViewOptions),
+                ],
+                None,
+            )
+            .unwrap();
+        same_frame.step(FRAME_DT_S, &[], None).unwrap();
+
+        split_frame
+            .step(
+                FRAME_DT_S,
+                &[SimCommand::NavigateBreadcrumb {
+                    depth: 1,
+                    target_id: "jupiter".into(),
+                }],
+                None,
+            )
+            .unwrap();
+        split_frame
+            .step(
+                FRAME_DT_S,
+                &[SimCommand::SetLeftPanelTab(LeftPanelTab::ViewOptions)],
+                None,
+            )
+            .unwrap();
+        assert_eq!(same_frame.state_hash(), split_frame.state_hash());
+        assert_eq!(
+            navigation_snapshot(&same_frame).1,
+            LeftPanelTab::ViewOptions
+        );
+    }
+
+    #[test]
+    fn recorded_navigation_sequence_round_trips_with_stable_command_text_and_hash() {
+        let catalog = catalog();
+        let mut original = HeadlessSimulation::new(&catalog).unwrap();
+        let mut recording = CommandRecording::default();
+        let frames = [
+            vec![
+                SimCommand::TravelToBody("jupiter".into()),
+                SimCommand::SetLeftPanelTab(LeftPanelTab::Collection),
+            ],
+            vec![SimCommand::NavigateBreadcrumb {
+                depth: 2,
+                target_id: "jupiter_moons".into(),
+            }],
+            vec![SimCommand::TravelToBody("io".into())],
+            vec![SimCommand::NavigateBreadcrumb {
+                depth: 1,
+                target_id: "jupiter".into(),
+            }],
+            vec![SimCommand::SetLeftPanelTab(LeftPanelTab::ViewOptions)],
+        ];
+        for commands in &frames {
+            original
+                .step(FRAME_DT_S, commands, Some(&mut recording))
+                .unwrap();
+        }
+
+        let text = recording.stream().to_text();
+        assert!(text.contains("|navigate-breadcrumb|2|jupiter_moons\n"));
+        let parsed = ReplayStream::from_text(&text).unwrap();
+        assert_eq!(&parsed, recording.stream());
+        let replayed = replay_headless(&catalog, &parsed, frames.len() as u64, FRAME_DT_S).unwrap();
+        assert_eq!(replayed.state_hash(), original.state_hash());
+        assert_eq!(
+            navigation_snapshot(&replayed),
+            (
+                replayed.loaded.index_of("jupiter").unwrap(),
+                LeftPanelTab::ViewOptions,
+                "Solar System › Jupiter".into()
+            )
+        );
+
+        let legacy = concat!(
+            "solar-sim-replay-v1\n",
+            "0|0000000000000000|navigate-breadcrumb|2|jupiter_moons\n"
+        );
+        assert_eq!(ReplayStream::from_text(legacy).unwrap().to_text(), legacy);
+    }
+
+    #[test]
     fn combined_hash_covers_wall_time_presentation_modal_and_navigation_identity() {
         let catalog = catalog();
         let mut baseline = HeadlessSimulation::new(&catalog).unwrap();
@@ -2147,6 +2519,7 @@ mod tests {
             &mut clock,
             &mut camera,
             &loaded,
+            &NavigationStack::root(),
         );
         assert_eq!(report.clamped, Some(sim_core::time::RangeEdge::AtMin));
         assert_eq!(clock.t(), T_MIN_S);

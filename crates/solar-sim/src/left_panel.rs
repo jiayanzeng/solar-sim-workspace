@@ -8,8 +8,8 @@ use crate::control::{CameraController, SimCommand, SimCommandQueue};
 use crate::input_intent::UiScrollSurface;
 use crate::layers::{HudSurface, LayerState};
 use crate::ui_kit::{
-    section_header, NavigationStack, UiTheme, WidgetSpec, WidgetVisualState, INTER_FONT_ASSET,
-    TOP_BAR_HEIGHT_PX,
+    section_header, NavigationDestination, NavigationStack, UiTheme, WidgetSpec, WidgetVisualState,
+    INTER_FONT_ASSET, TOP_BAR_HEIGHT_PX,
 };
 use crate::{
     format_distance_km, AppSettings, BodyVisual, DistanceUnit, LoadedCatalog, SimulationSet,
@@ -504,6 +504,9 @@ enum PanelAction {
     ToggleLocalOrbit(usize),
 }
 
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct NavigationSyncSet;
+
 pub struct LeftPanelPlugin;
 
 impl Plugin for LeftPanelPlugin {
@@ -513,7 +516,7 @@ impl Plugin for LeftPanelPlugin {
             .add_systems(
                 Update,
                 (
-                    sync_left_panel_selection,
+                    sync_left_panel_selection.in_set(NavigationSyncSet),
                     rebuild_left_panel,
                     apply_view_options,
                 )
@@ -521,6 +524,35 @@ impl Plugin for LeftPanelPlugin {
                     .in_set(SimulationSet::Render),
             );
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ResolvedNavigationDestination {
+    pub(crate) body_index: usize,
+    pub(crate) tab: LeftPanelTab,
+}
+
+pub(crate) fn resolve_navigation_destination(
+    loaded: &LoadedCatalog,
+    destination: &NavigationDestination,
+) -> Option<ResolvedNavigationDestination> {
+    let (body_index, tab) = match destination {
+        NavigationDestination::Root => (loaded.index_of("sun")?, LeftPanelTab::Info),
+        NavigationDestination::Body { body_id } => (loaded.index_of(body_id)?, LeftPanelTab::Info),
+        NavigationDestination::Collection { parent_id } => {
+            let parent_index = loaded.index_of(parent_id)?;
+            let parent = loaded.catalog.bodies.get(parent_index)?;
+            let has_moons = loaded.catalog.bodies.iter().any(|body| {
+                body.category == Category::Moon
+                    && body.parent.as_deref() == Some(parent.id.as_str())
+            });
+            if !has_moons {
+                return None;
+            }
+            (parent_index, LeftPanelTab::Collection)
+        }
+    };
+    Some(ResolvedNavigationDestination { body_index, tab })
 }
 
 pub(crate) fn consume_left_panel_command(
@@ -551,7 +583,30 @@ pub(crate) fn consume_left_panel_command(
             settings.set_panel_collapsed(*collapsed);
             state.dirty = true;
         }
+        SimCommand::SelectBody(body_id) | SimCommand::TravelToBody(body_id) => {
+            let Some(loaded) = loaded else {
+                return;
+            };
+            let Some(body_index) = loaded.index_of(body_id) else {
+                return;
+            };
+            apply_body_selection(loaded, body_index, state, navigation);
+        }
         SimCommand::SetLeftPanelTab(tab) => {
+            if *tab == LeftPanelTab::Collection {
+                let (Some(loaded), Some(selected)) = (loaded, state.selected_body_index) else {
+                    return;
+                };
+                let Some(body) = loaded.catalog.bodies.get(selected) else {
+                    return;
+                };
+                let destination = NavigationDestination::Collection {
+                    parent_id: body.id.clone(),
+                };
+                if resolve_navigation_destination(loaded, &destination).is_none() {
+                    return;
+                }
+            }
             state.page = match tab {
                 LeftPanelTab::Info => ActivePanelPage::Info,
                 LeftPanelTab::Collection => ActivePanelPage::Collection,
@@ -564,7 +619,7 @@ pub(crate) fn consume_left_panel_command(
                 sync_navigation_to_body(loaded, selected, navigation);
                 if *tab == LeftPanelTab::Collection {
                     if let Some(body) = loaded.catalog.bodies.get(selected) {
-                        navigation.push(format!("{}_moons", body.id), "Moons");
+                        navigation.push_collection(body.id.clone(), "Moons");
                     }
                 }
             }
@@ -573,21 +628,22 @@ pub(crate) fn consume_left_panel_command(
             *settings = ViewOptionsState::default();
             state.dirty = true;
         }
-        SimCommand::NavigateBreadcrumb { depth, target_id }
-            if loaded.is_some_and(|loaded| {
-                let resolved_id = if target_id == "solar_system" {
-                    "sun"
-                } else {
-                    target_id.as_str()
-                };
-                loaded.index_of(resolved_id).is_some()
-            }) =>
-        {
+        SimCommand::NavigateBreadcrumb { depth, target_id } => {
+            let Some(loaded) = loaded else {
+                return;
+            };
+            let Some(destination) = navigation.destination_at(*depth, target_id).cloned() else {
+                return;
+            };
+            let Some(resolved) = resolve_navigation_destination(loaded, &destination) else {
+                return;
+            };
             navigation.truncate(depth.saturating_add(1));
-            state.page = if target_id.ends_with("_moons") {
-                ActivePanelPage::Collection
-            } else {
-                ActivePanelPage::Info
+            state.selected_body_index = Some(resolved.body_index);
+            state.page = match resolved.tab {
+                LeftPanelTab::Info => ActivePanelPage::Info,
+                LeftPanelTab::Collection => ActivePanelPage::Collection,
+                LeftPanelTab::ViewOptions => ActivePanelPage::ViewOptions,
             };
             state.scroll_y = 0.0;
             state.reset_scroll_on_rebuild = true;
@@ -607,6 +663,15 @@ pub(crate) fn sync_left_panel_selection_state(
     if state.selected_body_index == Some(selected) {
         return;
     }
+    apply_body_selection(loaded, selected, state, navigation);
+}
+
+fn apply_body_selection(
+    loaded: &LoadedCatalog,
+    selected: usize,
+    state: &mut LeftPanelUiState,
+    navigation: &mut NavigationStack,
+) {
     state.selected_body_index = Some(selected);
     state.page = ActivePanelPage::Info;
     state.dirty = true;
@@ -2079,6 +2144,51 @@ mod tests {
                 .y
         };
         assert_eq!(rebuilt_scroll_y, 0.0);
+    }
+
+    #[test]
+    fn collection_tab_for_body_without_moons_is_rejected_without_mutation() {
+        let loaded = LoadedCatalog::new(catalog());
+        let io = loaded.index_of("io").unwrap();
+        let mut state = LeftPanelUiState {
+            selected_body_index: Some(io),
+            page: ActivePanelPage::Info,
+            dirty: false,
+            scroll_y: 47.0,
+            reset_scroll_on_rebuild: false,
+            restore_focus: None,
+        };
+        let before = (
+            state.selected_body_index,
+            state.page,
+            state.dirty,
+            state.scroll_y,
+            state.reset_scroll_on_rebuild,
+        );
+        let mut view_options = ViewOptionsState::default();
+        let mut navigation = NavigationStack::root();
+        sync_navigation_to_body(&loaded, io, &mut navigation);
+        let before_navigation = navigation.clone();
+
+        consume_left_panel_command(
+            &SimCommand::SetLeftPanelTab(LeftPanelTab::Collection),
+            Some(&loaded),
+            &mut view_options,
+            &mut state,
+            &mut navigation,
+        );
+
+        assert_eq!(
+            (
+                state.selected_body_index,
+                state.page,
+                state.dirty,
+                state.scroll_y,
+                state.reset_scroll_on_rebuild,
+            ),
+            before
+        );
+        assert_eq!(navigation, before_navigation);
     }
 
     #[test]

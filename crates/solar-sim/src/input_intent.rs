@@ -5,7 +5,7 @@
 //! keyboard or mouse state; future UI widgets join at the command queue seam.
 
 use crate::control::{SimCommand, SimCommandQueue};
-use crate::search::{BrowseMenuRoot, BrowseUiState};
+use crate::search::{BrowseMenuRoot, BrowseUiState, SearchDropdownRoot};
 use crate::settings::SettingsScreenRoot;
 use crate::{
     AppSettings, LayerId, LayerState, PresentationState, SimulationSet, UiRestoreAffordance,
@@ -139,6 +139,8 @@ impl InteractionState {
 struct InteractionInputs<'w, 's> {
     focus: Res<'w, InputFocus>,
     editable: Query<'w, 's, (), With<EditableText>>,
+    search_dropdowns: Query<'w, 's, Entity, With<SearchDropdownRoot>>,
+    parents: Query<'w, 's, &'static ChildOf>,
     browse: Res<'w, BrowseUiState>,
     presentation: Res<'w, PresentationState>,
     widget_buttons: Query<'w, 's, (), With<Button>>,
@@ -150,8 +152,13 @@ impl InteractionInputs<'_, '_> {
             .focus
             .get()
             .is_some_and(|entity| self.editable.get(entity).is_ok());
+        let focused_search_dropdown = self.focus.get().is_some_and(|entity| {
+            self.search_dropdowns
+                .iter()
+                .any(|root| is_descendant_of(entity, root, &self.parents))
+        });
         resolve_interaction_context(
-            focused_editable,
+            focused_editable || focused_search_dropdown,
             self.browse.is_open(),
             self.presentation.is_settings_open(),
         )
@@ -714,6 +721,59 @@ mod tests {
             phase: bevy::input::touch::TouchPhase::Moved,
         });
         app.update();
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .count(),
+            0
+        );
+        assert_eq!(
+            app.world().resource::<InteractionState>().context(),
+            InteractionContext::TextEdit
+        );
+    }
+
+    #[test]
+    fn focused_search_dropdown_result_keeps_text_edit_ownership() {
+        let mut app = interaction_test_app(false, false);
+        let dropdown = app.world_mut().spawn(SearchDropdownRoot).id();
+        let result = app.world_mut().spawn((Button, ChildOf(dropdown))).id();
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(result, FocusCause::Navigated);
+        for key in [
+            KeyCode::KeyS,
+            KeyCode::KeyM,
+            KeyCode::KeyI,
+            KeyCode::KeyO,
+            KeyCode::KeyR,
+            KeyCode::KeyP,
+            KeyCode::Space,
+            KeyCode::Digit1,
+            KeyCode::BracketLeft,
+            KeyCode::BracketRight,
+        ] {
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(key);
+        }
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Right);
+        app.world_mut().write_message(MouseMotion {
+            delta: Vec2::new(6.0, -4.0),
+        });
+        app.world_mut().write_message(MouseWheel {
+            unit: bevy::input::mouse::MouseScrollUnit::Line,
+            x: 0.0,
+            y: 2.0,
+            window: Entity::PLACEHOLDER,
+            phase: bevy::input::touch::TouchPhase::Moved,
+        });
+
+        app.update();
+
         assert_eq!(
             app.world_mut()
                 .resource_mut::<SimCommandQueue>()

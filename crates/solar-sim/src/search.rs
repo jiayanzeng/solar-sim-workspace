@@ -437,6 +437,7 @@ struct SearchUiState {
     active_input: Option<Entity>,
     pending_value: Option<String>,
     dropdown_root: Option<Entity>,
+    suppress_dropdown: bool,
     dirty: bool,
 }
 
@@ -459,6 +460,11 @@ impl SearchUiState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BrowseFocusTarget {
+    Menu,
+}
+
 #[derive(Resource, Debug, Default)]
 pub(crate) struct BrowseUiState {
     open: bool,
@@ -466,7 +472,7 @@ pub(crate) struct BrowseUiState {
     root: Option<Entity>,
     dirty: bool,
     scroll_y: [f32; 3],
-    restore_focus: bool,
+    restore_focus: Option<BrowseFocusTarget>,
     restore_action: Option<BrowseAction>,
     reset_scroll_column: Option<usize>,
 }
@@ -485,7 +491,7 @@ pub(crate) fn consume_search_command(command: &SimCommand, state: &mut BrowseUiS
     match command {
         SimCommand::SetBrowseOpen(open) => {
             let was_open = state.open;
-            state.restore_focus = was_open && !open;
+            state.restore_focus = (was_open && !open).then_some(BrowseFocusTarget::Menu);
             if !was_open || !open {
                 state.restore_action = None;
             }
@@ -506,7 +512,7 @@ pub(crate) fn consume_search_command(command: &SimCommand, state: &mut BrowseUiS
             state.open = false;
             state.expanded = [false; 3];
             state.scroll_y = [0.0; 3];
-            state.restore_focus = was_open;
+            state.restore_focus = was_open.then_some(BrowseFocusTarget::Menu);
             state.restore_action = None;
             state.reset_scroll_column = None;
             state.dirty = true;
@@ -554,7 +560,10 @@ fn attach_search_observers(
         commands.entity(entity).observe(open_browse_menu);
     }
     for entity in &search_results {
-        commands.entity(entity).observe(activate_search_result);
+        commands
+            .entity(entity)
+            .observe(activate_search_result)
+            .observe(handle_search_result_key);
     }
     for entity in &browse_actions {
         commands.entity(entity).observe(activate_browse_action);
@@ -581,6 +590,14 @@ fn sync_search_input(
         };
     }
 
+    if let Some(expected) = state.pending_value.as_deref() {
+        if value == expected {
+            state.pending_value = None;
+        } else {
+            return;
+        }
+    }
+
     let focused = focus.get();
     let is_focused = focused == Some(entity);
     let dropdown_owns_focus = focused
@@ -592,14 +609,8 @@ fn sync_search_input(
         state.end_edit();
     }
 
-    if let Some(expected) = state.pending_value.as_deref() {
-        if value == expected {
-            state.pending_value = None;
-        } else {
-            return;
-        }
-    }
     if value != state.query {
+        state.suppress_dropdown = false;
         if let Some(loaded) = loaded {
             state.set_query(&loaded.catalog, value);
         } else {
@@ -637,33 +648,36 @@ fn handle_search_key(
     }
     match input.input.key_code {
         KeyCode::Enter | KeyCode::NumpadEnter => {
+            if state.active_input != Some(input.focused_entity) || state.suppress_dropdown {
+                input.propagate(false);
+                return;
+            }
             let Some(hit) = state.hits.first().cloned() else {
                 return;
             };
             sim_commands.push(SimCommand::TravelToBody(hit.body_id));
-            if let Ok(mut editable) = fields.get_mut(input.focused_entity) {
-                replace_editable_text(&mut editable, &hit.display_name);
-            }
-            if let Some(loaded) = loaded {
-                state.set_query(&loaded.catalog, hit.display_name.clone());
-            }
-            state.restore_query = hit.display_name.clone();
-            state.pending_value = Some(hit.display_name);
-            state.end_edit();
-            focus.clear();
+            finish_search_session(
+                Some(input.focused_entity),
+                hit.display_name,
+                loaded.as_deref().map(|loaded| &loaded.catalog),
+                &mut focus,
+                &mut state,
+                &mut fields,
+            );
             input.propagate(false);
         }
         KeyCode::Escape => {
-            let restored = state.restore_query.clone();
-            if let Ok(mut editable) = fields.get_mut(input.focused_entity) {
-                replace_editable_text(&mut editable, &restored);
+            if state.active_input != Some(input.focused_entity) || state.suppress_dropdown {
+                input.propagate(false);
+                return;
             }
-            if let Some(loaded) = loaded {
-                state.set_query(&loaded.catalog, restored.clone());
-            }
-            state.pending_value = Some(restored);
-            state.end_edit();
-            focus.clear();
+            cancel_search_session(
+                Some(input.focused_entity),
+                loaded.as_deref().map(|loaded| &loaded.catalog),
+                &mut focus,
+                &mut state,
+                &mut fields,
+            );
             input.propagate(false);
         }
         _ => {}
@@ -677,6 +691,57 @@ fn replace_editable_text(editable: &mut EditableText, replacement: &str) {
     }
 }
 
+fn finish_search_session(
+    input_entity: Option<Entity>,
+    replacement: String,
+    catalog: Option<&Catalog>,
+    focus: &mut InputFocus,
+    state: &mut SearchUiState,
+    fields: &mut Query<&mut EditableText, With<SearchInput>>,
+) {
+    if let Some(catalog) = catalog {
+        state.set_query(catalog, replacement.clone());
+    } else {
+        state.query = replacement.clone();
+        state.hits.clear();
+        state.dirty = true;
+    }
+    state.restore_query = replacement.clone();
+    state.suppress_dropdown = true;
+    let restored_focus = input_entity.is_some_and(|input_entity| {
+        let Ok(mut editable) = fields.get_mut(input_entity) else {
+            return false;
+        };
+        replace_editable_text(&mut editable, &replacement);
+        state.pending_value = Some(replacement.clone());
+        state.active_input = Some(input_entity);
+        focus.set(input_entity, FocusCause::Navigated);
+        true
+    });
+    if !restored_focus {
+        state.pending_value = None;
+        state.end_edit();
+        focus.clear();
+    }
+}
+
+fn cancel_search_session(
+    input_entity: Option<Entity>,
+    catalog: Option<&Catalog>,
+    focus: &mut InputFocus,
+    state: &mut SearchUiState,
+    fields: &mut Query<&mut EditableText, With<SearchInput>>,
+) {
+    finish_search_session(
+        input_entity,
+        state.restore_query.clone(),
+        catalog,
+        focus,
+        state,
+        fields,
+    );
+}
+
 fn open_browse_menu(
     _activate: On<Activate>,
     mut focus: ResMut<InputFocus>,
@@ -686,10 +751,12 @@ fn open_browse_menu(
     focus.clear();
 }
 
+#[allow(clippy::too_many_arguments)]
 fn activate_search_result(
     activate: On<Activate>,
     actions: Query<&SearchResultAction>,
     loaded: Res<LoadedCatalog>,
+    search_inputs: Query<Entity, With<SearchInput>>,
     mut focus: ResMut<InputFocus>,
     mut state: ResMut<SearchUiState>,
     mut fields: Query<&mut EditableText, With<SearchInput>>,
@@ -698,18 +765,46 @@ fn activate_search_result(
     let Ok(action) = actions.get(activate.entity) else {
         return;
     };
+    if state.active_input.is_none() || state.suppress_dropdown {
+        return;
+    }
     let Some(body) = loaded.catalog.bodies.get(action.0) else {
         return;
     };
     sim_commands.push(SimCommand::TravelToBody(body.id.clone()));
-    if let Ok(mut editable) = fields.single_mut() {
-        replace_editable_text(&mut editable, &body.name);
+    finish_search_session(
+        search_inputs.single().ok(),
+        body.name.clone(),
+        Some(&loaded.catalog),
+        &mut focus,
+        &mut state,
+        &mut fields,
+    );
+}
+
+fn handle_search_result_key(
+    mut input: On<FocusedInput<KeyboardInput>>,
+    loaded: Option<Res<LoadedCatalog>>,
+    search_inputs: Query<Entity, With<SearchInput>>,
+    mut focus: ResMut<InputFocus>,
+    mut state: ResMut<SearchUiState>,
+    mut fields: Query<&mut EditableText, With<SearchInput>>,
+) {
+    if input.input.state != ButtonState::Pressed
+        || input.input.key_code != KeyCode::Escape
+        || state.active_input.is_none()
+        || state.suppress_dropdown
+    {
+        return;
     }
-    state.set_query(&loaded.catalog, body.name.clone());
-    state.restore_query = body.name.clone();
-    state.pending_value = Some(body.name.clone());
-    state.end_edit();
-    focus.clear();
+    cancel_search_session(
+        search_inputs.single().ok(),
+        loaded.as_deref().map(|loaded| &loaded.catalog),
+        &mut focus,
+        &mut state,
+        &mut fields,
+    );
+    input.propagate(false);
 }
 
 fn activate_browse_action(
@@ -758,7 +853,11 @@ fn rebuild_search_dropdown(
     if let Some(root) = state.dropdown_root.take() {
         commands.entity(root).despawn();
     }
-    if state.active_input.is_none() || state.query.trim().is_empty() || loaded.is_none() {
+    if state.active_input.is_none()
+        || state.suppress_dropdown
+        || state.query.trim().is_empty()
+        || loaded.is_none()
+    {
         state.dirty = false;
         return;
     }
@@ -873,7 +972,7 @@ fn rebuild_browse_menu(
     theme: Res<UiTheme>,
     asset_server: Res<AssetServer>,
     loaded: Option<Res<LoadedCatalog>>,
-    search_inputs: Query<Entity, With<SearchInput>>,
+    menu_buttons: Query<Entity, With<MenuBrowseButton>>,
     browse_actions: Query<&BrowseAction>,
     browse_scrolls: Query<(&BrowseScrollColumn, &ScrollPosition)>,
     mut focus: ResMut<InputFocus>,
@@ -902,11 +1001,15 @@ fn rebuild_browse_menu(
         commands.entity(root).despawn();
     }
     let (true, Some(loaded)) = (state.open, loaded) else {
-        if state.restore_focus {
-            if let Ok(search_input) = search_inputs.single() {
-                focus.set(search_input, FocusCause::Navigated);
+        match state.restore_focus.take() {
+            Some(BrowseFocusTarget::Menu) => {
+                if let Ok(menu) = menu_buttons.single() {
+                    focus.set(menu, FocusCause::Navigated);
+                } else {
+                    focus.clear();
+                }
             }
-            state.restore_focus = false;
+            None => {}
         }
         state.dirty = false;
         return;
@@ -1350,6 +1453,26 @@ mod tests {
         false
     }
 
+    fn queued_or_current_editable_value(world: &World, entity: Entity) -> String {
+        let editable = world.get::<EditableText>(entity).unwrap();
+        editable
+            .pending_edits
+            .iter()
+            .rev()
+            .find_map(|edit| match edit {
+                TextEdit::Insert(value) => Some(value.to_string()),
+                _ => None,
+            })
+            .unwrap_or_else(|| editable.value().to_string())
+    }
+
+    fn component_count<T: Component>(world: &mut World) -> usize {
+        world
+            .query_filtered::<Entity, With<T>>()
+            .iter(world)
+            .count()
+    }
+
     #[test]
     fn every_exact_catalog_search_key_is_rank_one() {
         let catalog = real_catalog();
@@ -1540,16 +1663,13 @@ mod tests {
             3
         );
 
-        let search_input = world.spawn(SearchInput).id();
+        let menu = world.spawn(MenuBrowseButton).id();
         consume_search_command(
             &SimCommand::SetBrowseOpen(false),
             &mut world.resource_mut::<BrowseUiState>(),
         );
         app.update();
-        assert_eq!(
-            app.world().resource::<InputFocus>().get(),
-            Some(search_input)
-        );
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(menu));
     }
 
     #[test]
@@ -1619,7 +1739,234 @@ mod tests {
             .drain()
             .collect();
         assert_eq!(queued, vec![SimCommand::TravelToBody("hale_bopp".into())]);
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(input));
+        assert!(app.world().resource::<SearchUiState>().suppress_dropdown);
+
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::Enter,
+            logical_key: Key::Enter,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window,
+        });
+        app.update();
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .count(),
+            0,
+            "committed Search focus must not repeat the hidden exact-match travel"
+        );
+    }
+
+    #[test]
+    fn pointer_search_selection_commits_text_restores_input_and_stays_closed() {
+        let catalog = real_catalog();
+        let mut app = App::new();
+        app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default()))
+            .init_asset::<Font>()
+            .insert_resource(LoadedCatalog::new(catalog))
+            .insert_resource(UiTheme::default())
+            .init_resource::<InputFocus>()
+            .init_resource::<SearchUiState>()
+            .init_resource::<SimCommandQueue>()
+            .add_systems(
+                Update,
+                (
+                    attach_search_observers,
+                    sync_search_input,
+                    rebuild_search_dropdown,
+                )
+                    .chain(),
+            );
+        let input = app
+            .world_mut()
+            .spawn((SearchInput, EditableText::new("a")))
+            .id();
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(input, FocusCause::Navigated);
+        app.update();
+        app.update();
+
+        let result = {
+            let world = app.world_mut();
+            world
+                .query::<(Entity, &SearchResultAction)>()
+                .iter(world)
+                .next()
+                .map(|(entity, action)| (entity, action.0))
+                .unwrap()
+        };
+        let expected = &app.world().resource::<LoadedCatalog>().catalog.bodies[result.1];
+        let expected_id = expected.id.clone();
+        let expected_name = expected.name.clone();
+        app.world_mut().trigger(Activate { entity: result.0 });
+        app.update();
+
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .collect::<Vec<_>>(),
+            vec![SimCommand::TravelToBody(expected_id)]
+        );
+        assert_eq!(
+            queued_or_current_editable_value(app.world(), input),
+            expected_name
+        );
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(input));
+        assert_eq!(app.world().resource::<SearchUiState>().dropdown_root, None);
+        assert!(app.world().resource::<SearchUiState>().suppress_dropdown);
+
+        {
+            let world = app.world_mut();
+            let mut entity = world.entity_mut(input);
+            let mut editable = entity.get_mut::<EditableText>().unwrap();
+            editable.editor_mut().set_text(&expected_name);
+            editable.pending_edits.clear();
+        }
+        app.update();
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(input));
+        assert_eq!(app.world().resource::<SearchUiState>().dropdown_root, None);
+        assert_eq!(component_count::<SearchDropdownRoot>(app.world_mut()), 0);
+
+        {
+            let world = app.world_mut();
+            let mut entity = world.entity_mut(input);
+            let mut editable = entity.get_mut::<EditableText>().unwrap();
+            editable.editor_mut().set_text("mar");
+            editable.pending_edits.clear();
+        }
+        app.update();
+        assert!(!app.world().resource::<SearchUiState>().suppress_dropdown);
+        assert!(app
+            .world()
+            .resource::<SearchUiState>()
+            .dropdown_root
+            .is_some());
+    }
+
+    #[test]
+    fn escape_from_focused_result_reverts_through_the_shared_search_path() {
+        let catalog = real_catalog();
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            InputPlugin,
+            InputFocusPlugin,
+            InputDispatchPlugin,
+        ))
+        .add_plugins(AssetPlugin::default())
+        .init_asset::<Font>()
+        .insert_resource(LoadedCatalog::new(catalog))
+        .insert_resource(UiTheme::default())
+        .init_resource::<SearchUiState>()
+        .init_resource::<SimCommandQueue>()
+        .add_systems(
+            Update,
+            (
+                attach_search_observers,
+                sync_search_input,
+                rebuild_search_dropdown,
+            )
+                .chain(),
+        );
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow))
+            .id();
+        let input = app
+            .world_mut()
+            .spawn((SearchInput, EditableText::new("hale")))
+            .id();
+        {
+            let mut state = app.world_mut().resource_mut::<SearchUiState>();
+            state.begin_edit(input, "Earth");
+            state.set_query(&real_catalog(), "hale".into());
+        }
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(input, FocusCause::Navigated);
+        app.update();
+        app.update();
+        let result = app
+            .world_mut()
+            .query_filtered::<Entity, With<SearchResultAction>>()
+            .iter(app.world())
+            .next()
+            .unwrap();
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(result, FocusCause::Navigated);
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::Escape,
+            logical_key: Key::Escape,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window,
+        });
+        app.update();
+
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .count(),
+            0
+        );
+        assert_eq!(
+            queued_or_current_editable_value(app.world(), input),
+            "Earth"
+        );
+        assert_eq!(app.world().resource::<SearchUiState>().query, "Earth");
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(input));
+        assert_eq!(app.world().resource::<SearchUiState>().dropdown_root, None);
+        assert!(app.world().resource::<SearchUiState>().suppress_dropdown);
+        app.update();
+        assert_eq!(app.world().resource::<SearchUiState>().dropdown_root, None);
+        assert_eq!(component_count::<SearchDropdownRoot>(app.world_mut()), 0);
+    }
+
+    #[test]
+    fn search_selection_without_a_live_input_clears_focus_after_travel() {
+        let catalog = real_catalog();
+        let body_index = catalog
+            .bodies
+            .iter()
+            .position(|body| body.id == "io")
+            .unwrap();
+        let mut app = App::new();
+        app.insert_resource(LoadedCatalog::new(catalog))
+            .init_resource::<InputFocus>()
+            .insert_resource(SearchUiState {
+                active_input: Some(Entity::from_bits(999)),
+                ..default()
+            })
+            .init_resource::<SimCommandQueue>()
+            .add_systems(Update, attach_search_observers);
+        let result = app
+            .world_mut()
+            .spawn((SearchResultAction(body_index), bevy::ui_widgets::Button))
+            .id();
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(result, FocusCause::Navigated);
+        app.update();
+        app.world_mut().trigger(Activate { entity: result });
+
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .collect::<Vec<_>>(),
+            vec![SimCommand::TravelToBody("io".into())]
+        );
         assert_eq!(app.world().resource::<InputFocus>().get(), None);
+        assert!(app.world().resource::<SearchUiState>().suppress_dropdown);
     }
 
     #[test]
@@ -1669,6 +2016,133 @@ mod tests {
             .collect();
         assert_eq!(queued, vec![SimCommand::SetBrowseOpen(true)]);
         assert_eq!(app.world().resource::<InputFocus>().get(), None);
+    }
+
+    #[test]
+    fn pointer_and_keyboard_browse_selection_return_to_menu_without_reopening_search() {
+        for keyboard in [false, true] {
+            let catalog = real_catalog();
+            let io_index = catalog
+                .bodies
+                .iter()
+                .position(|body| body.id == "io")
+                .unwrap();
+            let mut search = SearchUiState::default();
+            search.set_query(&catalog, "hale".into());
+            let mut app = App::new();
+            app.add_plugins((
+                MinimalPlugins,
+                InputPlugin,
+                InputFocusPlugin,
+                InputDispatchPlugin,
+            ))
+            .add_plugins((AssetPlugin::default(), ButtonPlugin))
+            .init_asset::<Font>()
+            .init_resource::<HoverMap>()
+            .insert_resource(LoadedCatalog::new(catalog))
+            .insert_resource(UiTheme::default())
+            .insert_resource(search)
+            .insert_resource(BrowseUiState {
+                open: true,
+                dirty: true,
+                ..default()
+            })
+            .init_resource::<SimCommandQueue>()
+            .add_systems(
+                Update,
+                (
+                    attach_search_observers,
+                    sync_search_input,
+                    rebuild_search_dropdown,
+                    rebuild_browse_menu,
+                )
+                    .chain(),
+            );
+            let window = app
+                .world_mut()
+                .spawn((Window::default(), PrimaryWindow))
+                .id();
+            let menu = app
+                .world_mut()
+                .spawn((MenuBrowseButton, bevy::ui_widgets::Button))
+                .id();
+            app.world_mut()
+                .spawn((SearchInput, EditableText::new("hale")));
+            app.update();
+            app.update();
+
+            let travel = {
+                let world = app.world_mut();
+                world
+                    .query::<(Entity, &BrowseAction)>()
+                    .iter(world)
+                    .find_map(|(entity, action)| {
+                        (*action == BrowseAction::TravelTo(io_index)).then_some(entity)
+                    })
+                    .unwrap()
+            };
+            if keyboard {
+                app.world_mut()
+                    .resource_mut::<InputFocus>()
+                    .set(travel, FocusCause::Navigated);
+                app.world_mut().write_message(KeyboardInput {
+                    key_code: KeyCode::Enter,
+                    logical_key: Key::Enter,
+                    state: ButtonState::Pressed,
+                    text: None,
+                    repeat: false,
+                    window,
+                });
+                app.update();
+            } else {
+                app.world_mut().trigger(Activate { entity: travel });
+            }
+
+            let queued: Vec<_> = app
+                .world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .collect();
+            assert_eq!(
+                queued,
+                vec![
+                    SimCommand::TravelToBody("io".into()),
+                    SimCommand::SetBrowseOpen(false),
+                ],
+                "keyboard={keyboard}"
+            );
+            consume_search_command(
+                &queued[1],
+                &mut app.world_mut().resource_mut::<BrowseUiState>(),
+            );
+            app.update();
+            app.update();
+
+            assert_eq!(
+                app.world().resource::<InputFocus>().get(),
+                Some(menu),
+                "keyboard={keyboard}"
+            );
+            assert_eq!(
+                app.world().resource::<SearchUiState>().query,
+                "hale",
+                "keyboard={keyboard}"
+            );
+            assert_eq!(
+                app.world().resource::<SearchUiState>().dropdown_root,
+                None,
+                "keyboard={keyboard}"
+            );
+            assert!(
+                !app.world().resource::<BrowseUiState>().is_open(),
+                "keyboard={keyboard}"
+            );
+            assert_eq!(
+                component_count::<BrowseMenuRoot>(app.world_mut()),
+                0,
+                "keyboard={keyboard}"
+            );
+        }
     }
 
     #[test]
@@ -1793,8 +2267,13 @@ mod tests {
             .drain()
             .collect();
         assert_eq!(queued, vec![SimCommand::TravelToBody(expected_id)]);
-        assert_eq!(app.world().resource::<InputFocus>().get(), None);
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(input));
         assert_eq!(app.world().resource::<SearchUiState>().dropdown_root, None);
+        assert!(app.world().resource::<SearchUiState>().suppress_dropdown);
+        app.update();
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(input));
+        assert_eq!(app.world().resource::<SearchUiState>().dropdown_root, None);
+        assert_eq!(component_count::<SearchDropdownRoot>(app.world_mut()), 0);
     }
 
     #[test]
@@ -2023,7 +2502,7 @@ mod tests {
             })
             .init_resource::<InputFocus>()
             .add_systems(Update, rebuild_browse_menu);
-        let search_input = app.world_mut().spawn(SearchInput).id();
+        let menu = app.world_mut().spawn(MenuBrowseButton).id();
         app.update();
 
         let stale_action = {
@@ -2044,10 +2523,7 @@ mod tests {
             &mut app.world_mut().resource_mut::<BrowseUiState>(),
         );
         app.update();
-        assert_eq!(
-            app.world().resource::<InputFocus>().get(),
-            Some(search_input)
-        );
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(menu));
         assert_eq!(app.world().resource::<BrowseUiState>().restore_action, None);
 
         consume_search_command(
@@ -2061,6 +2537,33 @@ mod tests {
             app.world().entity(focused).get::<BrowseAction>(),
             Some(&BrowseAction::Close)
         );
+    }
+
+    #[test]
+    fn browse_close_without_a_live_menu_clears_the_despawned_focus() {
+        let mut app = App::new();
+        app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default()))
+            .init_asset::<Font>()
+            .insert_resource(LoadedCatalog::new(real_catalog()))
+            .insert_resource(UiTheme::default())
+            .insert_resource(BrowseUiState {
+                open: true,
+                dirty: true,
+                ..default()
+            })
+            .init_resource::<InputFocus>()
+            .add_systems(Update, rebuild_browse_menu);
+        app.update();
+        let focused = app.world().resource::<InputFocus>().get().unwrap();
+
+        consume_search_command(
+            &SimCommand::SetBrowseOpen(false),
+            &mut app.world_mut().resource_mut::<BrowseUiState>(),
+        );
+        app.update();
+
+        assert_eq!(app.world().resource::<InputFocus>().get(), None);
+        assert!(app.world().get_entity(focused).is_err());
     }
 
     fn node_rect(world: &World, entity: Entity) -> Rect {

@@ -87,10 +87,10 @@ pub use time_bar::{
 };
 pub use ui_kit::{
     checkbox_row, chip, panel, section_header, slider, tab_bar, toast, top_bar, BreadcrumbText,
-    MenuBrowseButton, NavigationItem, NavigationStack, SearchHint, SearchInput, SearchPlaceholder,
-    TopBarRoot, UiColorToken, UiColors, UiKitPlugin, UiSpacing, UiTheme, UiTypeScale, WidgetKind,
-    WidgetRoot, WidgetSpec, WidgetVisualState, BREADCRUMB_SEPARATOR, INTER_FONT_ASSET,
-    TOP_BAR_HEIGHT_PX,
+    MenuBrowseButton, NavigationDestination, NavigationItem, NavigationStack, SearchHint,
+    SearchInput, SearchPlaceholder, TopBarRoot, UiColorToken, UiColors, UiKitPlugin, UiSpacing,
+    UiTheme, UiTypeScale, WidgetKind, WidgetRoot, WidgetSpec, WidgetVisualState,
+    BREADCRUMB_SEPARATOR, INTER_FONT_ASSET, ROOT_NAVIGATION_ID, TOP_BAR_HEIGHT_PX,
 };
 #[cfg(debug_assertions)]
 pub use ui_kit::{WidgetGalleryCell, WidgetGalleryRoot};
@@ -902,8 +902,14 @@ fn apply_sim_commands(gate: SimCommandGate) {
             presentation.set_changed();
         }
         if let (Some(loaded), Some(camera)) = (loaded.as_deref(), camera.as_deref_mut()) {
-            let report = consume_sim_command(&command, &mut clock.0, camera, loaded);
+            let report = consume_sim_command(&command, &mut clock.0, camera, loaded, &navigation);
             write_tick_report(report, &mut reports);
+            left_panel::sync_left_panel_selection_state(
+                camera,
+                loaded,
+                &mut left_panel,
+                &mut navigation,
+            );
         }
     }
 }
@@ -1722,6 +1728,107 @@ mod tests {
             DisplayModeSetting::BorderlessFullscreen
         );
         assert!(!settings.layers.labels);
+    }
+
+    #[test]
+    fn desktop_command_gate_converges_navigation_after_each_ordered_command() {
+        let catalog = catalog();
+        let states = propagate_catalog(&catalog, t_from_jd_tdb(2_461_042.0)).unwrap();
+        let loaded = LoadedCatalog::new(catalog);
+        let sun = loaded.index_of("sun").unwrap();
+        let jupiter = loaded.index_of("jupiter").unwrap();
+        let io = loaded.index_of("io").unwrap();
+        let camera = CameraController::new(
+            sun,
+            states.0[sun].position_km,
+            DEFAULT_CAMERA_DISTANCE_UNITS,
+        );
+
+        let mut queue = SimCommandQueue::default();
+        queue.push(SimCommand::TravelToBody("jupiter".into()));
+        queue.push(SimCommand::SetLeftPanelTab(LeftPanelTab::Collection));
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(queue)
+            .insert_resource(SimulationClock(SimClock::new(StartMode::default(), 0.0)))
+            .insert_resource(loaded)
+            .insert_resource(camera)
+            .init_resource::<SimulationFrame>()
+            .init_resource::<CommandRecording>()
+            .init_resource::<LayerState>()
+            .init_resource::<PresentationState>()
+            .init_resource::<ViewOptionsState>()
+            .init_resource::<left_panel::LeftPanelUiState>()
+            .init_resource::<NavigationStack>()
+            .init_resource::<search::BrowseUiState>()
+            .init_resource::<AppSettings>()
+            .init_resource::<settings::SettingsScreenState>()
+            .init_resource::<settings::SettingsSaveRequest>()
+            .add_message::<ClockTickReport>()
+            .add_systems(Update, apply_sim_commands);
+        #[cfg(debug_assertions)]
+        app.init_resource::<DebugDeviceLossRequest>();
+
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<CameraController>()
+                .selected_body_index(),
+            jupiter
+        );
+        assert_eq!(
+            left_panel::left_panel_replay_state(
+                app.world().resource::<left_panel::LeftPanelUiState>()
+            )
+            .1,
+            LeftPanelTab::Collection
+        );
+        assert_eq!(
+            app.world().resource::<NavigationStack>().label(),
+            "Solar System › Jupiter › Moons"
+        );
+
+        app.world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .push(SimCommand::TravelToBody("io".into()));
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<CameraController>()
+                .selected_body_index(),
+            io
+        );
+        assert_eq!(
+            app.world().resource::<NavigationStack>().label(),
+            "Solar System › Jupiter › Io"
+        );
+
+        {
+            let mut queue = app.world_mut().resource_mut::<SimCommandQueue>();
+            queue.push(SimCommand::NavigateBreadcrumb {
+                depth: 1,
+                target_id: "jupiter".into(),
+            });
+            queue.push(SimCommand::SetLeftPanelTab(LeftPanelTab::ViewOptions));
+        }
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<CameraController>()
+                .selected_body_index(),
+            jupiter
+        );
+        assert_eq!(
+            left_panel::left_panel_replay_state(
+                app.world().resource::<left_panel::LeftPanelUiState>()
+            )
+            .1,
+            LeftPanelTab::ViewOptions
+        );
+        assert_eq!(
+            app.world().resource::<NavigationStack>().label(),
+            "Solar System › Jupiter"
+        );
     }
 
     #[test]

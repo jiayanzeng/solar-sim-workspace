@@ -19,7 +19,10 @@ pub use hud::{
     top_bar, BreadcrumbText, MenuBrowseButton, SearchHint, SearchInput, SearchPlaceholder,
     TopBarRoot, TOP_BAR_HEIGHT_PX,
 };
-pub use navigation::{NavigationItem, NavigationStack, BREADCRUMB_SEPARATOR};
+pub use navigation::{
+    NavigationDestination, NavigationItem, NavigationStack, BREADCRUMB_SEPARATOR,
+    ROOT_NAVIGATION_ID,
+};
 pub use theme::{UiColorToken, UiColors, UiSpacing, UiTheme, UiTypeScale};
 pub use widgets::{
     checkbox_row, chip, panel, section_header, slider, tab_bar, toast, WidgetKind, WidgetRoot,
@@ -51,6 +54,7 @@ impl Plugin for UiKitPlugin {
                 Update,
                 (hud::update_breadcrumb, hud::rebuild_actionable_breadcrumb)
                     .chain()
+                    .after(crate::left_panel::NavigationSyncSet)
                     .in_set(SimulationSet::Render),
             );
 

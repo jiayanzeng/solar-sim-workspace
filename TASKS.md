@@ -38,7 +38,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 4 | Propagation + floating origin: 66 colored spheres at 2026 positions | **✅ done** |
 | 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | **✅ done** |
 | 6 | Orbit lines (adaptive; hyperbolic arc), colors, fades | **✅ done** |
-| 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | in-progress |
+| 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | **✅ done** |
 | 8 | Time bar: detented log slider, editable date/clock, LIVE chip | **✅ done** |
 | 9 | Labels/reticles, tiered declutter, contextual moon visibility, picking | **✅ done** |
 | 10 | Left panel: Info tab, collection pages, View Options | **✅ done** |
@@ -815,6 +815,33 @@ task order, and acceptance evidence are recorded in
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Completed stabilization Task 4 and returned WP7 to
+  **✅ done** after an independent final source review found no blockers.
+  Breadcrumb items now retain semantic root/body/collection destinations
+  behind their stable route IDs, and `(depth, target_id)` is validated
+  atomically against the current stack before either the camera or application
+  state can change. Desktop and headless reducers converge selected-body,
+  panel, and navigation state after each ordered command; unsupported
+  collection pages reject without mutation; Jupiter Collection/Info/View,
+  Io, current/ancestor/root breadcrumb routes, and same-frame versus
+  split-frame sequences now produce the documented canonical states.
+  Breadcrumb rebuilding is explicitly ordered after navigation convergence
+  and restores focus to a live semantic successor.
+
+  Search input and its dropdown now share TextEdit ownership, so focused
+  results suppress all background gameplay input and Escape uses the shared
+  cancellation path. Keyboard and pointer selection each queue exactly one
+  Travel command, commit the displayed value, restore live Search focus, and
+  suppress exact-match popup reopening until a fresh edit. Browse preserves
+  Travel-then-close ordering and returns focus to its live Menu invoker, with
+  stale-target clearing as the fallback. Replay command text remains
+  compatible; semantic navigation identity intentionally changes the pinned
+  portable state hash to `1535747298578131566`. Fifteen new regressions raise
+  the workspace suite from 274 to 289 tests (53 `sim-core` · 185 `solar-sim`
+  · 48 `xtask` lib · 2 xtask smoke · 1 active spot-check). Evidence:
+  `cargo test`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo fmt --all -- --check`, and `git diff --check` all pass. No Steam,
+  dependency, catalog, generated-asset, physics, or tolerance work changed.
 - **2026-07-17** — Began the required pre-code review for stabilization Task
   4, reopening WP7 as the coordinating breadcrumb/navigation package from the
   green 274-test Task 3 commit. Re-reading ARCHITECTURE §§8.2, 8.4, 9.1, and

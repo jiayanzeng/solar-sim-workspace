@@ -4,13 +4,16 @@
 //! here. Keeping their component markers in `ui_kit` preserves WP7's stable
 //! top-bar scene signature while search internals remain independently owned.
 
-use super::{NavigationStack, UiTheme, INTER_FONT_ASSET};
+use super::{NavigationDestination, NavigationStack, UiTheme, INTER_FONT_ASSET};
 use crate::control::{SimCommand, SimCommandQueue};
 use crate::input_intent::UiScrollSurface;
 use crate::layers::HudSurface;
 use bevy::{
     input::mouse::MouseScrollUnit,
-    input_focus::tab_navigation::{TabGroup, TabIndex},
+    input_focus::{
+        tab_navigation::{TabGroup, TabIndex},
+        FocusCause, InputFocus,
+    },
     picking::events::{Pointer, Scroll},
     prelude::*,
     text::{EditableText, FontSourceTemplate, LetterSpacing, LineBreak, TextLayout},
@@ -44,9 +47,10 @@ pub(super) struct BreadcrumbOverlayRoot;
 pub struct BreadcrumbHost;
 
 #[derive(Component, Debug, Clone)]
-struct BreadcrumbAction {
+pub(super) struct BreadcrumbAction {
     depth: usize,
     target_id: String,
+    destination: NavigationDestination,
 }
 
 pub fn top_bar(theme: UiTheme, breadcrumb: String) -> impl Scene {
@@ -241,6 +245,7 @@ pub(super) fn update_breadcrumb(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn rebuild_actionable_breadcrumb(
     mut commands: Commands,
     navigation: Res<NavigationStack>,
@@ -248,20 +253,26 @@ pub(super) fn rebuild_actionable_breadcrumb(
     asset_server: Res<AssetServer>,
     roots: Query<Entity, With<BreadcrumbOverlayRoot>>,
     hosts: Query<Entity, With<BreadcrumbHost>>,
+    actions: Query<&BreadcrumbAction>,
+    focus: Res<InputFocus>,
     mut legacy_text: Query<&mut Visibility, With<BreadcrumbText>>,
 ) {
     if !navigation.is_changed() {
         return;
     }
+    let Ok(host) = hosts.single() else {
+        return;
+    };
+    let focused_action = focus
+        .get()
+        .and_then(|entity| actions.get(entity).ok())
+        .cloned();
     for root in &roots {
         commands.entity(root).despawn();
     }
     for mut visibility in &mut legacy_text {
         *visibility = Visibility::Hidden;
     }
-    let Ok(host) = hosts.single() else {
-        return;
-    };
     let root = commands
         .spawn((
             Name::new("Actionable breadcrumb"),
@@ -298,6 +309,7 @@ pub(super) fn rebuild_actionable_breadcrumb(
                 BreadcrumbAction {
                     depth,
                     target_id: item.id.clone(),
+                    destination: item.destination.clone(),
                 },
                 AccessibleLabel::new(format!("Navigate to {}", item.label)),
                 TabIndex(2 + depth as i32),
@@ -329,6 +341,32 @@ pub(super) fn rebuild_actionable_breadcrumb(
             ChildOf(button),
         ));
     }
+    if let Some(focused_action) = focused_action {
+        queue_breadcrumb_focus_restore(&mut commands, focused_action);
+    }
+}
+
+fn queue_breadcrumb_focus_restore(commands: &mut Commands, requested: BreadcrumbAction) {
+    commands.queue(move |world: &mut World| {
+        let mut actions = world.query::<(Entity, &BreadcrumbAction)>();
+        let mut exact = None;
+        let mut current = None;
+        for (entity, action) in actions.iter(world) {
+            if action.target_id == requested.target_id
+                && action.destination == requested.destination
+            {
+                exact = Some(entity);
+            }
+            if current.is_none_or(|(_, depth)| action.depth > depth) {
+                current = Some((entity, action.depth));
+            }
+        }
+        if let Some(entity) = exact.or_else(|| current.map(|(entity, _)| entity)) {
+            world
+                .resource_mut::<InputFocus>()
+                .set(entity, FocusCause::Navigated);
+        }
+    });
 }
 
 fn scroll_breadcrumb(
@@ -386,7 +424,7 @@ mod tests {
             .push("jupiter", "Jupiter");
         app.world_mut()
             .resource_mut::<NavigationStack>()
-            .push("jupiter_moons", "Moons");
+            .push_collection("jupiter", "Moons");
         app.update();
 
         assert_eq!(
@@ -404,6 +442,9 @@ mod tests {
             .spawn(BreadcrumbAction {
                 depth: 1,
                 target_id: "jupiter".into(),
+                destination: NavigationDestination::Body {
+                    body_id: "jupiter".into(),
+                },
             })
             .observe(activate_breadcrumb)
             .id();
@@ -425,11 +466,77 @@ mod tests {
     }
 
     #[test]
+    fn breadcrumb_rebuild_restores_focus_to_a_live_semantic_route() {
+        let mut navigation = NavigationStack::root();
+        navigation.push("jupiter", "Jupiter");
+        navigation.push("io", "Io");
+        let mut app = test_layout::app(960, 600, 1.0);
+        app.insert_resource(UiTheme::default())
+            .insert_resource(navigation)
+            .add_systems(Startup, spawn_top_bar)
+            .add_systems(Update, rebuild_actionable_breadcrumb);
+        test_layout::settle(&mut app);
+
+        let jupiter = {
+            let world = app.world_mut();
+            world
+                .query::<(Entity, &BreadcrumbAction)>()
+                .iter(world)
+                .find_map(|(entity, action)| (action.target_id == "jupiter").then_some(entity))
+                .unwrap()
+        };
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(jupiter, FocusCause::Navigated);
+        app.world_mut()
+            .resource_mut::<NavigationStack>()
+            .truncate(2);
+        test_layout::settle(&mut app);
+
+        let focused = app.world().resource::<InputFocus>().get().unwrap();
+        assert_ne!(focused, jupiter);
+        assert!(app.world().get_entity(jupiter).is_err());
+        assert!(app.world().get_entity(focused).is_ok());
+        let action = app
+            .world()
+            .entity(focused)
+            .get::<BreadcrumbAction>()
+            .unwrap();
+        assert_eq!(action.target_id, "jupiter");
+        assert_eq!(
+            action.destination,
+            NavigationDestination::Body {
+                body_id: "jupiter".into(),
+            }
+        );
+
+        let focused_jupiter = focused;
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(focused_jupiter, FocusCause::Navigated);
+        {
+            let mut navigation = app.world_mut().resource_mut::<NavigationStack>();
+            navigation.truncate(1);
+            navigation.push("earth", "Earth");
+        }
+        test_layout::settle(&mut app);
+
+        let fallback = app.world().resource::<InputFocus>().get().unwrap();
+        assert!(app.world().get_entity(fallback).is_ok());
+        let action = app
+            .world()
+            .entity(fallback)
+            .get::<BreadcrumbAction>()
+            .unwrap();
+        assert_eq!(action.target_id, "earth");
+    }
+
+    #[test]
     fn top_bar_controls_fit_every_required_viewport_and_scale() {
         for (width, height, scale) in test_layout::required_viewports() {
             let mut navigation = NavigationStack::root();
             navigation.push("jupiter", "Jupiter");
-            navigation.push("jupiter_moons", "Moons");
+            navigation.push_collection("jupiter", "Moons");
             let mut app = test_layout::app(width, height, scale);
             app.insert_resource(UiTheme::default())
                 .insert_resource(navigation)
