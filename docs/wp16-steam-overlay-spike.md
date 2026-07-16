@@ -9,13 +9,40 @@ the release guardrails.
 
 | Platform | Real-client result | Current disposition |
 |---|---|---|
-| macOS / Metal, M2 Pro | Pending human run | Mac-first bring-up approved in Q13 |
+| macOS / Metal, M2 Pro | Initial run failed; corrected retest pending | Mac-first bring-up approved in Q13 |
 | Windows / DX12 | Not run | Deferred under open Q13 until physical hardware exists |
 
 The app treats the overlay as optional. A Steam initialization failure installs
 the no-op `PlatformServices` adapter and continues with
 `overlay_available=false`; successful initialization records the client's
 reported overlay state without making rendering or simulation depend on it.
+Steam callbacks are pumped every frame, and the status resource follows the
+overlay from its documented initial `false` state to `true` after injection.
+
+## 2026-07-16 initial macOS result
+
+The first M2 Pro run used macOS 26.5.1 and a signed-in Steam client whose build
+number was not recorded. Steam API initialization succeeded for App ID 480, but
+the app printed `overlay_available=false` and Shift-Tab was unresponsive. That
+run is not acceptance evidence: the application initialized Steam after Bevy
+had already created the Metal adapter, never pumped Steam callbacks, sampled
+overlay availability only once, and the linker-signed executable had neither
+macOS overlay entitlement.
+
+The corrected development path initializes Steam before Bevy rendering,
+refreshes overlay availability after callbacks, and has `xtask` ad-hoc sign the
+binary with Valve's required
+`com.apple.security.cs.disable-library-validation` and
+`com.apple.security.cs.allow-dyld-environment-variables` entitlements. Valve
+documents both the initialization-order and entitlement requirements in its
+[overlay guide](https://partner.steamgames.com/doc/features/overlay) and
+[macOS platform guide](https://partner.steamgames.com/doc/store/application/platforms).
+An automated corrected launch remained at `overlay_available=false` for 15
+seconds. `vmmap` showed the Steam API and client libraries loaded but no Steam
+overlay renderer injected, so the code-side preconditions are now present but
+the client-side global/per-Spacewar overlay setting and launch injection still
+need the human UI check below. The macOS spike cannot be recorded as passing
+until that retest succeeds.
 
 ## macOS real-client commands
 
@@ -29,16 +56,24 @@ cargo run -p solar-sim --release --features steam
 ```
 
 The generator overwrites `target/release/steam_appid.txt` from the committed
-`STEAM_APP_ID` constant. Never create or edit that file by hand. The launch
-must print one of these lines:
+`STEAM_APP_ID` constant and ad-hoc signs the macOS executable with the
+development overlay entitlements. Never create or edit the marker by hand.
+Steam's global in-game overlay and Spacewar's per-game overlay must both be
+enabled before launching.
+
+The `[S_API] SteamAPI_Init()` line must appear before Bevy's Metal
+`AdapterInfo` line. The initialization line may initially report false:
 
 ```text
-steam: initialized app_id=480 overlay_available=true
 steam: initialized app_id=480 overlay_available=false
+platform: overlay_available=true
 ```
 
-An initialization-failure line means the real-client check has not run. Confirm
-Steam is logged in as the same macOS user, then retry.
+Valve documents that `IsOverlayEnabled` can remain false for several seconds
+while injection finishes. Wait for the `platform: overlay_available=true`
+transition before testing Shift-Tab. An initialization-failure line means the
+real-client check has not run; confirm Steam is logged in as the same macOS
+user, then retry.
 
 With Steam's in-game overlay enabled, press Shift-Tab and record whether the
 overlay appears over the Metal window. Then disable the overlay for Spacewar in

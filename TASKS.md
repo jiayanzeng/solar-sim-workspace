@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 201 passing** (53 `sim-core` · 102 `solar-sim` · 43 `xtask`
+**Test baseline: 208 passing** (53 `sim-core` · 104 `solar-sim` · 48 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -783,8 +783,44 @@ swap is the constant, its pinning test, and regeneration of `steam_appid.txt`.
 Full rationale and human sign-off:
 `docs/wp16-steam-bringup-decisions-2026-07-15.md`.
 
+### Q15 — OPEN.
+
+The 2026-07-16 M2 Pro overlay attempt exposed a WP14 recovery ambiguity outside
+WP16. The persisted `settings.toml` has `orbits`, `labels`, and `icons` set to
+false; combined with the non-persisted default ×1 body scale and full-system
+camera, the human reports that no bodies or orbits are discoverable. The human
+also reports that opening Settings hangs the application, while the exact
+60-frame Metal smoke with `--assert-nonblack` exits 0 at 202.7 fps. Decision
+required: add an explicit reset-settings recovery path, impose a minimum
+startup visual-cue floor, or preserve exact persistence and document a manual
+reset. Do not change WP14 status or acceptance text until the human closes this
+question.
+
 ## Change log (append-only; newest first)
 
+- **2026-07-16** — The first real-client M2 Pro overlay attempt found four
+  WP16 integration defects before it could count as spike evidence. The supplied
+  terminal log shows Metal `AdapterInfo` before `[S_API] SteamAPI_Init()`,
+  `steam: initialized app_id=480 overlay_available=false`, and unresponsive
+  Shift-Tab. `codesign -d --entitlements - target/release/solar-sim` showed no
+  entitlements. Platform initialization now precedes Bevy `DefaultPlugins`;
+  the adapter pumps Steam callbacks every frame and refreshes `PlatformStatus`;
+  `prepare-steam-dev` ad-hoc signs the binary with Valve's two required macOS
+  overlay entitlements. The focused platform tests pass 3/3 with the new
+  delayed-overlay transition test, the focused xtask tests pass 4/4 with the
+  entitlement contract, and feature-enabled clippy passes with warnings
+  denied. Full `cargo test` passes the new 208-test default baseline (53
+  `sim-core`, 104 `solar-sim`, 48 `xtask` lib, two xtask smoke, one active
+  spot-check), and the feature-enabled app suite passes 105 tests. The corrected
+  local `codesign` inspection reports both entitlements, and the Steam-enabled
+  60-frame Metal smoke prints `[S_API]` before adapter reporting, passes the
+  backend and real-GPU checks at 179.5 fps, and confirms a 1920×1200 non-black
+  readback. A separate 15-second launch still reported no overlay transition,
+  while `vmmap` showed Steam API/client images but no overlay renderer. The
+  remaining global/per-Spacewar client setting and launch-injection check
+  therefore stays with the human. The macOS overlay result remains pending a
+  corrected Shift-Tab rerun; no WP16 acceptance box changed. Q15 records the
+  separate persisted-settings recovery ambiguity without changing WP14.
 - **2026-07-16** — WP16's default-build dependency isolation is accepted at
   commit `ad9be42b12347acee4d2d4f17776199f0f6a9dd1`. The exact local
   `cargo tree -p solar-sim --edges normal --no-default-features` check contains

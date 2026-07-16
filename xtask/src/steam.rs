@@ -8,6 +8,8 @@ use anyhow::{bail, Context, Result};
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
+use std::process::Command;
 
 #[path = "../../crates/solar-sim/src/steam_app_id.rs"]
 mod app_id_source;
@@ -15,6 +17,8 @@ mod app_id_source;
 pub use app_id_source::STEAM_APP_ID;
 
 const DEVELOPMENT_MARKER_FILENAME: &str = "steam_appid.txt";
+#[cfg(any(target_os = "macos", test))]
+const MACOS_STEAM_ENTITLEMENTS: &str = "../crates/solar-sim/steam-dev.entitlements";
 
 /// Release-sensitive operations that must never target the interim App ID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +59,41 @@ pub fn write_development_app_id(application: &Path) -> Result<PathBuf> {
     fs::write(&output, format!("{STEAM_APP_ID}\n"))
         .with_context(|| format!("write generated Steam App ID to {}", output.display()))?;
     Ok(output)
+}
+
+/// Prepares a local executable for Steam client and overlay development.
+pub fn prepare_development_application(application: &Path) -> Result<PathBuf> {
+    let marker = write_development_app_id(application)?;
+    #[cfg(target_os = "macos")]
+    sign_macos_development_application(application)?;
+    Ok(marker)
+}
+
+#[cfg(target_os = "macos")]
+fn sign_macos_development_application(application: &Path) -> Result<()> {
+    let entitlements = Path::new(env!("CARGO_MANIFEST_DIR")).join(MACOS_STEAM_ENTITLEMENTS);
+    let status = Command::new("/usr/bin/codesign")
+        .arg("--force")
+        .arg("--sign")
+        .arg("-")
+        .arg("--entitlements")
+        .arg(&entitlements)
+        .arg(application)
+        .status()
+        .with_context(|| format!("launch codesign for {}", application.display()))?;
+    if !status.success() {
+        bail!(
+            "codesign failed for Steam development application {} with {}",
+            application.display(),
+            entitlements.display()
+        );
+    }
+    println!(
+        "signed {} for Steam overlay injection with {}",
+        application.display(),
+        entitlements.display()
+    );
+    Ok(())
 }
 
 /// Guards every packaging and SteamPipe entrypoint against the interim ID.
@@ -102,6 +141,14 @@ mod tests {
             format!("{STEAM_APP_ID}\n")
         );
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn macos_development_entitlements_allow_steam_overlay_injection() {
+        let entitlements = Path::new(env!("CARGO_MANIFEST_DIR")).join(MACOS_STEAM_ENTITLEMENTS);
+        let contents = fs::read_to_string(entitlements).unwrap();
+        assert!(contents.contains("com.apple.security.cs.disable-library-validation"));
+        assert!(contents.contains("com.apple.security.cs.allow-dyld-environment-variables"));
     }
 
     #[test]

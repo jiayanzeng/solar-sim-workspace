@@ -626,6 +626,9 @@ fn build_app_with_platform<P: Plugin>(
     platform_plugin: P,
 ) -> App {
     let mut app = App::new();
+    // Steam's overlay must hook before Bevy creates the graphics device.
+    // Do not move platform initialization below DefaultPlugins.
+    app.add_plugins(platform_plugin);
     let golden_capture = options.golden_capture.clone();
     let golden_spec = golden_capture
         .as_ref()
@@ -767,7 +770,6 @@ fn build_app_with_platform<P: Plugin>(
         }
     }
 
-    app.add_plugins(platform_plugin);
     app.add_plugins((
         InputIntentPlugin,
         PropagationPlugin,

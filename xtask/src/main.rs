@@ -45,7 +45,7 @@ fn prepare_steam_dev(args: &[String]) -> Result<()> {
         }
         i += 1;
     }
-    let output = steam::write_development_app_id(
+    let output = steam::prepare_development_application(
         &application.ok_or_else(|| anyhow::anyhow!("--app is required"))?,
     )?;
     println!(

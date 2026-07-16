@@ -16,6 +16,9 @@ use std::sync::Mutex;
 /// Keeping this deliberately small prevents Steam-specific types from leaking
 /// into simulation, UI, or shutdown logic.
 pub trait PlatformServices: Send + Sync + 'static {
+    /// Pump platform callbacks and refresh capabilities.
+    fn update(&mut self) {}
+
     /// Whether the platform reports that its in-game overlay can be used.
     fn overlay_available(&self) -> bool;
 
@@ -52,6 +55,12 @@ impl SteamPlatformServices {
 
 #[cfg(feature = "steam")]
 impl PlatformServices for SteamPlatformServices {
+    fn update(&mut self) {
+        if let Some(client) = &self.client {
+            client.run_callbacks();
+        }
+    }
+
     fn overlay_available(&self) -> bool {
         self.client
             .as_ref()
@@ -136,6 +145,7 @@ impl Plugin for PlatformServicesPlugin {
         let (services, status) = PlatformServicesState::new(services);
         app.insert_resource(services)
             .insert_resource(status)
+            .add_systems(First, update_platform_services)
             .add_systems(Last, shutdown_platform_services);
     }
 }
@@ -168,6 +178,21 @@ impl Plugin for SteamPlugin {
     }
 }
 
+fn update_platform_services(
+    mut platform: ResMut<PlatformServicesState>,
+    mut status: ResMut<PlatformStatus>,
+) {
+    if platform.shut_down {
+        return;
+    }
+    platform.services.update();
+    let overlay_available = platform.services.overlay_available();
+    if status.overlay_available != overlay_available {
+        status.overlay_available = overlay_available;
+        println!("platform: overlay_available={overlay_available}");
+    }
+}
+
 fn shutdown_platform_services(
     mut exits: MessageReader<AppExit>,
     mut platform: ResMut<PlatformServicesState>,
@@ -185,10 +210,15 @@ mod tests {
 
     struct MockPlatformServices {
         overlay_available: bool,
+        updates: Arc<AtomicUsize>,
         shutdowns: Arc<AtomicUsize>,
     }
 
     impl PlatformServices for MockPlatformServices {
+        fn update(&mut self) {
+            self.updates.fetch_add(1, Ordering::SeqCst);
+        }
+
         fn overlay_available(&self) -> bool {
             self.overlay_available
         }
@@ -200,11 +230,13 @@ mod tests {
 
     #[test]
     fn app_lifecycle_uses_the_mock_and_does_not_require_an_overlay() {
+        let updates = Arc::new(AtomicUsize::new(0));
         let shutdowns = Arc::new(AtomicUsize::new(0));
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .add_plugins(PlatformServicesPlugin::new(MockPlatformServices {
                 overlay_available: false,
+                updates: updates.clone(),
                 shutdowns: shutdowns.clone(),
             }));
 
@@ -218,10 +250,40 @@ mod tests {
         app.world_mut().write_message(AppExit::Success);
         app.update();
         app.update();
+        assert_eq!(updates.load(Ordering::SeqCst), 1);
         assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
 
         drop(app);
         assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
+    }
+
+    struct DelayedOverlayServices {
+        overlay_available: bool,
+    }
+
+    impl PlatformServices for DelayedOverlayServices {
+        fn update(&mut self) {
+            self.overlay_available = true;
+        }
+
+        fn overlay_available(&self) -> bool {
+            self.overlay_available
+        }
+
+        fn shutdown(&mut self) {}
+    }
+
+    #[test]
+    fn delayed_overlay_status_refreshes_after_platform_update() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_plugins(PlatformServicesPlugin::new(DelayedOverlayServices {
+                overlay_available: false,
+            }));
+
+        assert!(!app.world().resource::<PlatformStatus>().overlay_available);
+        app.update();
+        assert!(app.world().resource::<PlatformStatus>().overlay_available);
     }
 
     #[cfg(feature = "steam")]
