@@ -65,6 +65,8 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - uses: taiki-e/install-action@e658debeddbabf20b2b866d9235eb08a2375b1ad # nextest
       - run: cargo nextest run --workspace
+      - name: Steam adapter compiles and links when opted in
+        run: cargo build -p solar-sim --release --features steam
       - run: cargo build -p solar-sim --release
       - name: smoke launch (Metal)
         if: runner.os == 'macOS'

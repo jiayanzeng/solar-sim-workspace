@@ -27,7 +27,7 @@ Desktop.ini
 *.swo
 *~
 
-# ---- Local environment / secrets (Steam App ID overrides, etc.) ----
+# ---- Local environment / generated Steam development marker ----
 .env
 .env.*
 steam_appid.txt

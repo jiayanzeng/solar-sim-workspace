@@ -10,6 +10,7 @@ pub mod manifest;
 pub mod normalize;
 pub mod sbdb;
 pub mod starfield;
+pub mod steam;
 pub mod texture;
 
 use anyhow::{anyhow, Context, Result};

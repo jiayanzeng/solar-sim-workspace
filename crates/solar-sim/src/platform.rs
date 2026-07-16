@@ -1,10 +1,12 @@
 //! WP16 — platform-service boundary for optional Steamworks integration.
 //!
 //! The default application owns a no-op implementation so rendering and
-//! simulation never depend on an overlay or a running platform client. The
-//! feature-gated Steam adapter will be the only module allowed to call the
-//! Steamworks crate once its dependency pin and App ID are approved.
+//! simulation never depend on an overlay or a running platform client. With
+//! the `steam` cargo feature, `SteamPlugin` is the only module allowed to call
+//! Steamworks and it falls back to the no-op service when the client is absent.
 
+#[cfg(feature = "steam")]
+use crate::steam_app_id::STEAM_APP_ID;
 use bevy::app::AppExit;
 use bevy::prelude::*;
 use std::sync::Mutex;
@@ -31,6 +33,36 @@ impl PlatformServices for NoopPlatformServices {
     }
 
     fn shutdown(&mut self) {}
+}
+
+/// Steamworks-backed platform adapter installed only by `SteamPlugin`.
+#[cfg(feature = "steam")]
+pub struct SteamPlatformServices {
+    client: Option<steamworks::Client>,
+}
+
+#[cfg(feature = "steam")]
+impl SteamPlatformServices {
+    fn initialize() -> steamworks::SIResult<Self> {
+        steamworks::Client::init_app(STEAM_APP_ID).map(|client| Self {
+            client: Some(client),
+        })
+    }
+}
+
+#[cfg(feature = "steam")]
+impl PlatformServices for SteamPlatformServices {
+    fn overlay_available(&self) -> bool {
+        self.client
+            .as_ref()
+            .is_some_and(|client| client.utils().is_overlay_enabled())
+    }
+
+    fn shutdown(&mut self) {
+        // Dropping the final Client calls SteamAPI_Shutdown. Keeping the take
+        // here makes repeated Bevy exit messages harmless.
+        drop(self.client.take());
+    }
 }
 
 /// Snapshot exposed to app logic without exposing the platform implementation.
@@ -108,6 +140,34 @@ impl Plugin for PlatformServicesPlugin {
     }
 }
 
+/// Initializes Steamworks for the committed App ID and owns its lifecycle.
+///
+/// A missing Steam client disables platform services but never prevents the
+/// simulator from launching; overlay availability is an optional capability.
+#[cfg(feature = "steam")]
+pub struct SteamPlugin;
+
+#[cfg(feature = "steam")]
+impl Plugin for SteamPlugin {
+    fn build(&self, app: &mut App) {
+        match SteamPlatformServices::initialize() {
+            Ok(services) => {
+                let overlay_available = services.overlay_available();
+                println!(
+                    "steam: initialized app_id={STEAM_APP_ID} overlay_available={overlay_available}"
+                );
+                app.add_plugins(PlatformServicesPlugin::new(services));
+            }
+            Err(error) => {
+                eprintln!(
+                    "steam: initialization failed app_id={STEAM_APP_ID}; continuing with overlay unavailable: {error}"
+                );
+                app.add_plugins(PlatformServicesPlugin::default());
+            }
+        }
+    }
+}
+
 fn shutdown_platform_services(
     mut exits: MessageReader<AppExit>,
     mut platform: ResMut<PlatformServicesState>,
@@ -162,5 +222,13 @@ mod tests {
 
         drop(app);
         assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
+    }
+
+    #[cfg(feature = "steam")]
+    #[test]
+    fn steam_adapter_is_confined_to_the_platform_services_contract() {
+        fn assert_platform_services<T: PlatformServices>() {}
+
+        assert_platform_services::<SteamPlatformServices>();
     }
 }

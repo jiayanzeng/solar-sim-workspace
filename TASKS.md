@@ -764,22 +764,47 @@ WP16 will need Apple Developer ID and Steam credentials as repository secrets.
 On a public repo, those MUST live in a protected environment that no
 fork-triggered workflow can reach.
 
-### Q14 — OPEN.
+Human partial ruling (2026-07-16): proceed Mac-first with the M2 Pro real-client
+overlay check against interim App ID 480. The Windows overlay spike,
+both-platform dev-branch install evidence, and WP17 reference hardware remain
+deferred to the existing "before packaging begins" decision deadline. This
+narrows Q13 but leaves its hardware-purchase half open; no affected acceptance
+criterion is closed by the ruling.
 
-WP16 requires a new `steamworks` dependency, while the root `AGENTS.md` requires
-an Open question before any dependency is added. The current stable release is
-`steamworks` 0.13.1, whose documented `Client::init_app` API takes the numeric
-App ID required by ARCHITECTURE §11
-([crate documentation](https://docs.rs/steamworks/0.13.1/steamworks/struct.Client.html#method.init_app)).
-Decision required: approve `steamworks = "0.13.1"` as an optional dependency
-behind the `steam` feature, provide Solar Sim's numeric Steamworks App ID, and
-choose whether that ID is committed as build metadata or supplied through a
-named runtime input. Recommendation: commit the approved App ID and use no
-fallback ID, so local, CI, and SteamPipe builds cannot silently target different
-applications.
+### Q14 — CLOSED (human, 2026-07-16).
+
+Approved `steamworks = "0.13.1"` as an optional `crates/solar-sim` dependency
+behind the `steam` feature. App ID 480 (Valve's public Spacewar SDK test app) is
+the committed INTERIM development ID, with one provenance-commented constant,
+no fallback, a pinning unit test, generated-and-gitignored `steam_appid.txt`, and
+hard package/depot refusal while the value remains 480. The real App ID requires
+a new Open question after the Steamworks partner account exists; the approved
+swap is the constant, its pinning test, and regeneration of `steam_appid.txt`.
+Full rationale and human sign-off:
+`docs/wp16-steam-bringup-decisions-2026-07-15.md`.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-16** — WP16's Mac-first Steam adapter and interim-identity
+  guardrails landed after the human closed Q14 and narrowed Q13. Optional
+  `steamworks = "0.13.1"` is reachable only through the `steam` feature;
+  `SteamPlugin` initializes the single provenance-commented App ID 480,
+  exposes only `PlatformServices`, drops the client on Bevy exit, and falls
+  back to the overlay-unavailable no-op adapter when Steam is absent. The
+  `xtask prepare-steam-dev` command generates the ignored `steam_appid.txt`
+  beside the built app from that same Rust source. The package and depot
+  `steam-release-preflight` modes both exit 1 with the required
+  interim-Spacewar refusal. `docs/wp16-steam-overlay-spike.md` records the
+  exact M2 Pro commands and leaves the real-client result pending the human
+  run; Windows and SteamPipe evidence remain deferred under open Q13. `cargo
+  test` passes the new 206-test default baseline (53 `sim-core`, 103
+  `solar-sim`, 47 `xtask` lib, two xtask smoke, one active spot-check). The
+  feature test command passes all 104 `solar-sim` tests; both default-workspace
+  and feature-enabled clippy commands pass with warnings denied. The local
+  feature-enabled 60-frame smoke command exits 0 on `Apple M2 Pro` / Metal
+  after Steam initialization reports no running client, proving the app still
+  runs with the overlay unavailable. No WP16 acceptance box is changed in this
+  entry; hosted Mac/Windows feature-link evidence is pending.
 - **2026-07-14** — WP16 moved to **in-progress** with the dependency-free
   platform boundary completed before the hardware overlay spike. The app now
   installs `PlatformServicesPlugin` with an overlay-unavailable no-op default;

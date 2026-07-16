@@ -20,6 +20,8 @@ mod scene_polish;
 mod search;
 mod settings;
 mod starfield;
+#[cfg(any(feature = "steam", test))]
+mod steam_app_id;
 mod surface_textures;
 mod time_bar;
 mod ui_kit;
@@ -54,6 +56,8 @@ pub use orbit_lines::{
 pub use platform::{
     NoopPlatformServices, PlatformServices, PlatformServicesPlugin, PlatformStatus,
 };
+#[cfg(feature = "steam")]
+pub use platform::{SteamPlatformServices, SteamPlugin};
 pub use scene_polish::{
     hysteresis_state, phase_step_rad, simulated_step_for_phase, BodyOrbitEmphasis,
     OrbitEmphasisOnset, OrbitEmphasisState, ScenePolishPlugin, SunLight, AMBIENT_BRIGHTNESS,
@@ -602,6 +606,9 @@ pub fn run_from_env() {
         std::process::exit(2);
     }
     let catalog = load_catalog_from_path(&options.catalog_path);
+    #[cfg(feature = "steam")]
+    let mut app = build_app_with_platform(options, catalog, SteamPlugin);
+    #[cfg(not(feature = "steam"))]
     let mut app = build_app(options, catalog);
     match app.run() {
         AppExit::Success => {}
@@ -610,6 +617,14 @@ pub fn run_from_env() {
 }
 
 pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>) -> App {
+    build_app_with_platform(options, catalog, PlatformServicesPlugin::default())
+}
+
+fn build_app_with_platform<P: Plugin>(
+    options: RunOptions,
+    catalog: Result<Catalog, CatalogLoadError>,
+    platform_plugin: P,
+) -> App {
     let mut app = App::new();
     let golden_capture = options.golden_capture.clone();
     let golden_spec = golden_capture
@@ -752,7 +767,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
         }
     }
 
-    app.add_plugins(PlatformServicesPlugin::default());
+    app.add_plugins(platform_plugin);
     app.add_plugins((
         InputIntentPlugin,
         PropagationPlugin,
