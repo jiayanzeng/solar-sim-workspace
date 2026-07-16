@@ -815,6 +815,25 @@ task order, and acceptance evidence are recorded in
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Expanded the Task 5 pre-code gate after the independent
+  combined review found one further persistence defect. Golden capture uses
+  the production settings identifier, replaces the live `AppSettings` with
+  capture-only resolution/vsync/frame-cap values, and installs view-specific
+  cue layers. The normal settings-convergence system then queues a delayed
+  save; because a golden run lasts well beyond the 100 ms debounce, an
+  ordinary capture can overwrite user settings and a
+  `--reset-settings` capture can undo the defaults it just persisted.
+
+  Golden runtime overrides will therefore use an explicit transient
+  persistence policy. A requested reset will still cross the shared
+  `ApplySettings(default)` reducer and synchronously persist to the production
+  identifier before capture overrides are derived, but capture-time
+  convergence, requested saves, and close handling will not enqueue disk
+  writes. Isolated persistence evidence will prove a capture lifecycle cannot
+  change the exact pre-existing file, while reset-plus-capture leaves reviewed
+  defaults durable. This remains within Task 5/WP14; no golden image contract,
+  Steam work, dependency, generated asset, physics, or tolerance changes are
+  in scope.
 - **2026-07-17** — Began the required pre-code review for stabilization Task
   5, reopening WP14 as the coordinating settings/recovery package from the
   green 289-test Task 4 commit. Re-reading ARCHITECTURE §§8.2, 8.5, 9.3, and
