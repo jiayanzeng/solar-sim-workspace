@@ -45,7 +45,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 11 | Layers quick panel, right rail, Icons layer, UI-off mode | **✅ done** |
 | 12 | Search (alias-aware) + Menu browse with live counts | **✅ done** |
 | 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | **✅ done** |
-| 14 | Settings screen + render-recovery policies | **✅ done** |
+| 14 | Settings screen + render-recovery policies | in-progress |
 | 15 | Texture pass (2K KTX2) + visual polish + golden screenshots | **✅ done** |
 | 16 | Steam: Steamworks init, overlay spike, packaging/signing/depots | deferred |
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
@@ -815,6 +815,42 @@ task order, and acceptance evidence are recorded in
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Began the required pre-code review for stabilization Task
+  5, reopening WP14 as the coordinating settings/recovery package from the
+  green 289-test Task 4 commit. Re-reading ARCHITECTURE §§8.2, 8.5, 9.3, and
+  12, the Q15 ruling, and the locked Task 5 acceptance found that the existing
+  CLI and in-product resets do not yet share one semantic settings reducer:
+  startup mutates `AppSettings` directly, while `RESTORE DEFAULTS` queues
+  `ApplySettings(default)`, presentation restoration, and close commands. The
+  relaunch test invokes the direct helper rather than parsed
+  `--reset-settings`, does not exercise the in-product command sequence through
+  persistence, and isolates only `HOME`; platforms preferring another config
+  root could therefore touch the production settings identifier.
+
+  The transient cue floor also has two implementation defects. Its z-index is
+  above both the Search dropdown and the full-screen Browse modal, so the
+  notice can obscure or receive pointer input ahead of the active transient
+  surface. When replay, Settings Apply, or another layer control restores a
+  cue while the notice owns focus, the generic despawn path does not choose a
+  successor and leaves `InputFocus` pointing at a dead entity. The reviewed
+  implementation will route startup reset through the same
+  `ApplySettings(default)` settings reducer before deriving initial runtime
+  state, synchronously persist that result, and use the parsed startup option
+  at this testable boundary. Isolated multi-process cycles will use a unique
+  non-production settings identifier plus platform config-directory
+  overrides, and will prove exact persistence before and after both the CLI
+  bootstrap and the actual in-product command path.
+
+  The cue notice will move below Search, Browse, and Settings while remaining
+  above the ordinary HUD. Every cue-root despawn will resolve focused
+  descendants to `SHOW UI` when UI becomes hidden, the active modal when one
+  exists, or the semantic Layers rail action otherwise. Composed lifecycle
+  regressions will prove one accessible notice across repeated updates, no
+  command/settings/save mutation merely from appearance, one semantic restore
+  command on activation, exact default convergence, zero cue notices plus one
+  tabbable `SHOW UI` control when UI is off, the overlay hierarchy, and live
+  focus after external layer and Settings restore paths. No Steam, dependency,
+  catalog, generated asset, physics, or tolerance work is in scope.
 - **2026-07-17** — Completed stabilization Task 4 and returned WP7 to
   **✅ done** after an independent final source review found no blockers.
   Breadcrumb items now retain semantic root/body/collection destinations
