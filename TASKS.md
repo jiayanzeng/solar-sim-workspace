@@ -798,6 +798,24 @@ question.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-16** — Follow-up to the Settings lock-in repair: the human
+  confirmed that Escape dismissed the modal but every pointer-operated
+  setting remained inert. A focused contract assertion added to
+  `settings_screen_renders_every_control_with_accessibility_labels` reproduced
+  the defect exactly: `cargo test -p solar-sim
+  settings::tests::settings_screen_renders_every_control_with_accessibility_labels
+  -- --exact` found 0 of 38 setting actions carrying Bevy 0.19's
+  `ui_widgets::Button`. The shared `ui_kit` chip, checkbox, slider, and tab
+  segment scenes had resolved the unqualified `Button` name to the legacy
+  visual `bevy_ui::widget::Button`, which does not emit the `Activate` event
+  consumed by the app's observers. All four scenes now use
+  `bevy::ui_widgets::Button` explicitly. The same focused command now passes
+  with all 38 controls pinned to the action-emitting component. `cargo test`
+  passes the 212-test workspace baseline, `cargo test -p solar-sim --features
+  steam` passes 109 tests, `cargo clippy --workspace --all-targets -- -D
+  warnings` passes, and `cargo fmt --all -- --check` plus `git diff --check`
+  are clean. No dependency, settings schema, acceptance text, or WP status
+  changed.
 - **2026-07-16** — Fixed the WP14 Settings-screen lock-in reported during the
   Mac-first WP16 bring-up, without resuming overlay work. The screen is now a
   full-window modal tab group with a blocking scrim and a real scroll position;

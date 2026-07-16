@@ -1504,6 +1504,7 @@ mod tests {
             let mut controls = world.query::<(
                 &SettingAction,
                 &WidgetRoot,
+                &bevy::ui_widgets::Button,
                 &AccessibleLabel,
                 &AccessibilityNode,
             )>();
@@ -1511,7 +1512,7 @@ mod tests {
             assert_eq!(controls.len(), 38);
             assert!(controls
                 .iter()
-                .all(|(_, _, label, _)| !label.0.trim().is_empty()));
+                .all(|(_, _, _, label, _)| !label.0.trim().is_empty()));
             close_controls[0]
         };
 
