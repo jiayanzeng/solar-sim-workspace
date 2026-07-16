@@ -477,6 +477,31 @@ struct CatalogFailure(String);
 #[derive(Resource)]
 pub struct SimulationClock(SimClock);
 
+/// Signed simulation-time advance produced by the clock tick for this frame.
+///
+/// The Commands set runs before `tick_clock`, so command jumps such as
+/// `SetTime` are deliberately outside this value. Render-only consumers use
+/// the actual post-clamp/post-snap advance instead of reconstructing it from
+/// the configured rate, which would be wrong at the soft-range pins and while
+/// snapping to LIVE.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct SimulationTickAdvance {
+    seconds: f64,
+}
+
+impl SimulationTickAdvance {
+    fn between(before_tick_t: f64, after_tick_t: f64) -> Self {
+        let seconds = after_tick_t - before_tick_t;
+        Self {
+            seconds: if seconds.is_finite() { seconds } else { 0.0 },
+        }
+    }
+
+    pub(crate) fn seconds(self) -> f64 {
+        self.seconds
+    }
+}
+
 #[derive(Message, Debug, Clone, Copy)]
 struct ClockTickReport(TickReport);
 
@@ -720,6 +745,7 @@ fn build_app_with_platform<P: Plugin>(
     #[cfg(not(debug_assertions))]
     let initial_commands = SimCommandQueue::default();
     app.insert_resource(SimulationClock(initial_clock))
+        .insert_resource(SimulationTickAdvance::default())
         .insert_resource(initial_commands)
         .insert_resource(CommandRecording::default())
         .insert_resource(SimulationFrame::default())
@@ -923,6 +949,7 @@ fn apply_sim_commands(gate: SimCommandGate) {
 fn tick_clock(
     time: Res<Time>,
     mut clock: ResMut<SimulationClock>,
+    mut tick_advance: ResMut<SimulationTickAdvance>,
     frame: Res<SimulationFrame>,
     mut recording: ResMut<CommandRecording>,
     mut reports: MessageWriter<ClockTickReport>,
@@ -936,10 +963,12 @@ fn tick_clock(
         clock.0.is_playing(),
         clock.0.is_snapping(),
     );
-    let report = clock
-        .bypass_change_detection()
-        .0
-        .tick(wall_dt_s, wall_now_t);
+    let (report, actual_advance) = tick_simulation_clock(
+        &mut clock.bypass_change_detection().0,
+        wall_dt_s,
+        wall_now_t,
+    );
+    *tick_advance = actual_advance;
     let after = (
         clock.0.t().to_bits(),
         clock.0.rate(),
@@ -950,6 +979,19 @@ fn tick_clock(
         clock.set_changed();
     }
     write_tick_report(report, &mut reports);
+}
+
+fn tick_simulation_clock(
+    clock: &mut SimClock,
+    wall_dt_s: f64,
+    wall_now_t: f64,
+) -> (TickReport, SimulationTickAdvance) {
+    let before_tick_t = clock.t();
+    let report = clock.tick(wall_dt_s, wall_now_t);
+    (
+        report,
+        SimulationTickAdvance::between(before_tick_t, clock.t()),
+    )
 }
 
 fn write_tick_report(report: TickReport, reports: &mut MessageWriter<ClockTickReport>) {
@@ -1055,6 +1097,7 @@ fn spawn_body_spheres(
             surface_textures::spawn_saturn_ring(
                 &mut commands,
                 body_entity,
+                index,
                 &mut meshes,
                 &mut materials,
                 asset_server.as_deref(),
@@ -1296,7 +1339,7 @@ fn update_diag_overlay(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sim_core::time::{t_from_jd_tdb, StartMode};
+    use sim_core::time::{t_from_jd_tdb, RateIndex, StartMode, T_MAX_S};
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
 
@@ -1420,6 +1463,64 @@ mod tests {
     }
 
     #[test]
+    fn tick_advance_reports_signed_motion_pause_and_the_range_pin_exactly() {
+        let frame_s = 1.0 / 60.0;
+        let mut clock = SimClock::new(StartMode::Live, 0.0);
+        clock.set_rate(RateIndex::MIN);
+
+        let (_report, reverse) = tick_simulation_clock(&mut clock, frame_s, 0.0);
+        assert_eq!(
+            reverse.seconds(),
+            RateIndex::MIN.seconds_per_second() * frame_s
+        );
+
+        clock.pause();
+        let (_report, paused) = tick_simulation_clock(&mut clock, frame_s, 0.0);
+        assert_eq!(paused.seconds(), 0.0);
+
+        clock.set_t(T_MAX_S);
+        clock.set_rate(RateIndex::MAX);
+        clock.play();
+        let (report, pinned) = tick_simulation_clock(&mut clock, frame_s, 0.0);
+        assert_eq!(report.clamped, Some(sim_core::time::RangeEdge::AtMax));
+        assert_eq!(clock.t(), T_MAX_S);
+        assert_eq!(pinned.seconds(), 0.0);
+    }
+
+    #[test]
+    fn live_snap_reports_its_eased_actual_advance_instead_of_the_stale_rate() {
+        let frame_s = 1.0 / 60.0;
+        let wall_now_t = 1.0e9;
+        let mut clock = SimClock::new(StartMode::Live, 0.0);
+        clock.set_rate(RateIndex::MIN);
+        clock.snap_to_live();
+
+        let (_report, advance) = tick_simulation_clock(&mut clock, frame_s, wall_now_t);
+        let expected = wall_now_t * (1.0 - (-frame_s / 0.12).exp());
+        assert!((advance.seconds() - expected).abs() <= expected * 1.0e-15);
+        assert!(advance.seconds() > 0.0);
+        assert_ne!(
+            advance.seconds(),
+            RateIndex::MIN.seconds_per_second() * frame_s
+        );
+    }
+
+    #[test]
+    fn command_time_jump_is_excluded_from_the_following_tick_advance() {
+        let frame_s = 1.0 / 60.0;
+        let previous_frame_t = 100.0;
+        let command_target_t = 1.0e9;
+        let mut clock = SimClock::new(StartMode::Live, previous_frame_t);
+
+        // This models `SetTime` in the Commands set. `tick_simulation_clock`
+        // samples only after that boundary, exactly as `tick_clock` does.
+        clock.set_t(command_target_t);
+        let (_report, advance) = tick_simulation_clock(&mut clock, frame_s, command_target_t);
+        assert!((advance.seconds() - frame_s).abs() < 1.0e-6);
+        assert!(advance.seconds() < (command_target_t - previous_frame_t + frame_s).abs() * 1.0e-6);
+    }
+
+    #[test]
     fn focus_change_preserves_relative_positions_at_sedna_scale() {
         let a = [1.4e11, -8.0e10, 2.0e9];
         let b = [a[0] + 1_234.0, a[1] - 5_678.0, a[2] + 9_012.0];
@@ -1527,10 +1628,16 @@ mod tests {
                 &MeshMaterial3d<StandardMaterial>,
             )>()
             .iter(app.world())
-            .map(|(_, parent, material)| (parent.0, material.0.clone()))
+            .map(|(ring, parent, material)| (ring.body_index, parent.0, material.0.clone()))
             .collect();
         assert_eq!(rings.len(), 1);
-        assert_eq!(rings[0].0, saturn_entity);
+        let saturn_index = app
+            .world()
+            .resource::<LoadedCatalog>()
+            .index_of("saturn")
+            .unwrap();
+        assert_eq!(rings[0].0, saturn_index);
+        assert_eq!(rings[0].1, saturn_entity);
 
         let materials = app.world().resource::<Assets<StandardMaterial>>();
         let sun_material = materials.get(&sun.1).unwrap();
@@ -1546,7 +1653,7 @@ mod tests {
             "catalog color remains the complete headless/missing-asset fallback"
         );
 
-        let ring_material = materials.get(&rings[0].1).unwrap();
+        let ring_material = materials.get(&rings[0].2).unwrap();
         assert_eq!(ring_material.alpha_mode, AlphaMode::Blend);
         assert!(ring_material.double_sided);
     }

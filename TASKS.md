@@ -44,7 +44,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 10 | Left panel: Info tab, collection pages, View Options | **✅ done** |
 | 11 | Layers quick panel, right rail, Icons layer, UI-off mode | **✅ done** |
 | 12 | Search (alias-aware) + Menu browse with live counts | **✅ done** |
-| 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | in-progress |
+| 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | blocked(Q16) |
 | 14 | Settings screen + render-recovery policies | **✅ done** |
 | 15 | Texture pass (2K KTX2) + visual polish + golden screenshots | **✅ done** |
 | 16 | Steam: Steamworks init, overlay spike, packaging/signing/depots | deferred |
@@ -829,6 +829,43 @@ ruling and corresponding architecture update.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Completed every architecture-authorized stabilization Task
+  6 source change; WP13 is now `blocked(Q16)` only because the locked wording
+  names a Saturn icon that Rev C explicitly forbids. Independent aggregate,
+  transition, and UI reviews found no source blocker. The Clock set now
+  publishes the signed simulation-time advance produced strictly by
+  `SimClock::tick`, after commands and before propagation. Orbit emphasis
+  therefore follows actual eased LIVE movement, reverse time, pause, and
+  1800/2300 range pins without treating an instantaneous `SetTime` edit as
+  sustained speed. Crossfades snap only within one `f32::EPSILON` of their
+  exact endpoint so the reviewed 0.25-second transition lands bit-exactly
+  after fifteen 60 Hz steps; no assertion tolerance was loosened.
+
+  Saturn's ring attachment now carries its owning catalog body index and
+  resolves alpha through that identity instead of a hard-coded name.
+  Mercury–Saturn sphere materials, owned ring, text labels, and orbits share
+  the same monotone body-indexed blend at both +100 and −100 yr/s; Io proves
+  the real architecture-valid Icons-layer reticle path and Uranus remains at
+  baseline on initial entry. Global/local orbit visibility still overrides
+  brightness, while material handles, retained orbit geometry, transforms,
+  f64 `BodyStates`, inflated-pick radius, and ray-hit results remain unchanged.
+  Every label hide path now clears focus only when that root owned it, so a
+  fully faded label cannot remain invisibly keyboard-activatable. Onset
+  consumption is explicitly after `OrbitEmphasisSet`: the toast appears in
+  the transition frame, never repeats while held, and emits exactly once after
+  release/re-entry.
+
+  Eight new regressions raise the workspace suite from 295 to 303 tests (53
+  `sim-core` · 199 `solar-sim` · 48 `xtask` lib · 2 xtask smoke · 1 active
+  spot-check); the Steam-feature verification passes 200 `solar-sim` tests
+  without changing deferred WP16 code. `cargo test`,
+  `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test -p solar-sim --features steam`,
+  `cargo clippy -p solar-sim --all-targets --features steam -- -D warnings`,
+  `cargo fmt --all -- --check`, and `git diff --check` all pass. Stable
+  label-color rewrite optimization remains documented for Task 7. No
+  dependency, catalog, generated-asset, starfield, physics, or tolerance
+  change was made.
 - **2026-07-17** — Began the required pre-code review for stabilization Task
   6, reopening WP13 as the coordinating high-rate rendering package from the
   green 295-test Task 5 commit. Re-reading ARCHITECTURE §§7, 8.2, 10.3–10.4,

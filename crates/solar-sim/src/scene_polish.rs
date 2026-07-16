@@ -5,7 +5,7 @@
 //! colors, and orbit brightness without changing propagation or picking truth.
 
 use crate::surface_textures::SaturnRing;
-use crate::{BodyVisual, LoadedCatalog, SimulationClock, SimulationSet};
+use crate::{BodyVisual, LoadedCatalog, SimulationSet, SimulationTickAdvance};
 use bevy::{color::Alpha, prelude::*};
 use sim_core::catalog::Category;
 
@@ -130,6 +130,7 @@ impl Plugin for ScenePolishPlugin {
             brightness: AMBIENT_BRIGHTNESS,
             affects_lightmapped_meshes: true,
         })
+        .init_resource::<SimulationTickAdvance>()
         .init_resource::<OrbitEmphasisState>()
         .add_message::<OrbitEmphasisOnset>()
         .add_systems(Startup, initialize_orbit_emphasis)
@@ -195,7 +196,12 @@ fn move_toward(current: f32, target: f32, maximum_delta: f32) -> f32 {
     if delta.abs() <= maximum_delta {
         target
     } else {
-        current + delta.signum() * maximum_delta.max(0.0)
+        let next = current + delta.signum() * maximum_delta.max(0.0);
+        if (target - next).abs() <= f32::EPSILON {
+            target
+        } else {
+            next
+        }
     }
 }
 
@@ -222,16 +228,12 @@ fn initialize_orbit_emphasis(
 }
 
 fn update_orbit_emphasis(
-    clock: Res<SimulationClock>,
+    tick_advance: Res<SimulationTickAdvance>,
     time: Res<Time<Real>>,
     mut emphasis: ResMut<OrbitEmphasisState>,
     mut onsets: MessageWriter<OrbitEmphasisOnset>,
 ) {
-    let simulated_step_s = if clock.0.is_playing() {
-        clock.0.rate().seconds_per_second().abs() * time.delta_secs_f64()
-    } else {
-        0.0
-    };
+    let simulated_step_s = tick_advance.seconds().abs();
     let update = emphasis
         .bypass_change_detection()
         .update(simulated_step_s, time.delta_secs());
@@ -248,7 +250,7 @@ fn apply_body_emphasis_alpha(
     emphasis: Res<OrbitEmphasisState>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     bodies: Query<(&BodyVisual, &MeshMaterial3d<StandardMaterial>)>,
-    rings: Query<&MeshMaterial3d<StandardMaterial>, With<SaturnRing>>,
+    rings: Query<(&SaturnRing, &MeshMaterial3d<StandardMaterial>)>,
 ) {
     if !emphasis.is_changed() {
         return;
@@ -276,22 +278,21 @@ fn apply_body_emphasis_alpha(
             AlphaMode::Opaque
         };
     }
-    let saturn_alpha = loaded
-        .index_of("saturn")
-        .map_or(1.0, |index| emphasis.body_alpha(index));
-    for material_handle in &rings {
+    for (ring, material_handle) in &rings {
         let Some(mut material) = materials.get_mut(&material_handle.0) else {
             continue;
         };
-        material.base_color = Color::srgba(0.92, 0.86, 0.72, 0.9 * saturn_alpha);
+        material.base_color =
+            Color::srgba(0.92, 0.86, 0.72, 0.9 * emphasis.body_alpha(ring.body_index));
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::load_catalog_text;
+    use crate::{load_catalog_text, propagate_catalog, BodyStates};
     use sim_core::time::{RateIndex, JULIAN_YEAR_S};
+    use std::{collections::BTreeMap, time::Duration};
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
 
@@ -308,6 +309,52 @@ mod tests {
             .remove_resource::<OrbitEmphasisState>()
             .unwrap();
         (loaded, state)
+    }
+
+    #[derive(Resource, Debug, Default)]
+    struct OnsetCount(usize);
+
+    fn count_orbit_emphasis_onsets(
+        mut onsets: MessageReader<OrbitEmphasisOnset>,
+        mut count: ResMut<OnsetCount>,
+    ) {
+        count.0 += onsets.read().count();
+    }
+
+    fn advance_render_frame(app: &mut App, simulated_advance_s: f64, wall_delta_s: f64) {
+        *app.world_mut().resource_mut::<SimulationTickAdvance>() =
+            SimulationTickAdvance::between(0.0, simulated_advance_s);
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_secs_f64(wall_delta_s));
+        app.update();
+    }
+
+    fn body_material_handles(app: &mut App) -> BTreeMap<usize, Handle<StandardMaterial>> {
+        let mut query = app
+            .world_mut()
+            .query::<(&BodyVisual, &MeshMaterial3d<StandardMaterial>)>();
+        query
+            .iter(app.world())
+            .map(|(body, material)| (body.index, material.0.clone()))
+            .collect()
+    }
+
+    fn body_transforms(app: &mut App) -> BTreeMap<usize, Transform> {
+        let mut query = app.world_mut().query::<(&BodyVisual, &Transform)>();
+        query
+            .iter(app.world())
+            .map(|(body, transform)| (body.index, *transform))
+            .collect()
+    }
+
+    fn material_alpha(app: &App, handle: &Handle<StandardMaterial>) -> f32 {
+        app.world()
+            .resource::<Assets<StandardMaterial>>()
+            .get(handle)
+            .unwrap()
+            .base_color
+            .alpha()
     }
 
     #[test]
@@ -379,14 +426,19 @@ mod tests {
     }
 
     #[test]
-    fn saturn_sphere_and_ring_share_the_same_emphasis_alpha() {
+    fn ring_attachments_use_their_explicit_owner_instead_of_saturn_by_name() {
         let (loaded, mut emphasis) = emphasis_for_real_catalog();
         let saturn = loaded.index_of("saturn").unwrap();
+        let mercury = loaded.index_of("mercury").unwrap();
         let saturn_emphasis = emphasis.bodies[saturn].as_mut().unwrap();
         saturn_emphasis.engaged = true;
         saturn_emphasis.blend = 0.4;
+        let mercury_emphasis = emphasis.bodies[mercury].as_mut().unwrap();
+        mercury_emphasis.engaged = true;
+        mercury_emphasis.blend = 0.7;
         emphasis.any_engaged = true;
         let expected_alpha = emphasis.body_alpha(saturn);
+        let expected_mercury_alpha = emphasis.body_alpha(mercury);
 
         let mut app = App::new();
         app.insert_resource(loaded)
@@ -404,12 +456,27 @@ mod tests {
                 ..default()
             })
         };
+        let mercury_ring_material = {
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+            materials.add(StandardMaterial {
+                alpha_mode: AlphaMode::Blend,
+                ..default()
+            })
+        };
         app.world_mut().spawn((
             BodyVisual { index: saturn },
             MeshMaterial3d(sphere_material.clone()),
         ));
-        app.world_mut()
-            .spawn((SaturnRing, MeshMaterial3d(ring_material.clone())));
+        app.world_mut().spawn((
+            SaturnRing { body_index: saturn },
+            MeshMaterial3d(ring_material.clone()),
+        ));
+        app.world_mut().spawn((
+            SaturnRing {
+                body_index: mercury,
+            },
+            MeshMaterial3d(mercury_ring_material.clone()),
+        ));
 
         app.update();
 
@@ -422,6 +489,136 @@ mod tests {
             materials.get(&ring_material).unwrap().base_color.alpha(),
             0.9 * expected_alpha
         );
+        assert_eq!(
+            materials
+                .get(&mercury_ring_material)
+                .unwrap()
+                .base_color
+                .alpha(),
+            0.9 * expected_mercury_alpha
+        );
+    }
+
+    #[test]
+    fn real_aggregate_crossfades_at_both_hundred_year_rates_and_restores_exactly() {
+        const FRAME_S: f64 = 1.0 / 60.0;
+        const FADE_FRAMES: usize = 15;
+        const INNER_PLANETS: [&str; 6] = ["mercury", "venus", "earth", "mars", "jupiter", "saturn"];
+
+        let catalog = load_catalog_text(REAL_CATALOG).unwrap();
+        let states = propagate_catalog(&catalog, 0.0).unwrap();
+        let state_snapshot = states.0.clone();
+        let loaded = LoadedCatalog::new(catalog);
+        let indices: BTreeMap<_, _> = INNER_PLANETS
+            .into_iter()
+            .chain(["uranus"])
+            .map(|id| (id, loaded.index_of(id).unwrap()))
+            .collect();
+        let saturn = indices["saturn"];
+        let uranus = indices["uranus"];
+
+        let mut app = App::new();
+        app.init_resource::<Assets<Mesh>>()
+            .init_resource::<Assets<StandardMaterial>>()
+            .insert_resource(loaded)
+            .insert_resource(states)
+            .insert_resource(Time::<Real>::default())
+            .insert_resource(SimulationTickAdvance::default())
+            .init_resource::<OnsetCount>()
+            .add_plugins(ScenePolishPlugin)
+            .add_systems(Startup, crate::spawn_body_spheres)
+            .add_systems(Update, count_orbit_emphasis_onsets.after(OrbitEmphasisSet));
+        app.update();
+
+        let handles_before = body_material_handles(&mut app);
+        let transforms_before = body_transforms(&mut app);
+        let saturn_entity = {
+            let mut query = app.world_mut().query::<(Entity, &BodyVisual)>();
+            query
+                .iter(app.world())
+                .find_map(|(entity, body)| (body.index == saturn).then_some(entity))
+                .unwrap()
+        };
+        let (ring_handle, ring_owner, ring_parent) = {
+            let mut query =
+                app.world_mut()
+                    .query::<(&SaturnRing, &ChildOf, &MeshMaterial3d<StandardMaterial>)>();
+            let (ring, parent, material) = query.single(app.world()).unwrap();
+            (material.0.clone(), ring.body_index, parent.0)
+        };
+        assert_eq!(ring_owner, saturn);
+        assert_eq!(ring_parent, saturn_entity);
+        assert_eq!(material_alpha(&app, &ring_handle), 0.9);
+
+        let high_step_s = RateIndex::MAX.seconds_per_second() * FRAME_S;
+        for direction in [1.0, -1.0] {
+            let mut previous_alpha = 1.0;
+            for frame in 0..FADE_FRAMES {
+                advance_render_frame(&mut app, direction * high_step_s, FRAME_S);
+                let mercury_alpha = material_alpha(&app, &handles_before[&indices["mercury"]]);
+                assert!(mercury_alpha <= previous_alpha, "fade frame {frame}");
+                if frame == 0 {
+                    assert!(
+                        (0.0..1.0).contains(&mercury_alpha),
+                        "the first high-rate frame must be an intermediate blend"
+                    );
+                    let ring_alpha = material_alpha(&app, &ring_handle);
+                    assert!((0.0..0.9).contains(&ring_alpha));
+                }
+                previous_alpha = mercury_alpha;
+            }
+
+            {
+                let emphasis = app.world().resource::<OrbitEmphasisState>();
+                for id in INNER_PLANETS {
+                    let index = indices[id];
+                    assert_eq!(material_alpha(&app, &handles_before[&index]), 0.0, "{id}");
+                    assert_eq!(emphasis.body_alpha(index), 0.0, "{id}");
+                    assert_eq!(
+                        emphasis.orbit_brightness(index),
+                        EMPHASIZED_ORBIT_BRIGHTNESS,
+                        "{id}"
+                    );
+                }
+                assert_eq!(material_alpha(&app, &ring_handle), 0.0);
+                assert_eq!(material_alpha(&app, &handles_before[&uranus]), 1.0);
+                assert_eq!(emphasis.body_alpha(uranus), 1.0);
+            }
+
+            let reduced_step_s = RateIndex::REAL.seconds_per_second() * FRAME_S;
+            let mut previous_alpha = 0.0;
+            for frame in 0..FADE_FRAMES {
+                advance_render_frame(&mut app, reduced_step_s, FRAME_S);
+                let mercury_alpha = material_alpha(&app, &handles_before[&indices["mercury"]]);
+                assert!(mercury_alpha >= previous_alpha, "restore frame {frame}");
+                if frame == 0 {
+                    assert!(
+                        (0.0..1.0).contains(&mercury_alpha),
+                        "the first reduced-rate frame must restore smoothly"
+                    );
+                    let ring_alpha = material_alpha(&app, &ring_handle);
+                    assert!((0.0..0.9).contains(&ring_alpha));
+                }
+                previous_alpha = mercury_alpha;
+            }
+
+            let materials = app.world().resource::<Assets<StandardMaterial>>();
+            let emphasis = app.world().resource::<OrbitEmphasisState>();
+            for id in INNER_PLANETS {
+                let index = indices[id];
+                let material = materials.get(&handles_before[&index]).unwrap();
+                assert_eq!(material.base_color.alpha(), 1.0, "{id}");
+                assert_eq!(material.alpha_mode, AlphaMode::Opaque, "{id}");
+                assert_eq!(emphasis.body_alpha(index), 1.0, "{id}");
+                assert_eq!(emphasis.orbit_brightness(index), 1.0, "{id}");
+            }
+            assert_eq!(material_alpha(&app, &ring_handle), 0.9);
+        }
+
+        assert_eq!(app.world().resource::<OnsetCount>().0, 2);
+        assert_eq!(body_material_handles(&mut app), handles_before);
+        assert_eq!(body_transforms(&mut app), transforms_before);
+        assert_eq!(app.world().resource::<BodyStates>().0, state_snapshot);
     }
 
     #[test]

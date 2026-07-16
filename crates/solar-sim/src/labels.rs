@@ -31,6 +31,7 @@ const RETICLE_GAP_PX: f32 = 6.0;
 const LABEL_ANCHOR_GAP_PX: f32 = 8.0;
 const VIEWPORT_MARGIN_PX: f32 = 4.0;
 const MIN_PICK_RADIUS_PX: f64 = 10.0;
+const LABEL_EMPHASIS_HIDE_ALPHA: f32 = 0.01;
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BodyLabel {
@@ -461,7 +462,8 @@ fn sync_label_layer_children(
 fn project_and_declutter_labels(
     camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     resources: LabelRenderResources,
-    mut labels: Query<(&BodyLabel, &LabelVisual, &mut Node)>,
+    mut labels: Query<(Entity, &BodyLabel, &LabelVisual, &mut Node)>,
+    mut focus: Option<ResMut<bevy::input_focus::InputFocus>>,
 ) {
     let (Some(loaded), Some(states), Some(controller), Some(extents)) = (
         resources.loaded,
@@ -469,15 +471,15 @@ fn project_and_declutter_labels(
         resources.controller,
         resources.extents,
     ) else {
-        hide_all_labels(&mut labels);
+        hide_all_labels(&mut labels, focus.as_deref_mut());
         return;
     };
     let Ok((camera, camera_transform)) = camera_query.single() else {
-        hide_all_labels(&mut labels);
+        hide_all_labels(&mut labels, focus.as_deref_mut());
         return;
     };
     let Some(viewport_size) = camera.logical_viewport_size() else {
-        hide_all_labels(&mut labels);
+        hide_all_labels(&mut labels, focus.as_deref_mut());
         return;
     };
 
@@ -517,15 +519,11 @@ fn project_and_declutter_labels(
     };
     let mut candidates = Vec::with_capacity(loaded.catalog.bodies.len());
 
-    for (label, visual, _) in &mut labels {
+    for (_, label, visual, _) in &mut labels {
         let Some(body) = loaded.catalog.bodies.get(label.index) else {
             continue;
         };
-        if resources
-            .emphasis
-            .as_ref()
-            .is_some_and(|emphasis| emphasis.body_alpha(label.index) <= 0.01)
-        {
+        if !label_passes_emphasis(resources.emphasis.as_deref(), label.index) {
             continue;
         }
         if !body_is_contextually_visible(label.index, &visibility_context) {
@@ -565,7 +563,7 @@ fn project_and_declutter_labels(
     // compact cluster; stable alternative slots preserve all eight without
     // allowing any lower-priority label to overlap them.
     let placements = layout_projected_labels(&candidates, viewport_bounds);
-    for (label, visual, mut node) in &mut labels {
+    for (entity, label, visual, mut node) in &mut labels {
         if let Some(rect) = placements.get(&label.index) {
             node.left = px(rect.min.x);
             node.top = px(rect.min.y);
@@ -574,14 +572,34 @@ fn project_and_declutter_labels(
             node.height = px(size.y);
             node.display = Display::Flex;
         } else {
-            node.display = Display::None;
+            hide_label_root(entity, &mut node, focus.as_deref_mut());
         }
     }
 }
 
-fn hide_all_labels(labels: &mut Query<(&BodyLabel, &LabelVisual, &mut Node)>) {
-    for (_, _, mut node) in labels {
-        node.display = Display::None;
+fn label_passes_emphasis(emphasis: Option<&OrbitEmphasisState>, body_index: usize) -> bool {
+    emphasis.is_none_or(|emphasis| emphasis.body_alpha(body_index) > LABEL_EMPHASIS_HIDE_ALPHA)
+}
+
+fn hide_label_root(
+    entity: Entity,
+    node: &mut Node,
+    focus: Option<&mut bevy::input_focus::InputFocus>,
+) {
+    node.display = Display::None;
+    if let Some(focus) = focus {
+        if focus.get() == Some(entity) {
+            focus.clear();
+        }
+    }
+}
+
+fn hide_all_labels(
+    labels: &mut Query<(Entity, &BodyLabel, &LabelVisual, &mut Node)>,
+    mut focus: Option<&mut bevy::input_focus::InputFocus>,
+) {
+    for (entity, _, _, mut node) in labels {
+        hide_label_root(entity, &mut node, focus.as_deref_mut());
     }
 }
 
@@ -850,7 +868,10 @@ mod tests {
     use super::*;
     use crate::input_intent::{InteractionContext, InteractionState};
     use crate::search::BrowseUiState;
-    use crate::{load_catalog_text, propagate_catalog, MoonVisibilityMode, PresentationState};
+    use crate::{
+        load_catalog_text, propagate_catalog, MoonVisibilityMode, PresentationState,
+        ScenePolishPlugin, SimulationTickAdvance,
+    };
     use bevy::{
         app::TaskPoolPlugin,
         asset::{AssetApp, AssetPlugin},
@@ -861,8 +882,10 @@ mod tests {
             pointer::{Location, PointerId},
         },
         text::{EditableText, Font},
+        time::TimeUpdateStrategy,
         window::WindowRef,
     };
+    use sim_core::time::RateIndex;
     use std::time::Duration;
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
@@ -1110,10 +1133,13 @@ mod tests {
 
     #[test]
     fn startup_spawns_every_accessible_label_and_reticle_style() {
+        let loaded = catalog();
+        let saturn = loaded.index_of("saturn").unwrap();
+        let io = loaded.index_of("io").unwrap();
         let mut app = App::new();
         app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default()))
             .init_asset::<Font>()
-            .insert_resource(catalog())
+            .insert_resource(loaded)
             .insert_resource(UiTheme::default())
             .add_systems(Startup, spawn_labels);
         app.update();
@@ -1123,10 +1149,308 @@ mod tests {
             .query::<(&BodyLabel, &AccessibleLabel, &bevy::ui_widgets::Button)>()
             .iter(world)
             .count();
-        let reticles = world.query::<&BodyReticle>().iter(world).count();
+        let reticle_indices: Vec<_> = world
+            .query::<(&BodyReticle, &LabelEmphasisColor)>()
+            .iter(world)
+            .map(|(_, emphasis)| emphasis.body_index)
+            .collect();
         assert_eq!(labels, 66);
-        assert_eq!(reticles, 57, "Sun and eight planets have text-only labels");
+        assert_eq!(
+            reticle_indices.len(),
+            57,
+            "Sun and eight planets have text-only labels"
+        );
+        assert!(
+            !reticle_indices.contains(&saturn),
+            "Rev C §10.3 keeps Saturn and every planet text-only"
+        );
+        assert_eq!(
+            reticle_indices.iter().filter(|index| **index == io).count(),
+            1,
+            "Io is an actual Icons-layer reticle owner"
+        );
         assert_eq!(world.resource::<MoonSystemExtents>().0.len(), 66);
+    }
+
+    #[test]
+    fn hiding_a_label_root_clears_only_its_own_invisible_focus() {
+        let mut world = World::new();
+        let hidden = world.spawn_empty().id();
+        let other = world.spawn_empty().id();
+        let mut focus = bevy::input_focus::InputFocus::default();
+        let mut node = Node {
+            display: Display::Flex,
+            ..default()
+        };
+
+        focus.set(hidden, bevy::input_focus::FocusCause::Navigated);
+        hide_label_root(hidden, &mut node, Some(&mut focus));
+        assert_eq!(node.display, Display::None);
+        assert_eq!(focus.get(), None);
+
+        node.display = Display::Flex;
+        focus.set(other, bevy::input_focus::FocusCause::Navigated);
+        hide_label_root(hidden, &mut node, Some(&mut focus));
+        assert_eq!(node.display, Display::None);
+        assert_eq!(focus.get(), Some(other));
+    }
+
+    #[test]
+    fn high_rate_emphasis_fades_saturn_text_and_io_icon_then_restores_truth() {
+        let loaded = catalog();
+        let saturn = loaded.index_of("saturn").unwrap();
+        let io = loaded.index_of("io").unwrap();
+        let states = propagate_catalog(&loaded.catalog, 0.0).unwrap();
+        let states_before = states.0.clone();
+        let ray_inputs = ([0.0, 0.0, 0.0], [0.0, 0.0, -2.0], [0.0, 0.0, -10.0], 1.0);
+        let pick_before =
+            ray_sphere_hit_distance(ray_inputs.0, ray_inputs.1, ray_inputs.2, ray_inputs.3);
+        let saturn_text_base = Color::srgb(0.88, 0.9, 0.94);
+        let io_icon_base = Color::srgb(0.75, 0.62, 0.4);
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+                1.0 / 60.0,
+            )))
+            .insert_resource(loaded)
+            .insert_resource(states)
+            .init_resource::<Assets<StandardMaterial>>()
+            .init_resource::<bevy::input_focus::InputFocus>()
+            .add_plugins(ScenePolishPlugin)
+            .add_systems(PostUpdate, sync_label_emphasis_alpha);
+
+        let saturn_root = app
+            .world_mut()
+            .spawn((
+                BodyLabel { index: saturn },
+                Node {
+                    display: Display::Flex,
+                    ..default()
+                },
+            ))
+            .id();
+        let saturn_text = app
+            .world_mut()
+            .spawn((
+                BodyLabelText,
+                LabelEmphasisColor {
+                    body_index: saturn,
+                    base_color: saturn_text_base,
+                },
+                TextColor(saturn_text_base),
+                ChildOf(saturn_root),
+            ))
+            .id();
+        let io_root = app
+            .world_mut()
+            .spawn((
+                BodyLabel { index: io },
+                Node {
+                    display: Display::Flex,
+                    ..default()
+                },
+            ))
+            .id();
+        let io_reticle = app
+            .world_mut()
+            .spawn((
+                BodyReticle,
+                LabelEmphasisColor {
+                    body_index: io,
+                    base_color: io_icon_base,
+                },
+                BorderColor::all(io_icon_base),
+                ChildOf(io_root),
+            ))
+            .id();
+
+        // Initialize Bevy's real-time clock before counting the fifteen
+        // 60 Hz cross-fade updates; the first TimePlugin update has zero
+        // elapsed wall time by design.
+        app.update();
+        *app.world_mut().resource_mut::<SimulationTickAdvance>() = SimulationTickAdvance::between(
+            0.0,
+            RateIndex::new(12).unwrap().seconds_per_second() / 60.0,
+        );
+
+        // Seven 60 Hz frames place the shared 0.25-second transition in its
+        // interior, proving that text and reticle use the same continuous
+        // render blend rather than independent visibility switches.
+        for _ in 0..7 {
+            app.update();
+        }
+        reconcile_test_label_root(&mut app, saturn_root, saturn);
+        reconcile_test_label_root(&mut app, io_root, io);
+        let (saturn_alpha, io_alpha) = {
+            let emphasis = app.world().resource::<OrbitEmphasisState>();
+            (emphasis.body_alpha(saturn), emphasis.body_alpha(io))
+        };
+        assert!(saturn_alpha > 0.01 && saturn_alpha < 1.0);
+        assert_eq!(saturn_alpha.to_bits(), io_alpha.to_bits());
+        assert_eq!(
+            app.world()
+                .entity(saturn_text)
+                .get::<TextColor>()
+                .unwrap()
+                .0
+                .alpha()
+                .to_bits(),
+            saturn_alpha.to_bits()
+        );
+        assert_eq!(
+            app.world()
+                .entity(io_reticle)
+                .get::<BorderColor>()
+                .unwrap()
+                .top
+                .alpha()
+                .to_bits(),
+            io_alpha.to_bits()
+        );
+        assert_eq!(
+            app.world()
+                .entity(saturn_root)
+                .get::<Node>()
+                .unwrap()
+                .display,
+            Display::Flex
+        );
+        assert_eq!(
+            app.world().entity(io_root).get::<Node>().unwrap().display,
+            Display::Flex
+        );
+
+        app.world_mut()
+            .resource_mut::<bevy::input_focus::InputFocus>()
+            .set(saturn_root, bevy::input_focus::FocusCause::Navigated);
+        for _ in 0..9 {
+            app.update();
+        }
+        reconcile_test_label_root(&mut app, saturn_root, saturn);
+        reconcile_test_label_root(&mut app, io_root, io);
+        assert_eq!(
+            app.world()
+                .resource::<OrbitEmphasisState>()
+                .body_alpha(saturn),
+            0.0
+        );
+        assert_eq!(
+            app.world().resource::<OrbitEmphasisState>().body_alpha(io),
+            0.0
+        );
+        assert_eq!(
+            app.world()
+                .entity(saturn_root)
+                .get::<Node>()
+                .unwrap()
+                .display,
+            Display::None
+        );
+        assert_eq!(
+            app.world().entity(io_root).get::<Node>().unwrap().display,
+            Display::None
+        );
+        assert_eq!(
+            app.world()
+                .entity(saturn_text)
+                .get::<TextColor>()
+                .unwrap()
+                .0
+                .alpha(),
+            0.0
+        );
+        assert_eq!(
+            app.world()
+                .entity(io_reticle)
+                .get::<BorderColor>()
+                .unwrap()
+                .top
+                .alpha(),
+            0.0
+        );
+        assert_eq!(
+            app.world()
+                .resource::<bevy::input_focus::InputFocus>()
+                .get(),
+            None,
+            "a display-none planet label cannot retain keyboard focus"
+        );
+
+        *app.world_mut().resource_mut::<SimulationTickAdvance>() =
+            SimulationTickAdvance::between(0.0, RateIndex::REAL.seconds_per_second() / 60.0);
+        for _ in 0..7 {
+            app.update();
+        }
+        reconcile_test_label_root(&mut app, saturn_root, saturn);
+        reconcile_test_label_root(&mut app, io_root, io);
+        let restoring_alpha = app
+            .world()
+            .resource::<OrbitEmphasisState>()
+            .body_alpha(saturn);
+        assert!(restoring_alpha > 0.01 && restoring_alpha < 1.0);
+        assert_eq!(
+            restoring_alpha.to_bits(),
+            app.world()
+                .resource::<OrbitEmphasisState>()
+                .body_alpha(io)
+                .to_bits()
+        );
+        assert_eq!(
+            app.world()
+                .entity(saturn_root)
+                .get::<Node>()
+                .unwrap()
+                .display,
+            Display::Flex
+        );
+        assert_eq!(
+            app.world().entity(io_root).get::<Node>().unwrap().display,
+            Display::Flex
+        );
+        for _ in 0..9 {
+            app.update();
+        }
+        reconcile_test_label_root(&mut app, saturn_root, saturn);
+        reconcile_test_label_root(&mut app, io_root, io);
+        assert_eq!(
+            app.world()
+                .entity(saturn_text)
+                .get::<TextColor>()
+                .unwrap()
+                .0,
+            saturn_text_base
+        );
+        assert_eq!(
+            app.world()
+                .entity(io_reticle)
+                .get::<BorderColor>()
+                .unwrap()
+                .top,
+            io_icon_base
+        );
+        assert_eq!(app.world().resource::<BodyStates>().0, states_before);
+        assert_eq!(
+            ray_sphere_hit_distance(ray_inputs.0, ray_inputs.1, ray_inputs.2, ray_inputs.3),
+            pick_before,
+            "render emphasis must not change analytic picking"
+        );
+    }
+
+    fn reconcile_test_label_root(app: &mut App, entity: Entity, body_index: usize) {
+        let visible = label_passes_emphasis(
+            Some(app.world().resource::<OrbitEmphasisState>()),
+            body_index,
+        );
+        app.world_mut()
+            .resource_scope(|world, mut focus: Mut<bevy::input_focus::InputFocus>| {
+                let mut entity_mut = world.entity_mut(entity);
+                let mut node = entity_mut.get_mut::<Node>().unwrap();
+                if visible {
+                    node.display = Display::Flex;
+                } else {
+                    hide_label_root(entity, &mut node, Some(&mut focus));
+                }
+            });
     }
 
     #[test]

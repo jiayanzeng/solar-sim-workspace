@@ -6,6 +6,7 @@
 
 use crate::control::{SimCommand, SimCommandQueue};
 use crate::layers::HudSurface;
+use crate::scene_polish::OrbitEmphasisSet;
 use crate::ui_kit::{toast, UiColorToken, UiTheme, WidgetSpec, WidgetVisualState};
 use crate::{
     wall_now_t, ClockTickReport, OrbitEmphasisOnset, SimulationClock, SimulationSet,
@@ -203,7 +204,7 @@ impl Plugin for TimeBarPlugin {
                     sync_live_chip,
                     update_slider_thumb,
                     consume_tick_reports,
-                    consume_orbit_emphasis_onsets,
+                    consume_orbit_emphasis_onsets.after(OrbitEmphasisSet),
                     expire_time_toasts,
                 )
                     .chain()
@@ -832,13 +833,20 @@ fn format_clock(datetime: DateTime) -> String {
 mod tests {
     use super::*;
     use crate::ui_kit::test_layout;
+    use crate::{load_catalog_text, LoadedCatalog, ScenePolishPlugin, SimulationTickAdvance};
     use bevy::{
+        app::TaskPoolPlugin,
+        asset::{AssetApp, AssetPlugin},
         input::{keyboard::Key, InputPlugin},
         input_focus::{FocusCause, InputDispatchPlugin, InputFocusPlugin},
+        scene::ScenePlugin,
         window::PrimaryWindow,
     };
     use sim_core::time::{t_from_jd_tdb, StartMode};
     use std::collections::HashMap;
+    use std::time::Duration;
+
+    const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
 
     fn time_edit_keypress(
         field: TimeEditField,
@@ -918,6 +926,57 @@ mod tests {
             .collect();
         let focus = app.world().resource::<InputFocus>().get();
         (queued_replacement, commands, focus)
+    }
+
+    fn emphasis_toast_app() -> App {
+        let loaded = LoadedCatalog::new(load_catalog_text(REAL_CATALOG).unwrap());
+        let t_s = t_from_jd_tdb(2_461_042.0);
+        let mut app = App::new();
+        app.add_plugins((
+            TaskPoolPlugin::default(),
+            AssetPlugin::default(),
+            ScenePlugin,
+        ))
+        .init_asset::<Font>()
+        .init_resource::<Assets<StandardMaterial>>()
+        .init_resource::<Time<Real>>()
+        .init_resource::<SimulationTickAdvance>()
+        .insert_resource(loaded)
+        .insert_resource(UiTheme::default())
+        .insert_resource(SimulationClock(SimClock::new(
+            StartMode::FixedEpoch {
+                jd_tdb: 2_461_042.0,
+            },
+            t_s,
+        )))
+        .add_plugins(ScenePolishPlugin)
+        .add_systems(
+            Update,
+            consume_orbit_emphasis_onsets
+                .in_set(SimulationSet::Render)
+                .after(OrbitEmphasisSet),
+        );
+        app.world_mut().spawn(TimeToastStack);
+        advance_emphasis_toast_frame(&mut app, 0.0, 0.0);
+        app
+    }
+
+    fn advance_emphasis_toast_frame(app: &mut App, simulated_step_s: f64, wall_delta_s: f64) {
+        app.world_mut()
+            .resource_mut::<SimulationTickAdvance>()
+            .seconds = simulated_step_s;
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_secs_f64(wall_delta_s));
+        app.update();
+    }
+
+    fn orbit_emphasis_toast_count(app: &mut App) -> usize {
+        let world = app.world_mut();
+        world
+            .query_filtered::<Entity, With<TimeToast>>()
+            .iter(world)
+            .count()
     }
 
     #[test]
@@ -1032,6 +1091,41 @@ mod tests {
         assert_eq!(counts.get(&TimeToastKind::Extrapolation), Some(&1));
         assert_eq!(counts.get(&TimeToastKind::SnappedLive), Some(&1));
         assert_eq!(counts.get(&TimeToastKind::RangeMaximum), None);
+    }
+
+    #[test]
+    fn orbit_emphasis_messages_create_one_same_frame_toast_per_global_onset() {
+        const FRAME_S: f64 = 1.0 / 60.0;
+
+        let mut app = emphasis_toast_app();
+        assert_eq!(orbit_emphasis_toast_count(&mut app), 0);
+
+        let hundred_year_step = RateIndex::MAX.seconds_per_second() * FRAME_S;
+        advance_emphasis_toast_frame(&mut app, hundred_year_step, FRAME_S);
+        assert_eq!(
+            orbit_emphasis_toast_count(&mut app),
+            1,
+            "the onset emitted in OrbitEmphasisSet must be consumed in the same frame"
+        );
+
+        for _ in 0..8 {
+            advance_emphasis_toast_frame(&mut app, hundred_year_step, FRAME_S);
+        }
+        assert_eq!(
+            orbit_emphasis_toast_count(&mut app),
+            1,
+            "a held emphasis level must not emit per-frame toasts"
+        );
+
+        advance_emphasis_toast_frame(&mut app, FRAME_S, FRAME_S);
+        assert_eq!(orbit_emphasis_toast_count(&mut app), 1);
+
+        advance_emphasis_toast_frame(&mut app, hundred_year_step, FRAME_S);
+        assert_eq!(
+            orbit_emphasis_toast_count(&mut app),
+            2,
+            "release followed by re-entry is exactly one new onset"
+        );
     }
 
     #[test]

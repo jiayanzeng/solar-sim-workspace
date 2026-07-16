@@ -521,10 +521,14 @@ fn norm(vector: [f64; 3]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{load_catalog_text, propagate_catalog};
+    use crate::{
+        load_catalog_text, propagate_catalog, ScenePolishPlugin, SimulationTickAdvance,
+        EMPHASIS_CROSSFADE_S, EMPHASIZED_ORBIT_BRIGHTNESS,
+    };
     use sim_core::catalog::Catalog;
     use sim_core::kepler::state_at;
-    use sim_core::time::{t_from_jd_tdb, SimClock, StartMode};
+    use sim_core::time::{t_from_jd_tdb, RateIndex, SimClock, StartMode};
+    use std::time::Duration;
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
 
@@ -542,6 +546,81 @@ mod tests {
             body.orbit.as_ref().expect("orbiting body has orbit"),
             parent.gm_km3_s2.expect("parent has GM"),
         )
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct RenderedOrbitSnapshot {
+        handle: Handle<GizmoAsset>,
+        vertices_parent_km: Vec<[f64; 3]>,
+        colors: Vec<LinearRgba>,
+        displayed_alpha: f32,
+        displayed_brightness: f32,
+    }
+
+    fn emphasis_orbit_app() -> App {
+        let catalog = catalog();
+        let t_s = t_from_jd_tdb(2_461_042.0);
+        let states = propagate_catalog(&catalog, t_s).unwrap();
+        let loaded = LoadedCatalog::new(catalog);
+        let sun = loaded.index_of("sun").unwrap();
+        let camera = CameraController::new(sun, states.0[sun].position_km, 3_000_000.0);
+
+        let mut app = App::new();
+        app.init_resource::<Time<Real>>()
+            .init_resource::<Assets<GizmoAsset>>()
+            .init_resource::<Assets<StandardMaterial>>()
+            .init_resource::<SimulationTickAdvance>()
+            .insert_resource(loaded)
+            .insert_resource(states)
+            .insert_resource(camera)
+            .insert_resource(SimulationClock(SimClock::new(
+                StartMode::FixedEpoch {
+                    jd_tdb: 2_461_042.0,
+                },
+                t_s,
+            )))
+            .insert_resource(LayerState::default())
+            .insert_resource(ViewOptionsState::default())
+            .add_plugins((ScenePolishPlugin, OrbitLinesPlugin));
+        render_emphasis_frame(&mut app, 0.0, 0.0);
+        app
+    }
+
+    fn render_emphasis_frame(app: &mut App, simulated_step_s: f64, wall_delta_s: f64) {
+        app.world_mut()
+            .resource_mut::<SimulationTickAdvance>()
+            .seconds = simulated_step_s;
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_secs_f64(wall_delta_s));
+        app.update();
+    }
+
+    fn rendered_orbit(app: &mut App, body_index: usize) -> RenderedOrbitSnapshot {
+        let (handle, vertices_parent_km, displayed_alpha, displayed_brightness) = {
+            let world = app.world_mut();
+            let mut query = world.query::<(&OrbitLine, &Gizmo)>();
+            let (line, gizmo) = query
+                .iter(world)
+                .find(|(line, _)| line.body_index == body_index)
+                .expect("body orbit must exist");
+            (
+                gizmo.handle.clone(),
+                line.path.vertices_parent_km.clone(),
+                line.displayed_alpha,
+                line.displayed_brightness,
+            )
+        };
+        let assets = app.world().resource::<Assets<GizmoAsset>>();
+        let asset = assets.get(&handle).expect("retained orbit asset");
+        let color_count = asset.strip_colors.len().saturating_sub(1);
+        RenderedOrbitSnapshot {
+            handle,
+            vertices_parent_km,
+            colors: asset.strip_colors[..color_count].to_vec(),
+            displayed_alpha,
+            displayed_brightness,
+        }
     }
 
     #[test]
@@ -703,6 +782,189 @@ mod tests {
         assert!(face_on_near > face_on_far);
         assert!(face_on_near > edge_on_near);
         assert!(edge_on_near > 0.0);
+    }
+
+    #[test]
+    fn actual_hundred_year_step_fades_mercury_through_saturn_and_restores_orbits_exactly() {
+        const FRAME_S: f64 = 1.0 / 60.0;
+        const INNER_PLANETS: [&str; 6] = ["mercury", "venus", "earth", "mars", "jupiter", "saturn"];
+
+        let mut app = emphasis_orbit_app();
+        let body_indices: Vec<_> = {
+            let loaded = app.world().resource::<LoadedCatalog>();
+            INNER_PLANETS
+                .iter()
+                .map(|id| loaded.index_of(id).unwrap())
+                .collect()
+        };
+        let uranus = app
+            .world()
+            .resource::<LoadedCatalog>()
+            .index_of("uranus")
+            .unwrap();
+        let baseline: Vec<_> = body_indices
+            .iter()
+            .map(|index| rendered_orbit(&mut app, *index))
+            .collect();
+        let uranus_baseline = rendered_orbit(&mut app, uranus);
+        assert!(baseline.iter().all(|orbit| orbit.displayed_alpha > 0.0));
+        assert!(baseline
+            .iter()
+            .all(|orbit| orbit.displayed_brightness == 1.0));
+
+        let hundred_year_step = RateIndex::MAX.seconds_per_second() * FRAME_S;
+        render_emphasis_frame(&mut app, hundred_year_step, FRAME_S);
+        {
+            let emphasis = app.world().resource::<OrbitEmphasisState>();
+            for (id, index) in INNER_PLANETS.iter().zip(&body_indices) {
+                let body = emphasis.body(*index).unwrap();
+                assert!(body.is_engaged(), "{id}");
+                assert!((0.0..1.0).contains(&emphasis.body_alpha(*index)), "{id}");
+                assert!(
+                    (1.0..EMPHASIZED_ORBIT_BRIGHTNESS).contains(&emphasis.orbit_brightness(*index)),
+                    "{id}"
+                );
+            }
+            assert!(!emphasis.body(uranus).unwrap().is_engaged());
+            assert_eq!(emphasis.body_alpha(uranus), 1.0);
+            assert_eq!(emphasis.orbit_brightness(uranus), 1.0);
+        }
+        for ((id, index), original) in INNER_PLANETS.iter().zip(&body_indices).zip(&baseline) {
+            let expected_brightness = app
+                .world()
+                .resource::<OrbitEmphasisState>()
+                .orbit_brightness(*index);
+            let intermediate = rendered_orbit(&mut app, *index);
+            assert_eq!(
+                intermediate.displayed_brightness, expected_brightness,
+                "{id}"
+            );
+            assert_eq!(
+                intermediate.displayed_alpha, original.displayed_alpha,
+                "{id}"
+            );
+            assert_eq!(intermediate.handle, original.handle, "{id}");
+            assert_eq!(
+                intermediate.vertices_parent_km, original.vertices_parent_km,
+                "{id}"
+            );
+            assert_ne!(intermediate.colors, original.colors, "{id}");
+        }
+
+        let fade_frames = (f64::from(EMPHASIS_CROSSFADE_S) / FRAME_S).ceil() as usize;
+        for _ in 1..fade_frames {
+            render_emphasis_frame(&mut app, hundred_year_step, FRAME_S);
+        }
+        for (id, index) in INNER_PLANETS.iter().zip(&body_indices) {
+            let emphasis = app.world().resource::<OrbitEmphasisState>();
+            assert_eq!(emphasis.body_alpha(*index), 0.0, "{id}");
+            assert_eq!(
+                emphasis.orbit_brightness(*index),
+                EMPHASIZED_ORBIT_BRIGHTNESS,
+                "{id}"
+            );
+            let emphasized = rendered_orbit(&mut app, *index);
+            let original = &baseline[INNER_PLANETS.iter().position(|value| value == id).unwrap()];
+            assert_eq!(emphasized.handle, original.handle, "{id}");
+            assert_eq!(
+                emphasized.vertices_parent_km, original.vertices_parent_km,
+                "{id}"
+            );
+            assert_eq!(emphasized.displayed_alpha, original.displayed_alpha, "{id}");
+            assert_eq!(
+                emphasized.displayed_brightness, EMPHASIZED_ORBIT_BRIGHTNESS,
+                "{id}"
+            );
+            assert!(emphasized
+                .colors
+                .iter()
+                .zip(&original.colors)
+                .all(|(actual, base)| {
+                    actual.red > base.red
+                        && actual.green > base.green
+                        && actual.blue > base.blue
+                        && actual.alpha == base.alpha
+                }));
+        }
+        assert_eq!(rendered_orbit(&mut app, uranus), uranus_baseline);
+
+        let saturn = *body_indices.last().unwrap();
+        app.world_mut()
+            .resource_mut::<LayerState>()
+            .set_visible(LayerId::Orbits, false);
+        render_emphasis_frame(&mut app, hundred_year_step, FRAME_S);
+        let globally_hidden = rendered_orbit(&mut app, saturn);
+        assert_eq!(globally_hidden.displayed_alpha, 0.0);
+        assert_eq!(
+            globally_hidden.displayed_brightness,
+            EMPHASIZED_ORBIT_BRIGHTNESS
+        );
+        assert!(globally_hidden
+            .colors
+            .iter()
+            .all(|color| color.alpha == 0.0));
+
+        app.world_mut()
+            .resource_mut::<LayerState>()
+            .set_visible(LayerId::Orbits, true);
+        app.world_mut()
+            .resource_mut::<ViewOptionsState>()
+            .set_local_orbit_visible("saturn", false);
+        render_emphasis_frame(&mut app, hundred_year_step, FRAME_S);
+        let locally_hidden = rendered_orbit(&mut app, saturn);
+        assert_eq!(locally_hidden.displayed_alpha, 0.0);
+        assert_eq!(
+            locally_hidden.displayed_brightness,
+            EMPHASIZED_ORBIT_BRIGHTNESS
+        );
+        assert!(locally_hidden.colors.iter().all(|color| color.alpha == 0.0));
+        assert!(rendered_orbit(&mut app, body_indices[0]).displayed_alpha > 0.0);
+
+        app.world_mut()
+            .resource_mut::<ViewOptionsState>()
+            .set_local_orbit_visible("saturn", true);
+        render_emphasis_frame(&mut app, hundred_year_step, FRAME_S);
+        assert_eq!(
+            rendered_orbit(&mut app, saturn).displayed_alpha,
+            baseline.last().unwrap().displayed_alpha
+        );
+
+        render_emphasis_frame(&mut app, FRAME_S, FRAME_S);
+        {
+            let emphasis = app.world().resource::<OrbitEmphasisState>();
+            for (id, index) in INNER_PLANETS.iter().zip(&body_indices) {
+                assert!(!emphasis.body(*index).unwrap().is_engaged(), "{id}");
+                assert!((0.0..1.0).contains(&emphasis.body_alpha(*index)), "{id}");
+                assert!(
+                    (1.0..EMPHASIZED_ORBIT_BRIGHTNESS).contains(&emphasis.orbit_brightness(*index)),
+                    "{id}"
+                );
+            }
+        }
+        for ((id, index), original) in INNER_PLANETS.iter().zip(&body_indices).zip(&baseline) {
+            let expected_brightness = app
+                .world()
+                .resource::<OrbitEmphasisState>()
+                .orbit_brightness(*index);
+            let restoring = rendered_orbit(&mut app, *index);
+            assert_eq!(restoring.displayed_brightness, expected_brightness, "{id}");
+            assert_eq!(restoring.displayed_alpha, original.displayed_alpha, "{id}");
+            assert_eq!(restoring.handle, original.handle, "{id}");
+            assert_eq!(
+                restoring.vertices_parent_km, original.vertices_parent_km,
+                "{id}"
+            );
+            assert_ne!(restoring.colors, original.colors, "{id}");
+        }
+        for _ in 1..fade_frames {
+            render_emphasis_frame(&mut app, FRAME_S, FRAME_S);
+        }
+        for ((id, index), original) in INNER_PLANETS.iter().zip(&body_indices).zip(&baseline) {
+            let emphasis = app.world().resource::<OrbitEmphasisState>();
+            assert_eq!(emphasis.body_alpha(*index), 1.0, "{id}");
+            assert_eq!(emphasis.orbit_brightness(*index), 1.0, "{id}");
+            assert_eq!(rendered_orbit(&mut app, *index), *original, "{id}");
+        }
     }
 
     #[test]
