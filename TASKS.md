@@ -38,7 +38,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 4 | Propagation + floating origin: 66 colored spheres at 2026 positions | **✅ done** |
 | 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | **✅ done** |
 | 6 | Orbit lines (adaptive; hyperbolic arc), colors, fades | **✅ done** |
-| 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | **✅ done** |
+| 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | in-progress |
 | 8 | Time bar: detented log slider, editable date/clock, LIVE chip | **✅ done** |
 | 9 | Labels/reticles, tiered declutter, contextual moon visibility, picking | **✅ done** |
 | 10 | Left panel: Info tab, collection pages, View Options | **✅ done** |
@@ -815,6 +815,42 @@ task order, and acceptance evidence are recorded in
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Began the required pre-code review for stabilization Task
+  4, reopening WP7 as the coordinating breadcrumb/navigation package from the
+  green 274-test Task 3 commit. Re-reading ARCHITECTURE §§8.2, 8.4, 9.1, and
+  12 plus the locked Task 4 acceptance exposed coupled state-machine defects.
+  Collection crumbs use synthetic IDs such as `jupiter_moons`, but both
+  reducers require a catalog body and therefore render an actionable no-op.
+  Breadcrumb commands validate depth and target independently, so stale,
+  mismatched, or out-of-range pairs can partially mutate camera, page, or
+  stack. `SetLeftPanelTab(Collection)` also accepts bodies with no moon
+  collection, while command batches synchronize selected-body navigation only
+  after every command, causing a later same-frame tab command after Travel or
+  breadcrumb navigation to be overwritten. Selection-derived navigation and
+  breadcrumb rebuilding have no explicit same-frame ordering, and a focused
+  ancestor button is despawned without a semantic successor. Search-result
+  focus is currently misclassified as Gameplay, allowing background hotkeys
+  and making Escape ineffective; Search selection clears focus, while Browse
+  closes to Search rather than its Menu invoker and can immediately reopen a
+  retained-query dropdown.
+
+  The reviewed implementation will give each `NavigationItem` a semantic
+  destination (root/body/collection) while retaining stable route IDs and
+  replay text compatibility; validate `(depth, target_id)` atomically against
+  the current stack; resolve camera body plus panel page from that one target;
+  reject unsupported collection tabs without mutation; and converge selected
+  body/navigation after every accepted command so recorded order is honored.
+  Breadcrumb rendering will run after selection convergence and restore focus
+  by semantic route. Search input plus its dropdown will share TextEdit
+  ownership; a common commit/cancel path will return focus to Search while
+  suppressing exact-match popup reopening until a fresh edit, and Browse will
+  return focus to Menu with a live-entity fallback. Acceptance evidence will
+  cover the exact Jupiter/Io paths, current and ancestor breadcrumb actions,
+  malformed/stale rejection, same-frame versus split-frame command order,
+  replay/headless parity, pointer and keyboard Search/Browse selection,
+  gameplay-hotkey suppression, Escape cancellation, focus survival, and a
+  second-update no-reopen assertion. No Steam, dependency, catalog, generated
+  asset, physics, or tolerance work is in scope.
 - **2026-07-17** — Completed stabilization Task 3 and returned WP7 to
   **✅ done** after two independent source gates and a final no-blocker
   acceptance review. Non-modal surfaces now use ordered tab groups
