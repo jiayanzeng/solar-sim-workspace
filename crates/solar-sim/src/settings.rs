@@ -6,6 +6,7 @@
 //! policy. The core simulation only receives the persisted `StartMode` at boot.
 
 use crate::control::{SimCommand, SimCommandQueue};
+use crate::input_intent::UiScrollSurface;
 use crate::layers::{HudSurface, LayerId, LayerState, LayerStateSnapshot, PresentationState};
 use crate::ui_kit::{
     checkbox_row, chip, section_header, slider, UiTheme, WidgetSpec, WidgetVisualState,
@@ -16,7 +17,7 @@ use bevy::{
     input::mouse::MouseScrollUnit,
     input_focus::{
         tab_navigation::{TabGroup, TabIndex},
-        InputFocus,
+        FocusCause, InputFocus,
     },
     prelude::*,
     render::{
@@ -451,7 +452,12 @@ pub(crate) struct SettingsScreenState {
     open: bool,
     draft: AppSettings,
     dirty: bool,
+    scroll_y: f32,
+    restore_focus: Option<SettingAction>,
 }
+
+#[derive(Resource, Debug, Default)]
+pub(crate) struct SettingsSaveRequest(bool);
 
 impl SettingsScreenState {
     pub(crate) const fn is_open(&self) -> bool {
@@ -459,11 +465,12 @@ impl SettingsScreenState {
     }
 }
 
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
 enum SettingAction {
     Close,
     Apply,
     Revert,
+    RestoreDefaults,
     SetDisplayMode(DisplayModeSetting),
     SetResolution(ResolutionSetting),
     ToggleVsync,
@@ -484,6 +491,7 @@ pub struct ProductSettingsPlugin;
 impl Plugin for ProductSettingsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SettingsScreenState>()
+            .init_resource::<SettingsSaveRequest>()
             .init_resource::<RenderRecoveryStatus>()
             .insert_resource(RenderErrorHandler(product_render_error_policy))
             .add_systems(
@@ -492,6 +500,7 @@ impl Plugin for ProductSettingsPlugin {
                     sync_requested_settings_screen,
                     apply_settings_to_runtime,
                     sync_external_presentation_to_settings,
+                    persist_requested_settings,
                     rebuild_settings_screen,
                     sync_recovery_completion,
                     sync_render_error_screen,
@@ -504,6 +513,36 @@ impl Plugin for ProductSettingsPlugin {
         #[cfg(debug_assertions)]
         install_debug_device_loss(app);
     }
+}
+
+pub(crate) fn consume_settings_command(
+    command: &SimCommand,
+    screen: &mut SettingsScreenState,
+    settings: &mut AppSettings,
+    save: &mut SettingsSaveRequest,
+) {
+    match command {
+        SimCommand::ApplySettings(committed) => {
+            let committed = committed.as_ref().clone().normalized();
+            *settings = committed.clone();
+            screen.draft = committed;
+            screen.dirty = true;
+            save.0 = true;
+        }
+        SimCommand::RestorePresentationDefaults => {
+            let defaults = AppSettings::default();
+            settings.layers = defaults.layers;
+            screen.draft.layers = defaults.layers;
+            screen.dirty = true;
+            save.0 = true;
+        }
+        _ => {}
+    }
+}
+
+pub(crate) fn reset_persisted_settings(world: &mut World) {
+    *world.resource_mut::<AppSettings>() = AppSettings::default().normalized();
+    SaveSettingsSync::Always.apply(world);
 }
 
 fn sync_requested_settings_screen(
@@ -520,6 +559,8 @@ fn sync_requested_settings_screen(
         screen.open = false;
         screen.draft = settings.clone();
         screen.dirty = true;
+        screen.scroll_y = 0.0;
+        screen.restore_focus = None;
         focus.clear();
     }
     if presentation.settings_requested() {
@@ -530,6 +571,8 @@ fn sync_requested_settings_screen(
         screen.open = true;
         screen.draft = settings.clone();
         screen.dirty = true;
+        screen.scroll_y = 0.0;
+        screen.restore_focus = None;
         focus.clear();
     }
 }
@@ -600,6 +643,12 @@ fn sync_external_presentation_to_settings(
     }
 }
 
+fn persist_requested_settings(mut request: ResMut<SettingsSaveRequest>, mut commands: Commands) {
+    if std::mem::take(&mut request.0) {
+        commands.queue(SaveSettingsDeferred(SETTINGS_SAVE_DELAY));
+    }
+}
+
 fn save_settings_on_window_close(
     mut close: MessageReader<WindowCloseRequested>,
     mut commands: Commands,
@@ -625,6 +674,7 @@ fn rebuild_settings_screen(
     }
     if !screen.open {
         screen.dirty = false;
+        screen.restore_focus = None;
         return;
     }
 
@@ -681,10 +731,12 @@ fn rebuild_settings_screen(
         Pickable::IGNORE,
         ChildOf(panel),
     ));
+    let scroll_position = ScrollPosition(Vec2::new(0.0, screen.scroll_y));
     let content = commands
         .spawn((
             Name::new("Settings scroll area"),
             SettingsScrollArea,
+            UiScrollSurface,
             Node {
                 width: percent(100),
                 flex_grow: 1.0,
@@ -695,7 +747,7 @@ fn rebuild_settings_screen(
                 overflow: Overflow::scroll_y(),
                 ..default()
             },
-            ScrollPosition::default(),
+            scroll_position,
             ChildOf(panel),
         ))
         .observe(scroll_settings_content)
@@ -866,15 +918,36 @@ fn rebuild_settings_screen(
         [
             ("CLOSE".to_string(), false, SettingAction::Close),
             ("REVERT".to_string(), false, SettingAction::Revert),
+            (
+                "RESTORE DEFAULTS".to_string(),
+                false,
+                SettingAction::RestoreDefaults,
+            ),
             ("APPLY".to_string(), true, SettingAction::Apply),
         ],
     );
+    if let Some(action) = screen.restore_focus.take() {
+        commands.queue(move |world: &mut World| {
+            let focused = {
+                let mut actions = world.query::<(Entity, &SettingAction)>();
+                actions
+                    .iter(world)
+                    .find_map(|(entity, candidate)| (*candidate == action).then_some(entity))
+            };
+            if let Some(entity) = focused {
+                world
+                    .resource_mut::<InputFocus>()
+                    .set(entity, FocusCause::Navigated);
+            }
+        });
+    }
     screen.dirty = false;
 }
 
 fn scroll_settings_content(
     mut scroll: On<Pointer<Scroll>>,
     mut areas: Query<(&mut ScrollPosition, &ComputedNode), With<SettingsScrollArea>>,
+    mut screen: ResMut<SettingsScreenState>,
 ) {
     let Ok((mut position, node)) = areas.get_mut(scroll.entity) else {
         return;
@@ -887,6 +960,7 @@ fn scroll_settings_content(
         node.size().y,
         node.inverse_scale_factor,
     );
+    screen.scroll_y = position.y;
     scroll.propagate(false);
 }
 
@@ -988,36 +1062,36 @@ fn activate_setting_action(
     activate: On<Activate>,
     actions: Query<&SettingAction>,
     mut screen: ResMut<SettingsScreenState>,
-    mut settings: ResMut<AppSettings>,
-    layers: Res<LayerState>,
-    presentation: Res<PresentationState>,
+    settings: Res<AppSettings>,
+    focus: Res<InputFocus>,
     mut sim_commands: ResMut<SimCommandQueue>,
-    mut commands: Commands,
 ) {
     let Ok(action) = actions.get(activate.entity) else {
         return;
     };
+    if focus.get() == Some(activate.entity)
+        && !matches!(
+            action,
+            SettingAction::Close | SettingAction::Apply | SettingAction::RestoreDefaults
+        )
+    {
+        screen.restore_focus = Some(*action);
+    }
     match *action {
         SettingAction::Close => {
             sim_commands.push(SimCommand::CloseSettings);
         }
         SettingAction::Apply => {
             let committed = screen.draft.clone().normalized();
-            for layer in LayerId::ALL {
-                let visible = committed.layers.visible(layer);
-                if layers.is_visible(layer) != visible {
-                    sim_commands.push(SimCommand::SetLayerVisibility { layer, visible });
-                }
-            }
-            if presentation.is_fullscreen() != committed.display_mode.is_fullscreen() {
-                sim_commands.push(SimCommand::ToggleFullscreen);
-            }
-            *settings = committed.clone();
-            screen.draft = committed;
-            commands.queue(SaveSettingsDeferred(SETTINGS_SAVE_DELAY));
+            sim_commands.push(SimCommand::ApplySettings(Box::new(committed)));
             sim_commands.push(SimCommand::CloseSettings);
         }
         SettingAction::Revert => screen.draft = settings.clone(),
+        SettingAction::RestoreDefaults => {
+            sim_commands.push(SimCommand::ApplySettings(Box::default()));
+            sim_commands.push(SimCommand::RestorePresentationDefaults);
+            sim_commands.push(SimCommand::CloseSettings);
+        }
         SettingAction::SetDisplayMode(value) => screen.draft.display_mode = value,
         SettingAction::SetResolution(value) => screen.draft.resolution = value,
         SettingAction::ToggleVsync => screen.draft.vsync = !screen.draft.vsync,
@@ -1257,6 +1331,19 @@ mod tests {
                 );
                 return;
             }
+            Ok("reset") => {
+                let mut app = persistence_test_app();
+                reset_persisted_settings(app.world_mut());
+                return;
+            }
+            Ok("read-reset") => {
+                let app = persistence_test_app();
+                assert_eq!(
+                    app.world().resource::<AppSettings>(),
+                    &AppSettings::default()
+                );
+                return;
+            }
             _ => {}
         }
 
@@ -1266,7 +1353,7 @@ mod tests {
         ));
         std::fs::create_dir(&temporary_home).expect("create isolated settings HOME");
         let executable = std::env::current_exe().expect("current test executable");
-        for phase in ["write", "read"] {
+        for phase in ["write", "read", "reset", "read-reset"] {
             let status = ProcessCommand::new(&executable)
                 .arg("settings::tests::settings_survive_full_process_relaunch")
                 .arg("--exact")
@@ -1342,8 +1429,10 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(AppSettings::default())
             .init_resource::<SettingsScreenState>()
+            .init_resource::<SettingsSaveRequest>()
             .init_resource::<LayerState>()
             .init_resource::<PresentationState>()
+            .init_resource::<InputFocus>()
             .init_resource::<SimCommandQueue>();
         let set = app
             .world_mut()
@@ -1381,16 +1470,38 @@ mod tests {
         app.world_mut().trigger(Activate { entity: apply });
         assert_eq!(
             app.world().resource::<AppSettings>().display_mode,
-            DisplayModeSetting::BorderlessFullscreen
+            DisplayModeSetting::Windowed,
+            "widget activation must not bypass the command reducer"
         );
         let commands: Vec<_> = app
             .world_mut()
             .resource_mut::<SimCommandQueue>()
             .drain()
             .collect();
+        assert_eq!(commands.len(), 2);
+        assert!(matches!(
+            &commands[0],
+            SimCommand::ApplySettings(settings)
+                if settings.display_mode == DisplayModeSetting::BorderlessFullscreen
+        ));
+        assert_eq!(commands[1], SimCommand::CloseSettings);
+        let apply = commands[0].clone();
+        let mut screen = app
+            .world_mut()
+            .remove_resource::<SettingsScreenState>()
+            .unwrap();
+        let mut settings = app.world_mut().remove_resource::<AppSettings>().unwrap();
+        let mut save = app
+            .world_mut()
+            .remove_resource::<SettingsSaveRequest>()
+            .unwrap();
+        consume_settings_command(&apply, &mut screen, &mut settings, &mut save);
+        app.insert_resource(screen)
+            .insert_resource(settings)
+            .insert_resource(save);
         assert_eq!(
-            commands,
-            vec![SimCommand::ToggleFullscreen, SimCommand::CloseSettings]
+            app.world().resource::<AppSettings>().display_mode,
+            DisplayModeSetting::BorderlessFullscreen
         );
     }
 
@@ -1401,6 +1512,7 @@ mod tests {
             .init_resource::<SettingsScreenState>()
             .init_resource::<LayerState>()
             .init_resource::<PresentationState>()
+            .init_resource::<InputFocus>()
             .init_resource::<SimCommandQueue>();
         let close = app
             .world_mut()
@@ -1418,6 +1530,59 @@ mod tests {
     }
 
     #[test]
+    fn restore_defaults_routes_commit_presentation_and_close_in_order() {
+        let mut app = App::new();
+        app.insert_resource(nondefault_settings())
+            .insert_resource(SettingsScreenState {
+                open: true,
+                draft: nondefault_settings(),
+                dirty: false,
+                scroll_y: 90.0,
+                restore_focus: None,
+            })
+            .init_resource::<SettingsSaveRequest>()
+            .init_resource::<InputFocus>()
+            .init_resource::<SimCommandQueue>();
+        let restore = app
+            .world_mut()
+            .spawn(SettingAction::RestoreDefaults)
+            .observe(activate_setting_action)
+            .id();
+
+        app.world_mut().trigger(Activate { entity: restore });
+        let commands: Vec<_> = app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .collect();
+        assert_eq!(
+            commands,
+            vec![
+                SimCommand::ApplySettings(Box::default()),
+                SimCommand::RestorePresentationDefaults,
+                SimCommand::CloseSettings,
+            ]
+        );
+
+        let mut screen = app
+            .world_mut()
+            .remove_resource::<SettingsScreenState>()
+            .unwrap();
+        let mut settings = app.world_mut().remove_resource::<AppSettings>().unwrap();
+        let mut save = app
+            .world_mut()
+            .remove_resource::<SettingsSaveRequest>()
+            .unwrap();
+        for command in &commands {
+            consume_settings_command(command, &mut screen, &mut settings, &mut save);
+        }
+        assert_eq!(settings, AppSettings::default());
+        assert_eq!(screen.draft, AppSettings::default());
+        assert!(screen.dirty);
+        assert!(save.0);
+    }
+
+    #[test]
     fn requested_close_dismisses_the_modal_and_clears_focus() {
         let mut app = App::new();
         app.insert_resource(AppSettings::default())
@@ -1425,6 +1590,8 @@ mod tests {
                 open: true,
                 draft: AppSettings::default(),
                 dirty: false,
+                scroll_y: 0.0,
+                restore_focus: None,
             })
             .init_resource::<PresentationState>()
             .init_resource::<InputFocus>()
@@ -1476,6 +1643,8 @@ mod tests {
             open: true,
             draft: AppSettings::default(),
             dirty: true,
+            scroll_y: 0.0,
+            restore_focus: None,
         })
         .add_systems(Startup, rebuild_settings_screen)
         .add_systems(
@@ -1483,6 +1652,33 @@ mod tests {
             (sync_requested_settings_screen, rebuild_settings_screen).chain(),
         );
         app.update();
+        {
+            let mut screen = app.world_mut().resource_mut::<SettingsScreenState>();
+            screen.scroll_y = 137.0;
+            screen.dirty = true;
+        }
+        app.update();
+
+        let vsync = {
+            let world = app.world_mut();
+            let mut actions = world.query::<(Entity, &SettingAction)>();
+            actions
+                .iter(world)
+                .find_map(|(entity, action)| {
+                    (*action == SettingAction::ToggleVsync).then_some(entity)
+                })
+                .unwrap()
+        };
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(vsync, FocusCause::Navigated);
+        app.world_mut().trigger(Activate { entity: vsync });
+        app.update();
+        let focused = app.world().resource::<InputFocus>().get().unwrap();
+        assert_eq!(
+            app.world().entity(focused).get::<SettingAction>(),
+            Some(&SettingAction::ToggleVsync)
+        );
 
         let close = {
             let world = app.world_mut();
@@ -1491,7 +1687,11 @@ mod tests {
             assert_eq!(roots.len(), 1);
             assert!(roots[0]);
             let mut scroll_areas = world.query::<(&SettingsScrollArea, &ScrollPosition)>();
-            assert_eq!(scroll_areas.iter(world).count(), 1);
+            let scroll_positions: Vec<_> = scroll_areas
+                .iter(world)
+                .map(|(_, position)| position.y)
+                .collect();
+            assert_eq!(scroll_positions, vec![137.0]);
             let mut close_controls =
                 world.query_filtered::<(Entity, &SettingAction), With<WidgetRoot>>();
             let close_controls: Vec<_> = close_controls
@@ -1509,7 +1709,7 @@ mod tests {
                 &AccessibilityNode,
             )>();
             let controls: Vec<_> = controls.iter(world).collect();
-            assert_eq!(controls.len(), 38);
+            assert_eq!(controls.len(), 39);
             assert!(controls
                 .iter()
                 .all(|(_, _, _, label, _)| !label.0.trim().is_empty()));

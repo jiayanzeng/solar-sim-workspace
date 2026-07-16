@@ -5,11 +5,13 @@
 //! top-bar scene signature while search internals remain independently owned.
 
 use super::{NavigationStack, UiTheme, INTER_FONT_ASSET};
+use crate::control::{SimCommand, SimCommandQueue};
 use crate::layers::HudSurface;
 use bevy::{
     input_focus::tab_navigation::TabIndex,
     prelude::*,
     text::{EditableText, FontSourceTemplate, LetterSpacing, LineBreak, TextLayout},
+    ui_widgets::Activate,
 };
 
 pub const TOP_BAR_HEIGHT_PX: f32 = 64.0;
@@ -31,6 +33,15 @@ pub struct SearchHint;
 
 #[derive(Component, Debug, Clone, Copy, Default, FromTemplate)]
 pub struct MenuBrowseButton;
+
+#[derive(Component, Debug, Clone, Copy)]
+pub(super) struct BreadcrumbOverlayRoot;
+
+#[derive(Component, Debug, Clone)]
+struct BreadcrumbAction {
+    depth: usize,
+    target_id: String,
+}
 
 pub fn top_bar(theme: UiTheme, breadcrumb: String) -> impl Scene {
     let tracking = theme.type_scale.uppercase_tracking_px;
@@ -213,6 +224,111 @@ pub(super) fn update_breadcrumb(
     }
 }
 
+pub(super) fn rebuild_actionable_breadcrumb(
+    mut commands: Commands,
+    navigation: Res<NavigationStack>,
+    theme: Res<UiTheme>,
+    asset_server: Res<AssetServer>,
+    roots: Query<Entity, With<BreadcrumbOverlayRoot>>,
+    mut legacy_text: Query<&mut Visibility, With<BreadcrumbText>>,
+) {
+    if !navigation.is_changed() {
+        return;
+    }
+    for root in &roots {
+        commands.entity(root).despawn();
+    }
+    for mut visibility in &mut legacy_text {
+        *visibility = Visibility::Hidden;
+    }
+    let root = commands
+        .spawn((
+            Name::new("Actionable breadcrumb"),
+            BreadcrumbOverlayRoot,
+            HudSurface,
+            AccessibleLabel::new("Current navigation breadcrumb"),
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(205),
+                right: px(390),
+                top: px(0),
+                height: px(TOP_BAR_HEIGHT_PX),
+                align_items: AlignItems::Center,
+                column_gap: px(theme.spacing.xs_px),
+                overflow: Overflow::clip_x(),
+                ..default()
+            },
+            GlobalZIndex(101),
+        ))
+        .id();
+    let last = navigation.items().len().saturating_sub(1);
+    for (depth, item) in navigation.items().iter().enumerate() {
+        if depth > 0 {
+            commands.spawn((
+                Text::new("›"),
+                TextFont {
+                    font: asset_server.load(INTER_FONT_ASSET).into(),
+                    font_size: theme.type_scale.body_px.into(),
+                    ..default()
+                },
+                TextColor(theme.colors.text_disabled.color()),
+                Pickable::IGNORE,
+                ChildOf(root),
+            ));
+        }
+        let button = commands
+            .spawn((
+                bevy::ui_widgets::Button,
+                BreadcrumbAction {
+                    depth,
+                    target_id: item.id.clone(),
+                },
+                AccessibleLabel::new(format!("Navigate to {}", item.label)),
+                TabIndex(2 + depth as i32),
+                Node {
+                    height: px(32),
+                    padding: UiRect::horizontal(px(theme.spacing.xs_px)),
+                    border_radius: BorderRadius::all(px(theme.spacing.xs_px)),
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                BackgroundColor(Color::NONE),
+                ChildOf(root),
+            ))
+            .observe(activate_breadcrumb)
+            .id();
+        commands.spawn((
+            Text::new(item.label.clone()),
+            TextFont {
+                font: asset_server.load(INTER_FONT_ASSET).into(),
+                font_size: theme.type_scale.body_px.into(),
+                ..default()
+            },
+            TextColor(if depth == last {
+                theme.colors.text_primary.color()
+            } else {
+                theme.colors.text_muted.color()
+            }),
+            Pickable::IGNORE,
+            ChildOf(button),
+        ));
+    }
+}
+
+fn activate_breadcrumb(
+    activate: On<Activate>,
+    actions: Query<&BreadcrumbAction>,
+    mut commands: ResMut<SimCommandQueue>,
+) {
+    let Ok(action) = actions.get(activate.entity) else {
+        return;
+    };
+    commands.push(SimCommand::NavigateBreadcrumb {
+        depth: action.depth,
+        target_id: action.target_id.clone(),
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,6 +354,35 @@ mod tests {
         assert_eq!(
             app.world().entity(entity).get::<Text>().unwrap().as_str(),
             "Solar System › Jupiter › Moons"
+        );
+    }
+
+    #[test]
+    fn activating_an_ancestor_breadcrumb_queues_one_navigation_command() {
+        let mut app = App::new();
+        app.init_resource::<SimCommandQueue>();
+        let jupiter = app
+            .world_mut()
+            .spawn(BreadcrumbAction {
+                depth: 1,
+                target_id: "jupiter".into(),
+            })
+            .observe(activate_breadcrumb)
+            .id();
+
+        app.world_mut().trigger(Activate { entity: jupiter });
+
+        let queued: Vec<_> = app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .collect();
+        assert_eq!(
+            queued,
+            vec![SimCommand::NavigateBreadcrumb {
+                depth: 1,
+                target_id: "jupiter".into(),
+            }]
         );
     }
 }

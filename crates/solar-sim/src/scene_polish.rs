@@ -4,6 +4,7 @@
 //! Runtime state is presentation-only: it cross-fades body materials, label
 //! colors, and orbit brightness without changing propagation or picking truth.
 
+use crate::surface_textures::SaturnRing;
 use crate::{BodyVisual, LoadedCatalog, SimulationClock, SimulationSet};
 use bevy::{color::Alpha, prelude::*};
 use sim_core::catalog::Category;
@@ -63,6 +64,12 @@ pub struct OrbitEmphasisState {
     any_engaged: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct OrbitEmphasisUpdate {
+    onset: bool,
+    visuals_changed: bool,
+}
+
 impl OrbitEmphasisState {
     pub fn body(&self, body_index: usize) -> Option<BodyOrbitEmphasis> {
         self.bodies.get(body_index).copied().flatten()
@@ -82,14 +89,17 @@ impl OrbitEmphasisState {
         self.any_engaged
     }
 
-    fn update(&mut self, simulated_step_s: f64, wall_delta_s: f32) -> bool {
+    fn update(&mut self, simulated_step_s: f64, wall_delta_s: f32) -> OrbitEmphasisUpdate {
         let was_engaged = self.any_engaged;
+        let mut visuals_changed = false;
         let fade_step = if EMPHASIS_CROSSFADE_S > 0.0 {
             wall_delta_s.max(0.0) / EMPHASIS_CROSSFADE_S
         } else {
             1.0
         };
         for body in self.bodies.iter_mut().flatten() {
+            let previous_engaged = body.engaged;
+            let previous_blend = body.blend;
             body.engaged = hysteresis_state(
                 body.engaged,
                 simulated_step_s,
@@ -97,9 +107,14 @@ impl OrbitEmphasisState {
                 body.release_simulated_step_s,
             );
             body.blend = move_toward(body.blend, f32::from(body.engaged), fade_step);
+            visuals_changed |= body.engaged != previous_engaged
+                || body.blend.to_bits() != previous_blend.to_bits();
         }
         self.any_engaged = self.bodies.iter().flatten().any(|body| body.engaged);
-        !was_engaged && self.any_engaged
+        OrbitEmphasisUpdate {
+            onset: !was_engaged && self.any_engaged,
+            visuals_changed,
+        }
     }
 }
 
@@ -217,7 +232,13 @@ fn update_orbit_emphasis(
     } else {
         0.0
     };
-    if emphasis.update(simulated_step_s, time.delta_secs()) {
+    let update = emphasis
+        .bypass_change_detection()
+        .update(simulated_step_s, time.delta_secs());
+    if update.visuals_changed {
+        emphasis.set_changed();
+    }
+    if update.onset {
         onsets.write(OrbitEmphasisOnset);
     }
 }
@@ -227,7 +248,11 @@ fn apply_body_emphasis_alpha(
     emphasis: Res<OrbitEmphasisState>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     bodies: Query<(&BodyVisual, &MeshMaterial3d<StandardMaterial>)>,
+    rings: Query<&MeshMaterial3d<StandardMaterial>, With<SaturnRing>>,
 ) {
+    if !emphasis.is_changed() {
+        return;
+    }
     let Some(loaded) = loaded else {
         return;
     };
@@ -250,6 +275,15 @@ fn apply_body_emphasis_alpha(
         } else {
             AlphaMode::Opaque
         };
+    }
+    let saturn_alpha = loaded
+        .index_of("saturn")
+        .map_or(1.0, |index| emphasis.body_alpha(index));
+    for material_handle in &rings {
+        let Some(mut material) = materials.get_mut(&material_handle.0) else {
+            continue;
+        };
+        material.base_color = Color::srgba(0.92, 0.86, 0.72, 0.9 * saturn_alpha);
     }
 }
 
@@ -303,7 +337,7 @@ mod tests {
             / state.body(mercury).unwrap().period_s;
         assert!((mercury_phase - direct).abs() < 1.0e-12);
 
-        assert!(state.update(rate * frame_s, EMPHASIS_CROSSFADE_S));
+        assert!(state.update(rate * frame_s, EMPHASIS_CROSSFADE_S).onset);
         for id in ["mercury", "venus", "earth", "mars", "jupiter", "saturn"] {
             let index = loaded.index_of(id).unwrap();
             assert_eq!(state.body_alpha(index), 0.0, "{id}");
@@ -330,15 +364,64 @@ mod tests {
             any_engaged: false,
         };
 
-        assert!(!state.update(engage.next_down(), 0.1));
-        assert!(state.update(engage, 0.1));
-        assert!(!state.update((engage + release) * 0.5, 0.1));
+        assert!(!state.update(engage.next_down(), 0.1).onset);
+        assert!(state.update(engage, 0.1).onset);
+        assert!(!state.update((engage + release) * 0.5, 0.1).onset);
         assert!(state.body(0).unwrap().is_engaged());
-        assert!(!state.update(release.next_up(), 0.1));
+        assert!(!state.update(release.next_up(), 0.1).onset);
         assert!(state.body(0).unwrap().is_engaged());
-        assert!(!state.update(release, 0.1));
+        assert!(!state.update(release, 0.1).onset);
         assert!(!state.body(0).unwrap().is_engaged());
-        assert!(state.update(engage, 0.1), "a new crossing is a new onset");
+        assert!(
+            state.update(engage, 0.1).onset,
+            "a new crossing is a new onset"
+        );
+    }
+
+    #[test]
+    fn saturn_sphere_and_ring_share_the_same_emphasis_alpha() {
+        let (loaded, mut emphasis) = emphasis_for_real_catalog();
+        let saturn = loaded.index_of("saturn").unwrap();
+        let saturn_emphasis = emphasis.bodies[saturn].as_mut().unwrap();
+        saturn_emphasis.engaged = true;
+        saturn_emphasis.blend = 0.4;
+        emphasis.any_engaged = true;
+        let expected_alpha = emphasis.body_alpha(saturn);
+
+        let mut app = App::new();
+        app.insert_resource(loaded)
+            .insert_resource(emphasis)
+            .init_resource::<Assets<StandardMaterial>>()
+            .add_systems(Update, apply_body_emphasis_alpha);
+        let sphere_material = {
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+            materials.add(StandardMaterial::default())
+        };
+        let ring_material = {
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+            materials.add(StandardMaterial {
+                alpha_mode: AlphaMode::Blend,
+                ..default()
+            })
+        };
+        app.world_mut().spawn((
+            BodyVisual { index: saturn },
+            MeshMaterial3d(sphere_material.clone()),
+        ));
+        app.world_mut()
+            .spawn((SaturnRing, MeshMaterial3d(ring_material.clone())));
+
+        app.update();
+
+        let materials = app.world().resource::<Assets<StandardMaterial>>();
+        assert_eq!(
+            materials.get(&sphere_material).unwrap().base_color.alpha(),
+            expected_alpha
+        );
+        assert_eq!(
+            materials.get(&ring_material).unwrap().base_color.alpha(),
+            0.9 * expected_alpha
+        );
     }
 
     #[test]

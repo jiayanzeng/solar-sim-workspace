@@ -27,8 +27,8 @@ mod time_bar;
 mod ui_kit;
 
 pub use control::{
-    replay_headless, CameraController, CommandRecording, HeadlessSimulation, ReplayParseError,
-    ReplayRunError, ReplayStream, SimCommand, StampedCommand,
+    replay_headless, CameraController, CommandRecording, HeadlessSimulation, ReplayFrameInput,
+    ReplayParseError, ReplayRunError, ReplayStream, SimCommand, StampedCommand,
 };
 pub use formatting::format_distance_km;
 pub use golden::{
@@ -39,8 +39,9 @@ pub use labels::{
     DeclutterCandidate, LabelPriority, LabelsPlugin, ScreenRect, SelectionPlugin,
 };
 pub use layers::{
-    LayerId, LayerState, LayerStateSnapshot, LayersPanelRoot, LayersPlugin, PresentationState,
-    RightRailRoot, UiRestoreAffordance, ZOOM_IN_DOLLY_DELTA, ZOOM_OUT_DOLLY_DELTA,
+    visual_cue_recovery_needed, LayerId, LayerState, LayerStateSnapshot, LayersPanelRoot,
+    LayersPlugin, PresentationState, RightRailRoot, UiRestoreAffordance, VisualCueRecoveryRoot,
+    ZOOM_IN_DOLLY_DELTA, ZOOM_OUT_DOLLY_DELTA,
 };
 pub use left_panel::{
     body_info_view_model, body_info_view_model_with_units, moon_collections,
@@ -174,6 +175,7 @@ pub struct RunOptions {
     /// Debug-only renderer recovery probe. It is translated through the same
     /// recorded `SimCommand` path as the F9 binding.
     pub simulate_device_loss: bool,
+    pub reset_settings: bool,
     pub golden_capture: Option<GoldenCaptureOptions>,
 }
 
@@ -187,6 +189,7 @@ impl Default for RunOptions {
             assert_nonblack: false,
             initial_focus_id: None,
             simulate_device_loss: false,
+            reset_settings: false,
             golden_capture: None,
         }
     }
@@ -261,6 +264,7 @@ impl RunOptions {
                 }
                 #[cfg(debug_assertions)]
                 "--simulate-device-loss" => options.simulate_device_loss = true,
+                "--reset-settings" => options.reset_settings = true,
                 _ => {}
             }
             i += 1;
@@ -668,6 +672,9 @@ fn build_app_with_platform<P: Plugin>(
     app.add_plugins(default_plugins);
     app.register_type::<AppSettings>()
         .add_plugins(SettingsPlugin::new(SETTINGS_IDENTIFIER));
+    if options.reset_settings {
+        settings::reset_persisted_settings(app.world_mut());
+    }
     let initial_settings = if golden_capture.is_some() {
         let settings = AppSettings {
             resolution: ResolutionSetting {
@@ -833,6 +840,13 @@ struct SimCommandGate<'w> {
     reports: MessageWriter<'w, ClockTickReport>,
     layers: ResMut<'w, LayerState>,
     presentation: ResMut<'w, PresentationState>,
+    view_options: ResMut<'w, ViewOptionsState>,
+    left_panel: ResMut<'w, left_panel::LeftPanelUiState>,
+    navigation: ResMut<'w, NavigationStack>,
+    browse: ResMut<'w, search::BrowseUiState>,
+    app_settings: ResMut<'w, AppSettings>,
+    settings_screen: ResMut<'w, settings::SettingsScreenState>,
+    settings_save: ResMut<'w, settings::SettingsSaveRequest>,
     #[cfg(debug_assertions)]
     debug_device_loss: ResMut<'w, DebugDeviceLossRequest>,
 }
@@ -848,6 +862,13 @@ fn apply_sim_commands(gate: SimCommandGate) {
         mut reports,
         mut layers,
         mut presentation,
+        mut view_options,
+        mut left_panel,
+        mut navigation,
+        mut browse,
+        mut app_settings,
+        mut settings_screen,
+        mut settings_save,
         #[cfg(debug_assertions)]
         mut debug_device_loss,
     } = gate;
@@ -869,6 +890,20 @@ fn apply_sim_commands(gate: SimCommandGate) {
             layers.bypass_change_detection(),
             presentation.bypass_change_detection(),
         );
+        left_panel::consume_left_panel_command(
+            &command,
+            &loaded,
+            &mut view_options,
+            &mut left_panel,
+            &mut navigation,
+        );
+        search::consume_search_command(&command, &mut browse);
+        settings::consume_settings_command(
+            &command,
+            &mut settings_screen,
+            &mut app_settings,
+            &mut settings_save,
+        );
         if *layers != layers_before {
             layers.set_changed();
         }
@@ -883,9 +918,32 @@ fn apply_sim_commands(gate: SimCommandGate) {
 fn tick_clock(
     time: Res<Time>,
     mut clock: ResMut<SimulationClock>,
+    frame: Res<SimulationFrame>,
+    mut recording: ResMut<CommandRecording>,
     mut reports: MessageWriter<ClockTickReport>,
 ) {
-    let report = clock.0.tick(time.delta_secs_f64(), wall_now_t());
+    let wall_dt_s = time.delta_secs_f64();
+    let wall_now_t = wall_now_t();
+    recording.record_frame(frame.0, wall_dt_s, wall_now_t);
+    let before = (
+        clock.0.t().to_bits(),
+        clock.0.rate(),
+        clock.0.is_playing(),
+        clock.0.is_snapping(),
+    );
+    let report = clock
+        .bypass_change_detection()
+        .0
+        .tick(wall_dt_s, wall_now_t);
+    let after = (
+        clock.0.t().to_bits(),
+        clock.0.rate(),
+        clock.0.is_playing(),
+        clock.0.is_snapping(),
+    );
+    if before != after || report != TickReport::default() {
+        clock.set_changed();
+    }
     write_tick_report(report, &mut reports);
 }
 
@@ -901,6 +959,9 @@ fn propagate_bodies(
     states: Option<ResMut<BodyStates>>,
     mut fault: ResMut<PropagationFault>,
 ) {
+    if !clock.is_changed() {
+        return;
+    }
     let (Some(loaded), Some(mut states)) = (loaded, states) else {
         return;
     };
@@ -1268,6 +1329,13 @@ mod tests {
         assert!(RunOptions::from_args(&missing_smoke).is_err());
         let unscoped_rejection = ["solar-sim", "--reject-software-adapter"].map(str::to_owned);
         assert!(RunOptions::from_args(&unscoped_rejection).is_err());
+    }
+
+    #[test]
+    fn reset_settings_cli_is_explicit_and_off_by_default() {
+        assert!(!RunOptions::default().reset_settings);
+        let args = ["solar-sim", "--reset-settings"].map(str::to_owned);
+        assert!(RunOptions::from_args(&args).unwrap().reset_settings);
     }
 
     #[test]

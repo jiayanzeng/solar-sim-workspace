@@ -381,8 +381,8 @@ fn update_orbit_lines(
         };
 
         let mut rebuilt = false;
-        let current_elements = elements_at(orbit, clock.0.t());
-        if current_elements != line.path.elements {
+        let current_elements = clock.is_changed().then(|| elements_at(orbit, clock.0.t()));
+        if current_elements.is_some_and(|elements| elements != line.path.elements) {
             match sample_orbit(orbit, mu_parent_km3_s2, clock.0.t()) {
                 Ok(path) => {
                     line.path = path;

@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 212 passing** (53 `sim-core` · 108 `solar-sim` · 48 `xtask`
+**Test baseline: 223 passing** (53 `sim-core` · 119 `solar-sim` · 48 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -783,7 +783,7 @@ swap is the constant, its pinning test, and regeneration of `steam_appid.txt`.
 Full rationale and human sign-off:
 `docs/wp16-steam-bringup-decisions-2026-07-15.md`.
 
-### Q15 — OPEN.
+### Q15 — CLOSED (human, 2026-07-16).
 
 The 2026-07-16 M2 Pro overlay attempt exposed a WP14 recovery ambiguity outside
 WP16. The persisted `settings.toml` has `orbits`, `labels`, and `icons` set to
@@ -793,20 +793,53 @@ also reports that opening Settings hangs the application, while the exact
 60-frame Metal smoke with `--assert-nonblack` exits 0 at 202.7 fps. Decision
 required: add an explicit reset-settings recovery path, impose a minimum
 startup visual-cue floor, or preserve exact persistence and document a manual
-reset. Do not change WP14 status or acceptance text until the human closes this
-question.
+reset.
 
 Human validation on 2026-07-16 narrows this question: at commit
 `60a19a6718edbc3b239606325f1b663c723d5a12`, the real macOS release build's
 Settings modal accepted pointer adjustments and scrolling, and `REVERT`,
 `APPLY`, `CLOSE`, and Escape all worked. Hosted
 [run 29488349896](https://github.com/jiayanzeng/solar-sim-workspace/actions/runs/29488349896)
-passed all five jobs for that commit. The modal defect is resolved; Q15 remains
-open only for the persisted visual-cue recovery decision above. Humans close
-questions.
+passed all five jobs for that commit. The modal defect is resolved.
+
+Human ruling on 2026-07-16: lock in both compatibility measures. Provide an
+explicit Settings `RESTORE DEFAULTS` action plus a `--reset-settings` startup
+path, and impose a minimum discoverability floor without silently overriding
+persisted values. The implemented floor is a transient recovery notice shown
+only when User Interface is on while Orbits, Labels, and Icons are all off; it
+queues `RestorePresentationDefaults`, does not write settings merely by
+appearing, and yields to the existing `SHOW UI` affordance when User Interface
+is off. Exact WP14 layer persistence remains intact. The integrated design,
+task order, and acceptance evidence are recorded in
+`docs/ui-gameplay-stabilization-2026-07-16.md`.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-16** — Completed the human-directed UI/gameplay stabilization
+  cycle and closed Q15 with both approved recovery measures. The reviewed
+  implementation brief and task-by-task acceptance matrix live in
+  `docs/ui-gameplay-stabilization-2026-07-16.md`. All application-visible View
+  Options, Browse, settings commit/reset, left-panel, and breadcrumb
+  transitions now cross `SimCommandQueue`; replay-v2 records wall delta and
+  wall-clock TDB inputs for deterministic LIVE snaps while replay-v1 remains
+  parseable. Text, Browse, and Settings contexts suppress background hotkeys,
+  orbit, dolly, label activation, and viewport picking; long Settings,
+  left-panel, and Browse surfaces retain/clamp scroll state and keyboard focus
+  is restored across rebuilds. The breadcrumb is actionable, cue-less persisted
+  views expose one transient restore notice, `--reset-settings` performs an
+  isolated write/relaunch/reset/relaunch persistence cross-check, and Saturn's
+  rings now share its high-rate fade. Paused clocks skip unchanged propagation
+  and secular orbit resampling, and steady emphasis no longer rewrites
+  materials. The portable replay hash intentionally changed from
+  `11614332433107791956` to `11341847874983838712` because the combined hash
+  now includes View Options, settings, navigation, and modal state; no numeric
+  tolerance or assertion was weakened. `cargo test` passes the increased
+  223-test baseline (53 `sim-core` · 119 `solar-sim` · 48 `xtask` lib · 2
+  xtask smoke · 1 active spot-check), `cargo test -p solar-sim --features
+  steam` passes 120 tests, both required clippy invocations pass with
+  `-D warnings`, and formatting/diff checks are clean. No dependency, catalog,
+  truth fixture, `ARCHITECTURE.md`, `AGENTS.md`, WP status, or acceptance text
+  changed.
 - **2026-07-16** — Finalized the Settings recovery follow-up after the human
   reported that the real macOS release build now passes pointer adjustment,
   scrolling, `REVERT`, `APPLY`, `CLOSE`, and Escape. Hosted

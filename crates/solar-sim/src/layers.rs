@@ -12,7 +12,7 @@ use crate::ui_kit::{
 use crate::{SimulationSet, TIME_BAR_HEIGHT_PX};
 use bevy::{
     ecs::system::SystemParam,
-    input_focus::tab_navigation::TabIndex,
+    input_focus::{tab_navigation::TabIndex, FocusCause, InputFocus},
     prelude::*,
     text::LetterSpacing,
     ui::UiSystems,
@@ -24,6 +24,7 @@ use sim_core::catalog::Category;
 const RAIL_Z_INDEX: i32 = 92;
 const LAYERS_PANEL_Z_INDEX: i32 = 91;
 const RESTORE_Z_INDEX: i32 = 120;
+const CUE_RECOVERY_Z_INDEX: i32 = 119;
 const RAIL_BUTTON_SIZE_PX: f32 = 42.0;
 const LAYERS_PANEL_WIDTH_PX: f32 = 280.0;
 
@@ -244,6 +245,10 @@ impl PresentationState {
         self.fullscreen = !self.fullscreen;
     }
 
+    pub(crate) fn set_fullscreen(&mut self, fullscreen: bool) {
+        self.fullscreen = fullscreen;
+    }
+
     pub(crate) fn request_settings(&mut self) {
         self.settings_requested = true;
         self.settings_close_requested = false;
@@ -268,12 +273,15 @@ pub struct LayersPanelRoot;
 pub struct UiRestoreAffordance;
 
 #[derive(Component, Debug, Clone, Copy)]
+pub struct VisualCueRecoveryRoot;
+
+#[derive(Component, Debug, Clone, Copy)]
 struct LayerToggle(LayerId);
 
 #[derive(Component, Debug, Clone, Copy)]
 struct LayerGroupSeparator;
 
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
 enum RailAction {
     Zoom(f64),
     ToggleLayersPanel,
@@ -285,6 +293,13 @@ enum RailAction {
 struct RailUiState {
     layers_panel_open: bool,
     dirty: bool,
+    restore_focus: Option<RailFocusTarget>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum RailFocusTarget {
+    Action(RailAction),
+    Layer(LayerId),
 }
 
 #[derive(SystemParam)]
@@ -310,6 +325,7 @@ impl Default for RailUiState {
         Self {
             layers_panel_open: false,
             dirty: true,
+            restore_focus: None,
         }
     }
 }
@@ -324,12 +340,83 @@ impl Plugin for LayersPlugin {
             .add_systems(Startup, spawn_restore_affordance)
             .add_systems(
                 Update,
-                (rebuild_right_rail, sync_window_mode)
+                (
+                    sync_visual_cue_recovery,
+                    rebuild_right_rail,
+                    sync_window_mode,
+                )
                     .chain()
                     .in_set(SimulationSet::Render),
             )
             .add_systems(PostUpdate, sync_hud_visibility.before(UiSystems::Prepare));
     }
+}
+
+fn sync_visual_cue_recovery(
+    mut commands: Commands,
+    layers: Res<LayerState>,
+    theme: Res<UiTheme>,
+    asset_server: Res<AssetServer>,
+    roots: Query<Entity, With<VisualCueRecoveryRoot>>,
+) {
+    let needs_recovery = visual_cue_recovery_needed(*layers);
+    if !needs_recovery {
+        for root in &roots {
+            commands.entity(root).despawn();
+        }
+        return;
+    }
+    if !roots.is_empty() {
+        return;
+    }
+
+    let button = commands
+        .spawn((
+            Name::new("Hidden visual cues recovery"),
+            VisualCueRecoveryRoot,
+            HudSurface,
+            bevy::ui_widgets::Button,
+            AccessibleLabel::new(
+                "Orbit, label, and icon cues are hidden. Restore presentation defaults.",
+            ),
+            TabIndex(2),
+            Node {
+                position_type: PositionType::Absolute,
+                left: percent(50),
+                top: px(TOP_BAR_HEIGHT_PX + theme.spacing.lg_px),
+                min_height: px(42),
+                padding: UiRect::horizontal(px(theme.spacing.lg_px)),
+                border: UiRect::all(px(theme.spacing.hairline_px)),
+                border_radius: BorderRadius::all(px(theme.spacing.radius_px)),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(theme.colors.panel_elevated.color()),
+            BorderColor::all(theme.colors.accent.color()),
+            GlobalZIndex(CUE_RECOVERY_Z_INDEX),
+        ))
+        .observe(restore_presentation_defaults)
+        .id();
+    commands.spawn((
+        Text::new("VIEW CUES HIDDEN  ·  RESTORE DEFAULT VIEW"),
+        TextFont {
+            font: asset_server.load(INTER_FONT_ASSET).into(),
+            font_size: theme.type_scale.caption_px.into(),
+            ..default()
+        },
+        TextColor(theme.colors.text_primary.color()),
+        LetterSpacing::Px(theme.type_scale.uppercase_tracking_px),
+        Pickable::IGNORE,
+        ChildOf(button),
+    ));
+}
+
+pub fn visual_cue_recovery_needed(layers: LayerState) -> bool {
+    layers.is_visible(LayerId::UserInterface)
+        && !layers.is_visible(LayerId::Orbits)
+        && !layers.is_visible(LayerId::Labels)
+        && !layers.is_visible(LayerId::Icons)
 }
 
 fn spawn_restore_affordance(
@@ -486,6 +573,29 @@ fn rebuild_right_rail(mut commands: Commands, params: RailRenderParams) {
     if ui_state.layers_panel_open {
         spawn_layers_panel(&mut commands, *theme, &asset_server, &layers);
     }
+    if let Some(target) = ui_state.restore_focus.take() {
+        commands.queue(move |world: &mut World| {
+            let focused = match target {
+                RailFocusTarget::Action(action) => {
+                    let mut actions = world.query::<(Entity, &RailAction)>();
+                    actions
+                        .iter(world)
+                        .find_map(|(entity, candidate)| (*candidate == action).then_some(entity))
+                }
+                RailFocusTarget::Layer(layer) => {
+                    let mut toggles = world.query::<(Entity, &LayerToggle)>();
+                    toggles
+                        .iter(world)
+                        .find_map(|(entity, candidate)| (candidate.0 == layer).then_some(entity))
+                }
+            };
+            if let Some(entity) = focused {
+                world
+                    .resource_mut::<InputFocus>()
+                    .set(entity, FocusCause::Navigated);
+            }
+        });
+    }
     ui_state.dirty = false;
 }
 
@@ -623,12 +733,21 @@ fn spawn_layers_panel(
 fn activate_rail_action(
     activate: On<Activate>,
     actions: Query<&RailAction>,
+    focus: Res<InputFocus>,
     mut ui_state: ResMut<RailUiState>,
     mut commands: ResMut<SimCommandQueue>,
 ) {
     let Ok(action) = actions.get(activate.entity) else {
         return;
     };
+    if focus.get() == Some(activate.entity)
+        && matches!(
+            action,
+            RailAction::ToggleLayersPanel | RailAction::ToggleFullscreen
+        )
+    {
+        ui_state.restore_focus = Some(RailFocusTarget::Action(*action));
+    }
     match *action {
         RailAction::Zoom(delta) => commands.push(dolly_command(delta)),
         RailAction::ToggleLayersPanel => {
@@ -644,11 +763,16 @@ fn activate_layer_toggle(
     activate: On<Activate>,
     toggles: Query<&LayerToggle>,
     layers: Res<LayerState>,
+    focus: Res<InputFocus>,
+    mut ui_state: ResMut<RailUiState>,
     mut commands: ResMut<SimCommandQueue>,
 ) {
     let Ok(toggle) = toggles.get(activate.entity) else {
         return;
     };
+    if focus.get() == Some(activate.entity) {
+        ui_state.restore_focus = Some(RailFocusTarget::Layer(toggle.0));
+    }
     commands.push(SimCommand::SetLayerVisibility {
         layer: toggle.0,
         visible: !layers.is_visible(toggle.0),
@@ -660,6 +784,10 @@ fn restore_user_interface(_activate: On<Activate>, mut commands: ResMut<SimComma
         layer: LayerId::UserInterface,
         visible: true,
     });
+}
+
+fn restore_presentation_defaults(_activate: On<Activate>, mut commands: ResMut<SimCommandQueue>) {
+    commands.push(SimCommand::RestorePresentationDefaults);
 }
 
 fn sync_hud_visibility(
@@ -772,6 +900,7 @@ mod tests {
             .insert_resource(RailUiState {
                 layers_panel_open: true,
                 dirty: false,
+                restore_focus: None,
             })
             .add_systems(
                 Update,
@@ -835,10 +964,44 @@ mod tests {
     }
 
     #[test]
+    fn cue_less_visible_ui_exposes_one_explicit_restore_command() {
+        let mut layers = LayerState::default();
+        layers.set_visible(LayerId::Orbits, false);
+        layers.set_visible(LayerId::Labels, false);
+        layers.set_visible(LayerId::Icons, false);
+        assert!(visual_cue_recovery_needed(layers));
+
+        let mut ui_off = layers;
+        ui_off.set_visible(LayerId::UserInterface, false);
+        assert!(!visual_cue_recovery_needed(ui_off));
+
+        let mut one_cue = layers;
+        one_cue.set_visible(LayerId::Labels, true);
+        assert!(!visual_cue_recovery_needed(one_cue));
+
+        let mut app = App::new();
+        app.init_resource::<SimCommandQueue>();
+        let restore = app
+            .world_mut()
+            .spawn(bevy::ui_widgets::Button)
+            .observe(restore_presentation_defaults)
+            .id();
+        app.world_mut().trigger(Activate { entity: restore });
+        let queued: Vec<_> = app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .collect();
+        assert_eq!(queued, vec![SimCommand::RestorePresentationDefaults]);
+    }
+
+    #[test]
     fn every_toggle_command_reduces_into_panel_state_within_one_update() {
         let mut app = App::new();
         app.init_resource::<SimCommandQueue>()
             .init_resource::<LayerState>()
+            .init_resource::<InputFocus>()
+            .init_resource::<RailUiState>()
             .init_resource::<PresentationState>()
             .add_systems(Update, reduce_queued_layer_commands);
         let toggles: Vec<_> = LayerId::ALL
@@ -851,9 +1014,16 @@ mod tests {
             })
             .collect();
 
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(toggles[0], FocusCause::Navigated);
         for entity in &toggles {
             app.world_mut().trigger(Activate { entity: *entity });
         }
+        assert_eq!(
+            app.world().resource::<RailUiState>().restore_focus,
+            Some(RailFocusTarget::Layer(LayerId::UserInterface))
+        );
         app.update();
         for layer in LayerId::ALL {
             assert!(!app.world().resource::<LayerState>().is_visible(layer));
@@ -920,6 +1090,7 @@ mod tests {
         let mut app = App::new();
         app.init_resource::<SimCommandQueue>()
             .init_resource::<LayerState>()
+            .init_resource::<InputFocus>()
             .init_resource::<RailUiState>();
         let zoom = app
             .world_mut()

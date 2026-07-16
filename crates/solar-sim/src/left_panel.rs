@@ -5,6 +5,7 @@
 //! render transforms, while travel continues through `SimCommand`.
 
 use crate::control::{CameraController, SimCommand, SimCommandQueue};
+use crate::input_intent::UiScrollSurface;
 use crate::layers::{HudSurface, LayerState};
 use crate::ui_kit::{
     section_header, NavigationStack, UiTheme, WidgetSpec, WidgetVisualState, INTER_FONT_ASSET,
@@ -15,7 +16,8 @@ use crate::{
     KM_PER_RENDER_UNIT, TIME_BAR_HEIGHT_PX,
 };
 use bevy::{
-    input_focus::tab_navigation::TabIndex,
+    input::mouse::MouseScrollUnit,
+    input_focus::{tab_navigation::TabIndex, FocusCause, InputFocus},
     prelude::*,
     text::{Font, LetterSpacing, LineBreak, TextLayout},
     ui_widgets::Activate,
@@ -476,13 +478,15 @@ enum ActivePanelPage {
 }
 
 #[derive(Resource, Debug, Default)]
-struct LeftPanelUiState {
+pub(crate) struct LeftPanelUiState {
     selected_body_index: Option<usize>,
     page: ActivePanelPage,
     dirty: bool,
+    scroll_y: f32,
+    restore_focus: Option<PanelAction>,
 }
 
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
 enum PanelAction {
     ToggleCollapsed,
     SelectPage(ActivePanelPage),
@@ -514,6 +518,69 @@ impl Plugin for LeftPanelPlugin {
     }
 }
 
+pub(crate) fn consume_left_panel_command(
+    command: &SimCommand,
+    loaded: &LoadedCatalog,
+    settings: &mut ViewOptionsState,
+    state: &mut LeftPanelUiState,
+    navigation: &mut NavigationStack,
+) {
+    match command {
+        SimCommand::SetBodySize(scale) => {
+            settings.set_body_size(*scale);
+            state.dirty = true;
+        }
+        SimCommand::SetMoonVisibility { system_id, mode }
+            if loaded.index_of(system_id).is_some() =>
+        {
+            settings.set_moon_visibility(system_id.clone(), *mode);
+            state.dirty = true;
+        }
+        SimCommand::SetLocalOrbitVisibility { body_id, visible }
+            if loaded.index_of(body_id).is_some() =>
+        {
+            settings.set_local_orbit_visible(body_id.clone(), *visible);
+            state.dirty = true;
+        }
+        SimCommand::SetLeftPanelCollapsed(collapsed) => {
+            settings.set_panel_collapsed(*collapsed);
+            state.dirty = true;
+        }
+        SimCommand::SetLeftPanelTab(tab) => {
+            state.page = match tab {
+                LeftPanelTab::Info => ActivePanelPage::Info,
+                LeftPanelTab::Collection => ActivePanelPage::Collection,
+                LeftPanelTab::ViewOptions => ActivePanelPage::ViewOptions,
+            };
+            state.dirty = true;
+            state.scroll_y = 0.0;
+            if let Some(selected) = state.selected_body_index {
+                sync_navigation_to_body(loaded, selected, navigation);
+                if *tab == LeftPanelTab::Collection {
+                    if let Some(body) = loaded.catalog.bodies.get(selected) {
+                        navigation.push(format!("{}_moons", body.id), "Moons");
+                    }
+                }
+            }
+        }
+        SimCommand::RestorePresentationDefaults => {
+            *settings = ViewOptionsState::default();
+            state.dirty = true;
+        }
+        SimCommand::NavigateBreadcrumb { depth, target_id } => {
+            navigation.truncate(depth.saturating_add(1));
+            state.page = if target_id.ends_with("_moons") {
+                ActivePanelPage::Collection
+            } else {
+                ActivePanelPage::Info
+            };
+            state.scroll_y = 0.0;
+            state.dirty = true;
+        }
+        _ => {}
+    }
+}
+
 fn sync_left_panel_selection(
     camera: Res<CameraController>,
     loaded: Option<Res<LoadedCatalog>>,
@@ -530,6 +597,7 @@ fn sync_left_panel_selection(
     state.selected_body_index = Some(selected);
     state.page = ActivePanelPage::Info;
     state.dirty = true;
+    state.scroll_y = 0.0;
     sync_navigation_to_body(&loaded, selected, &mut navigation);
 }
 
@@ -592,6 +660,7 @@ fn rebuild_left_panel(
             PanelAction::ToggleCollapsed,
             true,
         );
+        queue_panel_focus_restore(&mut commands, state.restore_focus.take());
         state.dirty = false;
         return;
     }
@@ -604,12 +673,32 @@ fn rebuild_left_panel(
             &font,
             &model,
             state.page,
+            state.scroll_y,
             &view_options,
             &loaded,
         ),
         Err(error) => spawn_panel_error(&mut commands, root, *theme, &font, &error.to_string()),
     }
+    queue_panel_focus_restore(&mut commands, state.restore_focus.take());
     state.dirty = false;
+}
+
+fn queue_panel_focus_restore(commands: &mut Commands, action: Option<PanelAction>) {
+    if let Some(action) = action {
+        commands.queue(move |world: &mut World| {
+            let focused = {
+                let mut actions = world.query::<(Entity, &PanelAction)>();
+                actions
+                    .iter(world)
+                    .find_map(|(entity, candidate)| (*candidate == action).then_some(entity))
+            };
+            if let Some(entity) = focused {
+                world
+                    .resource_mut::<InputFocus>()
+                    .set(entity, FocusCause::Navigated);
+            }
+        });
+    }
 }
 
 fn spawn_panel_root(commands: &mut Commands, theme: UiTheme, collapsed: bool) -> Entity {
@@ -661,6 +750,7 @@ fn spawn_expanded_panel(
     font: &Handle<Font>,
     model: &BodyInfoViewModel,
     page: ActivePanelPage,
+    scroll_y: f32,
     settings: &ViewOptionsState,
     loaded: &LoadedCatalog,
 ) {
@@ -726,9 +816,11 @@ fn spawn_expanded_panel(
         );
     }
 
+    let scroll_position = ScrollPosition(Vec2::new(0.0, scroll_y));
     let content = commands
         .spawn((
             LeftPanelContent,
+            UiScrollSurface,
             AccessibleLabel::new(format!("{} panel content", model.body.name)),
             Node {
                 width: percent(100),
@@ -739,8 +831,10 @@ fn spawn_expanded_panel(
                 overflow: Overflow::scroll_y(),
                 ..default()
             },
+            scroll_position,
             ChildOf(root),
         ))
+        .observe(scroll_left_panel_content)
         .id();
 
     match page {
@@ -1293,37 +1387,69 @@ fn spawn_wrapped_text(
         .id()
 }
 
+fn scroll_left_panel_content(
+    mut scroll: On<Pointer<Scroll>>,
+    mut contents: Query<(&mut ScrollPosition, &ComputedNode), With<LeftPanelContent>>,
+    mut state: ResMut<LeftPanelUiState>,
+) {
+    let Ok((mut position, node)) = contents.get_mut(scroll.entity) else {
+        return;
+    };
+    position.y = next_panel_scroll_y(
+        position.y,
+        scroll.y,
+        scroll.unit,
+        node.content_size().y,
+        node.size().y,
+        node.inverse_scale_factor,
+    );
+    state.scroll_y = position.y;
+    scroll.propagate(false);
+}
+
+fn next_panel_scroll_y(
+    current: f32,
+    input_y: f32,
+    unit: MouseScrollUnit,
+    content_height: f32,
+    visible_height: f32,
+    inverse_scale_factor: f32,
+) -> f32 {
+    let delta_y = match unit {
+        MouseScrollUnit::Line => input_y * 28.0,
+        MouseScrollUnit::Pixel => input_y,
+    };
+    let range = (content_height - visible_height).max(0.0) * inverse_scale_factor;
+    (current - delta_y).clamp(0.0, range)
+}
+
 fn activate_panel_action(
     activate: On<Activate>,
     actions: Query<&PanelAction>,
     loaded: Res<LoadedCatalog>,
+    settings: Res<ViewOptionsState>,
+    focus: Res<InputFocus>,
     mut state: ResMut<LeftPanelUiState>,
-    mut settings: ResMut<ViewOptionsState>,
-    mut navigation: ResMut<NavigationStack>,
     mut sim_commands: ResMut<SimCommandQueue>,
 ) {
     let Ok(action) = actions.get(activate.entity) else {
         return;
     };
+    if focus.get() == Some(activate.entity) {
+        state.restore_focus = Some(*action);
+    }
     match *action {
         PanelAction::ToggleCollapsed => {
             let collapsed = !settings.panel_collapsed();
-            settings.set_panel_collapsed(collapsed);
-            state.dirty = true;
+            sim_commands.push(SimCommand::SetLeftPanelCollapsed(collapsed));
         }
         PanelAction::SelectPage(page) => {
-            state.page = page;
-            state.dirty = true;
-            if page == ActivePanelPage::Collection {
-                if let Some(body) = state
-                    .selected_body_index
-                    .and_then(|body_index| loaded.catalog.bodies.get(body_index))
-                {
-                    navigation.truncate(1);
-                    navigation.push(body.id.clone(), body.name.clone());
-                    navigation.push(format!("{}_moons", body.id), "Moons");
-                }
-            }
+            let tab = match page {
+                ActivePanelPage::Info => LeftPanelTab::Info,
+                ActivePanelPage::Collection => LeftPanelTab::Collection,
+                ActivePanelPage::ViewOptions => LeftPanelTab::ViewOptions,
+            };
+            sim_commands.push(SimCommand::SetLeftPanelTab(tab));
         }
         PanelAction::TravelTo(body_index) => {
             if let Some(body) = loaded.catalog.bodies.get(body_index) {
@@ -1331,20 +1457,23 @@ fn activate_panel_action(
             }
         }
         PanelAction::SetBodySize(scale) => {
-            settings.set_body_size(scale);
-            state.dirty = true;
+            sim_commands.push(SimCommand::SetBodySize(scale));
         }
         PanelAction::SetMoonVisibility { system_index, mode } => {
             if let Some(system) = loaded.catalog.bodies.get(system_index) {
-                settings.set_moon_visibility(system.id.clone(), mode);
-                state.dirty = true;
+                sim_commands.push(SimCommand::SetMoonVisibility {
+                    system_id: system.id.clone(),
+                    mode,
+                });
             }
         }
         PanelAction::ToggleLocalOrbit(body_index) => {
             if let Some(body) = loaded.catalog.bodies.get(body_index) {
                 let visible = !settings.local_orbit_visible(&body.id);
-                settings.set_local_orbit_visible(body.id.clone(), visible);
-                state.dirty = true;
+                sim_commands.push(SimCommand::SetLocalOrbitVisibility {
+                    body_id: body.id.clone(),
+                    visible,
+                });
             }
         }
     }
@@ -1462,6 +1591,8 @@ mod tests {
             selected_body_index: Some(earth),
             page: ActivePanelPage::Info,
             dirty: true,
+            scroll_y: 0.0,
+            restore_focus: None,
         })
         .add_systems(Update, rebuild_left_panel);
         app.update();
@@ -1704,6 +1835,22 @@ mod tests {
     }
 
     #[test]
+    fn left_panel_scroll_clamps_line_and_pixel_input() {
+        assert_eq!(
+            next_panel_scroll_y(100.0, -2.0, MouseScrollUnit::Line, 1_000.0, 600.0, 1.0),
+            156.0
+        );
+        assert_eq!(
+            next_panel_scroll_y(390.0, -50.0, MouseScrollUnit::Pixel, 1_000.0, 600.0, 1.0,),
+            400.0
+        );
+        assert_eq!(
+            next_panel_scroll_y(10.0, 50.0, MouseScrollUnit::Pixel, 1_000.0, 600.0, 1.0),
+            0.0
+        );
+    }
+
+    #[test]
     fn collection_action_navigates_to_the_catalog_derived_moons_page() {
         let loaded = LoadedCatalog::new(catalog());
         let jupiter = loaded.index_of("jupiter").unwrap();
@@ -1713,9 +1860,12 @@ mod tests {
                 selected_body_index: Some(jupiter),
                 page: ActivePanelPage::Info,
                 dirty: false,
+                scroll_y: 0.0,
+                restore_focus: None,
             })
             .insert_resource(ViewOptionsState::default())
             .insert_resource(NavigationStack::root())
+            .init_resource::<InputFocus>()
             .insert_resource(SimCommandQueue::default());
         let button = app
             .world_mut()
@@ -1723,8 +1873,49 @@ mod tests {
             .observe(activate_panel_action)
             .id();
 
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(button, FocusCause::Navigated);
         app.world_mut().trigger(Activate { entity: button });
+        assert_eq!(
+            app.world().resource::<LeftPanelUiState>().restore_focus,
+            Some(PanelAction::SelectPage(ActivePanelPage::Collection))
+        );
 
+        let command = app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .next()
+            .expect("collection tab command");
+        assert_eq!(
+            command,
+            SimCommand::SetLeftPanelTab(LeftPanelTab::Collection)
+        );
+        let loaded = app.world_mut().remove_resource::<LoadedCatalog>().unwrap();
+        let mut state = app
+            .world_mut()
+            .remove_resource::<LeftPanelUiState>()
+            .unwrap();
+        let mut settings = app
+            .world_mut()
+            .remove_resource::<ViewOptionsState>()
+            .unwrap();
+        let mut navigation = app
+            .world_mut()
+            .remove_resource::<NavigationStack>()
+            .unwrap();
+        consume_left_panel_command(
+            &command,
+            &loaded,
+            &mut settings,
+            &mut state,
+            &mut navigation,
+        );
+        app.insert_resource(loaded)
+            .insert_resource(state)
+            .insert_resource(settings)
+            .insert_resource(navigation);
         assert_eq!(
             app.world().resource::<LeftPanelUiState>().page,
             ActivePanelPage::Collection

@@ -6,6 +6,7 @@
 //! into the existing `SimCommand` mutation boundary.
 
 use crate::control::{CameraController, SimCommand, SimCommandQueue};
+use crate::input_intent::InteractionState;
 use crate::layers::{LayerId, LayerState};
 use crate::left_panel::{body_passes_moon_visibility, ViewOptionsState};
 use crate::ui_kit::{UiTheme, INTER_FONT_ASSET, TOP_BAR_HEIGHT_PX};
@@ -708,8 +709,12 @@ fn activate_body_label(
     activate: On<Activate>,
     labels: Query<&BodyLabel>,
     loaded: Res<LoadedCatalog>,
+    interaction: Res<InteractionState>,
     mut commands: ResMut<SimCommandQueue>,
 ) {
+    if interaction.blocks_gameplay() {
+        return;
+    }
     let Ok(label) = labels.get(activate.entity) else {
         return;
     };
@@ -742,9 +747,10 @@ fn pick_inflated_body_sphere(
     cameras: Query<(&Camera, &GlobalTransform, &Projection), With<Camera3d>>,
     bodies: Query<(&crate::BodyVisual, &GlobalTransform, &Visibility)>,
     loaded: Res<LoadedCatalog>,
+    interaction: Res<InteractionState>,
     mut commands: ResMut<SimCommandQueue>,
 ) {
-    if click.button != PointerButton::Primary {
+    if interaction.blocks_gameplay() || click.button != PointerButton::Primary {
         return;
     }
     let Ok((camera, camera_transform, projection)) = cameras.single() else {
@@ -1119,6 +1125,7 @@ mod tests {
         let jupiter = loaded.index_of("jupiter").unwrap();
         let mut app = App::new();
         app.insert_resource(loaded)
+            .insert_resource(InteractionState::default())
             .insert_resource(SimCommandQueue::default());
         let label = app
             .world_mut()

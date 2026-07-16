@@ -24,6 +24,7 @@ pub use widgets::{
     WidgetSpec, WidgetVisualState, INTER_FONT_ASSET,
 };
 
+use crate::SimulationSet;
 use bevy::prelude::*;
 
 #[cfg(debug_assertions)]
@@ -44,7 +45,12 @@ impl Plugin for UiKitPlugin {
         app.init_resource::<UiTheme>()
             .init_resource::<NavigationStack>()
             .add_systems(Startup, hud::spawn_top_bar)
-            .add_systems(Update, hud::update_breadcrumb);
+            .add_systems(
+                Update,
+                (hud::update_breadcrumb, hud::rebuild_actionable_breadcrumb)
+                    .chain()
+                    .in_set(SimulationSet::Render),
+            );
 
         #[cfg(debug_assertions)]
         app.init_resource::<WidgetGalleryEnabled>()

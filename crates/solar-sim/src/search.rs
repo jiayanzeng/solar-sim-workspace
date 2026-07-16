@@ -6,14 +6,19 @@
 //! `SimCommand::TravelToBody` boundary.
 
 use crate::control::{SimCommand, SimCommandQueue};
+use crate::input_intent::UiScrollSurface;
 use crate::layers::HudSurface;
 use crate::ui_kit::{
     MenuBrowseButton, SearchHint, SearchInput, UiTheme, INTER_FONT_ASSET, TOP_BAR_HEIGHT_PX,
 };
 use crate::{LoadedCatalog, SimulationSet};
 use bevy::{
+    input::mouse::MouseScrollUnit,
     input::{keyboard::KeyboardInput, ButtonState},
-    input_focus::{tab_navigation::TabIndex, FocusedInput, InputFocus},
+    input_focus::{
+        tab_navigation::{TabGroup, TabIndex},
+        FocusCause, FocusedInput, InputFocus,
+    },
     prelude::*,
     text::{EditableText, LetterSpacing, LineBreak, TextEdit, TextLayout},
     ui_widgets::Activate,
@@ -413,6 +418,9 @@ struct BrowseButtonSpec<'a> {
     tab_index: i32,
 }
 
+#[derive(Component, Debug, Clone, Copy)]
+struct BrowseScrollColumn(u8);
+
 #[derive(Resource, Debug, Default)]
 struct SearchUiState {
     query: String,
@@ -444,11 +452,45 @@ impl SearchUiState {
 }
 
 #[derive(Resource, Debug, Default)]
-struct BrowseUiState {
+pub(crate) struct BrowseUiState {
     open: bool,
     expanded: [bool; 3],
     root: Option<Entity>,
     dirty: bool,
+    scroll_y: [f32; 3],
+    restore_focus: bool,
+}
+
+impl BrowseUiState {
+    pub(crate) const fn is_open(&self) -> bool {
+        self.open
+    }
+}
+
+pub(crate) fn consume_search_command(command: &SimCommand, state: &mut BrowseUiState) {
+    match command {
+        SimCommand::SetBrowseOpen(open) => {
+            state.restore_focus = state.open && !open;
+            state.open = *open;
+            state.dirty = true;
+        }
+        SimCommand::SetBrowseColumnExpanded { column, expanded } => {
+            if let Some(value) = state.expanded.get_mut(usize::from(*column)) {
+                *value = *expanded;
+                state.scroll_y[usize::from(*column)] = 0.0;
+                state.dirty = true;
+            }
+        }
+        SimCommand::RestorePresentationDefaults => {
+            let was_open = state.open;
+            state.open = false;
+            state.expanded = [false; 3];
+            state.scroll_y = [0.0; 3];
+            state.restore_focus = was_open;
+            state.dirty = true;
+        }
+        _ => {}
+    }
 }
 
 pub struct SearchPlugin;
@@ -593,11 +635,10 @@ fn replace_editable_text(editable: &mut EditableText, replacement: &str) {
 
 fn open_browse_menu(
     _activate: On<Activate>,
-    mut browse: ResMut<BrowseUiState>,
     mut focus: ResMut<InputFocus>,
+    mut sim_commands: ResMut<SimCommandQueue>,
 ) {
-    browse.open = true;
-    browse.dirty = true;
+    sim_commands.push(SimCommand::SetBrowseOpen(true));
     focus.clear();
 }
 
@@ -631,27 +672,29 @@ fn activate_browse_action(
     activate: On<Activate>,
     actions: Query<&BrowseAction>,
     loaded: Res<LoadedCatalog>,
-    mut browse: ResMut<BrowseUiState>,
+    browse: Res<BrowseUiState>,
     mut sim_commands: ResMut<SimCommandQueue>,
 ) {
     let Ok(action) = actions.get(activate.entity) else {
         return;
     };
     match *action {
-        BrowseAction::Close => browse.open = false,
+        BrowseAction::Close => sim_commands.push(SimCommand::SetBrowseOpen(false)),
         BrowseAction::ToggleExpanded(column) => {
-            if let Some(expanded) = browse.expanded.get_mut(column) {
-                *expanded = !*expanded;
+            if let Some(expanded) = browse.expanded.get(column) {
+                sim_commands.push(SimCommand::SetBrowseColumnExpanded {
+                    column: column as u8,
+                    expanded: !*expanded,
+                });
             }
         }
         BrowseAction::TravelTo(body_index) => {
             if let Some(body) = loaded.catalog.bodies.get(body_index) {
                 sim_commands.push(SimCommand::TravelToBody(body.id.clone()));
-                browse.open = false;
+                sim_commands.push(SimCommand::SetBrowseOpen(false));
             }
         }
     }
-    browse.dirty = true;
 }
 
 fn rebuild_search_dropdown(
@@ -774,6 +817,8 @@ fn rebuild_browse_menu(
     theme: Res<UiTheme>,
     asset_server: Res<AssetServer>,
     loaded: Option<Res<LoadedCatalog>>,
+    search_inputs: Query<Entity, With<SearchInput>>,
+    mut focus: ResMut<InputFocus>,
     mut state: ResMut<BrowseUiState>,
 ) {
     if !state.dirty {
@@ -783,6 +828,12 @@ fn rebuild_browse_menu(
         commands.entity(root).despawn();
     }
     let (true, Some(loaded)) = (state.open, loaded) else {
+        if state.restore_focus {
+            if let Ok(search_input) = search_inputs.single() {
+                focus.set(search_input, FocusCause::Navigated);
+            }
+            state.restore_focus = false;
+        }
         state.dirty = false;
         return;
     };
@@ -853,6 +904,7 @@ fn rebuild_browse_menu(
             &font,
             column,
             state.expanded[column.kind.index()],
+            state.scroll_y[column.kind.index()],
         );
     }
     state.root = Some(root);
@@ -866,6 +918,7 @@ fn spawn_browse_root(commands: &mut Commands, theme: UiTheme) -> Entity {
             BrowseMenuRoot,
             HudSurface,
             AccessibleLabel::new("Browse Solar System bodies by category"),
+            TabGroup::modal(),
             Node {
                 position_type: PositionType::Absolute,
                 top: px(0),
@@ -892,6 +945,7 @@ fn spawn_browse_column(
     font: &Handle<Font>,
     column: &BrowseColumn,
     expanded: bool,
+    scroll_y: f32,
 ) {
     let column_root = commands
         .spawn((
@@ -940,8 +994,11 @@ fn spawn_browse_column(
         BackgroundColor(theme.colors.separator.color()),
         ChildOf(column_root),
     ));
+    let scroll_position = ScrollPosition(Vec2::new(0.0, scroll_y));
     let list = commands
         .spawn((
+            BrowseScrollColumn(column.kind.index() as u8),
+            UiScrollSurface,
             Node {
                 width: percent(100),
                 flex_grow: 1.0,
@@ -951,8 +1008,10 @@ fn spawn_browse_column(
                 overflow: Overflow::scroll_y(),
                 ..default()
             },
+            scroll_position,
             ChildOf(column_root),
         ))
+        .observe(scroll_browse_column)
         .id();
     let entries = if expanded {
         &column.all
@@ -995,6 +1054,42 @@ fn spawn_browse_column(
             },
         );
     }
+}
+
+fn scroll_browse_column(
+    mut scroll: On<Pointer<Scroll>>,
+    mut columns: Query<(&BrowseScrollColumn, &mut ScrollPosition, &ComputedNode)>,
+    mut state: ResMut<BrowseUiState>,
+) {
+    let Ok((column, mut position, node)) = columns.get_mut(scroll.entity) else {
+        return;
+    };
+    position.y = next_browse_scroll_y(
+        position.y,
+        scroll.y,
+        scroll.unit,
+        node.content_size().y,
+        node.size().y,
+        node.inverse_scale_factor,
+    );
+    state.scroll_y[usize::from(column.0)] = position.y;
+    scroll.propagate(false);
+}
+
+fn next_browse_scroll_y(
+    current: f32,
+    input_y: f32,
+    unit: MouseScrollUnit,
+    content_height: f32,
+    visible_height: f32,
+    inverse_scale_factor: f32,
+) -> f32 {
+    let delta_y = match unit {
+        MouseScrollUnit::Line => input_y * 28.0,
+        MouseScrollUnit::Pixel => input_y,
+    };
+    let range = (content_height - visible_height).max(0.0) * inverse_scale_factor;
+    (current - delta_y).clamp(0.0, range)
 }
 
 fn spawn_button(
@@ -1074,7 +1169,7 @@ mod tests {
         app::TaskPoolPlugin,
         asset::{AssetApp, AssetPlugin},
         input::{keyboard::Key, InputPlugin},
-        input_focus::{FocusCause, InputDispatchPlugin, InputFocusPlugin},
+        input_focus::{InputDispatchPlugin, InputFocusPlugin},
         text::Font,
         window::PrimaryWindow,
     };
@@ -1166,6 +1261,22 @@ mod tests {
     }
 
     #[test]
+    fn browse_column_scroll_clamps_line_and_pixel_input() {
+        assert_eq!(
+            next_browse_scroll_y(100.0, -2.0, MouseScrollUnit::Line, 1_000.0, 600.0, 1.0),
+            156.0
+        );
+        assert_eq!(
+            next_browse_scroll_y(390.0, -50.0, MouseScrollUnit::Pixel, 1_000.0, 600.0, 1.0,),
+            400.0
+        );
+        assert_eq!(
+            next_browse_scroll_y(10.0, 50.0, MouseScrollUnit::Pixel, 1_000.0, 600.0, 1.0),
+            0.0
+        );
+    }
+
+    #[test]
     fn browse_menu_renders_curated_then_complete_accessible_entry_sets() {
         let catalog = real_catalog();
         let mut app = App::new();
@@ -1178,6 +1289,7 @@ mod tests {
                 dirty: true,
                 ..default()
             })
+            .init_resource::<InputFocus>()
             .add_systems(Update, rebuild_browse_menu);
         app.update();
 
@@ -1217,6 +1329,17 @@ mod tests {
                 .filter(|action| matches!(action, BrowseAction::ToggleExpanded(_)))
                 .count(),
             3
+        );
+
+        let search_input = world.spawn(SearchInput).id();
+        consume_search_command(
+            &SimCommand::SetBrowseOpen(false),
+            &mut world.resource_mut::<BrowseUiState>(),
+        );
+        app.update();
+        assert_eq!(
+            app.world().resource::<InputFocus>().get(),
+            Some(search_input)
         );
     }
 
