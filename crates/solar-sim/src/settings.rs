@@ -37,7 +37,7 @@ use std::time::Duration;
 
 pub const SETTINGS_IDENTIFIER: &str = "com.github.jiayanzeng.solar-sim";
 const SETTINGS_SAVE_DELAY: Duration = Duration::from_millis(100);
-const SETTINGS_Z_INDEX: i32 = 140;
+pub(crate) const SETTINGS_Z_INDEX: i32 = 140;
 const SETTINGS_FIRST_TAB_INDEX: i32 = 200;
 
 #[derive(Reflect, Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -460,9 +460,30 @@ pub(crate) struct SettingsScreenState {
 #[derive(Resource, Debug, Default)]
 pub(crate) struct SettingsSaveRequest(bool);
 
+/// Controls whether runtime settings changes may reach the product settings
+/// file. Golden capture deliberately uses transient overrides while ordinary
+/// launches retain WP14 persistence.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum SettingsPersistencePolicy {
+    #[default]
+    Persistent,
+    TransientRuntime,
+}
+
+impl SettingsPersistencePolicy {
+    const fn allows_disk_writes(self) -> bool {
+        matches!(self, Self::Persistent)
+    }
+}
+
 impl SettingsSaveRequest {
     pub(crate) fn request(&mut self) {
         self.0 = true;
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn is_requested(&self) -> bool {
+        self.0
     }
 }
 
@@ -500,6 +521,7 @@ impl Plugin for ProductSettingsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SettingsScreenState>()
             .init_resource::<SettingsSaveRequest>()
+            .init_resource::<SettingsPersistencePolicy>()
             .init_resource::<RenderRecoveryStatus>()
             .insert_resource(RenderErrorHandler(product_render_error_policy))
             .add_systems(
@@ -548,9 +570,35 @@ pub(crate) fn consume_settings_command(
     }
 }
 
-pub(crate) fn reset_persisted_settings(world: &mut World) {
-    *world.resource_mut::<AppSettings>() = AppSettings::default().normalized();
-    SaveSettingsSync::Always.apply(world);
+/// Resolves loaded settings before any runtime state is derived from them.
+///
+/// An explicit startup reset crosses the same semantic settings reducer as the
+/// in-product RESTORE DEFAULTS action. The synchronous write is intentional:
+/// the launch flag is a recovery boundary and must be durable before normal
+/// startup continues.
+pub(crate) fn bootstrap_app_settings(
+    world: &mut World,
+    reset_requested: bool,
+    persistence: SettingsPersistencePolicy,
+) -> AppSettings {
+    if reset_requested {
+        let mut settings = world.resource::<AppSettings>().clone();
+        let mut screen = SettingsScreenState::default();
+        let mut save = SettingsSaveRequest::default();
+        consume_settings_command(
+            &SimCommand::ApplySettings(Box::default()),
+            &mut screen,
+            &mut settings,
+            &mut save,
+        );
+        *world.resource_mut::<AppSettings>() = settings;
+        SaveSettingsSync::Always.apply(world);
+    }
+    // Install the runtime policy only after an explicit reset has reached the
+    // production settings file. Capture-only overrides after this point must
+    // remain transient.
+    world.insert_resource(persistence);
+    world.resource::<AppSettings>().clone().normalized()
 }
 
 pub(crate) fn sync_settings_screen_state(
@@ -644,6 +692,7 @@ fn apply_settings_to_runtime(
 fn sync_external_presentation_to_settings(
     layers: Res<LayerState>,
     presentation: Res<PresentationState>,
+    persistence: Res<SettingsPersistencePolicy>,
     mut settings: ResMut<AppSettings>,
     mut commands: Commands,
 ) {
@@ -653,23 +702,32 @@ fn sync_external_presentation_to_settings(
     if settings.is_changed() {
         return;
     }
-    if converge_presentation_settings(&layers, &presentation, &mut settings) {
+    if converge_presentation_settings(&layers, &presentation, &mut settings)
+        && persistence.allows_disk_writes()
+    {
         commands.queue(SaveSettingsDeferred(SETTINGS_SAVE_DELAY));
     }
 }
 
-fn persist_requested_settings(mut request: ResMut<SettingsSaveRequest>, mut commands: Commands) {
-    if std::mem::take(&mut request.0) {
+fn persist_requested_settings(
+    persistence: Res<SettingsPersistencePolicy>,
+    mut request: ResMut<SettingsSaveRequest>,
+    mut commands: Commands,
+) {
+    if std::mem::take(&mut request.0) && persistence.allows_disk_writes() {
         commands.queue(SaveSettingsDeferred(SETTINGS_SAVE_DELAY));
     }
 }
 
 fn save_settings_on_window_close(
     mut close: MessageReader<WindowCloseRequested>,
+    persistence: Res<SettingsPersistencePolicy>,
     mut commands: Commands,
 ) {
     if close.read().next().is_some() {
-        commands.queue(SaveSettingsSync::IfChanged);
+        if persistence.allows_disk_writes() {
+            commands.queue(SaveSettingsSync::IfChanged);
+        }
         commands.write_message(AppExit::Success);
     }
 }
@@ -1332,9 +1390,16 @@ mod tests {
         scene::ScenePlugin,
         settings::SettingsPlugin as BevySettingsPlugin,
         text::Font,
+        time::TimeUpdateStrategy,
     };
     use sim_core::time::T_MAX_S;
-    use std::process::Command as ProcessCommand;
+    use std::{
+        process::Command as ProcessCommand,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    const SETTINGS_TEST_PHASE_ENV: &str = "SOLAR_SIM_SETTINGS_TEST_PHASE";
+    const SETTINGS_TEST_IDENTIFIER_ENV: &str = "SOLAR_SIM_SETTINGS_TEST_IDENTIFIER";
 
     fn nondefault_settings() -> AppSettings {
         AppSettings {
@@ -1367,11 +1432,186 @@ mod tests {
         }
     }
 
-    fn persistence_test_app() -> App {
+    fn persistence_test_app(identifier: &str) -> App {
         let mut app = App::new();
-        app.register_type::<AppSettings>()
-            .add_plugins(BevySettingsPlugin::new(SETTINGS_IDENTIFIER));
+        app.add_plugins(MinimalPlugins)
+            .register_type::<AppSettings>()
+            .add_plugins(BevySettingsPlugin::new(identifier));
         app
+    }
+
+    fn child_settings_identifier() -> String {
+        std::env::var(SETTINGS_TEST_IDENTIFIER_ENV)
+            .expect("settings child process must receive an isolated identifier")
+    }
+
+    fn write_nondefault_settings(identifier: &str) {
+        let mut app = persistence_test_app(identifier);
+        *app.world_mut().resource_mut::<AppSettings>() = nondefault_settings();
+        SaveSettingsSync::Always.apply(app.world_mut());
+    }
+
+    fn restore_defaults_through_in_product_action(identifier: &str) {
+        let mut app = persistence_test_app(identifier);
+        assert_eq!(
+            app.world().resource::<AppSettings>(),
+            &nondefault_settings(),
+            "the in-product reset phase must begin from exact persisted input"
+        );
+        app.init_resource::<InputFocus>()
+            .init_resource::<SimCommandQueue>()
+            .init_resource::<SettingsSaveRequest>()
+            .insert_resource(SettingsScreenState {
+                open: true,
+                draft: nondefault_settings(),
+                dirty: false,
+                scroll_y: 0.0,
+                restore_focus: None,
+            });
+        let restore = app
+            .world_mut()
+            .spawn(SettingAction::RestoreDefaults)
+            .observe(activate_setting_action)
+            .id();
+        app.world_mut().trigger(Activate { entity: restore });
+        let commands: Vec<_> = app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .collect();
+        assert_eq!(
+            commands,
+            vec![
+                SimCommand::ApplySettings(Box::default()),
+                SimCommand::RestorePresentationDefaults,
+                SimCommand::CloseSettings,
+            ]
+        );
+
+        let mut screen = app
+            .world_mut()
+            .remove_resource::<SettingsScreenState>()
+            .expect("settings screen state");
+        let mut settings = app
+            .world_mut()
+            .remove_resource::<AppSettings>()
+            .expect("loaded app settings");
+        let mut save = app
+            .world_mut()
+            .remove_resource::<SettingsSaveRequest>()
+            .expect("settings save request");
+        let mut layers = settings.initial_layer_state();
+        let mut presentation = PresentationState::with_fullscreen(
+            settings.display_mode == DisplayModeSetting::BorderlessFullscreen,
+        );
+        presentation.open_settings();
+        let mut view_options = crate::ViewOptionsState::default();
+        let mut left_panel = crate::left_panel::LeftPanelUiState::default();
+        let mut navigation = crate::NavigationStack::default();
+        let mut browse = crate::search::BrowseUiState::default();
+        for command in &commands {
+            crate::control::consume_application_command(
+                command,
+                None,
+                &mut layers,
+                &mut presentation,
+                &mut view_options,
+                &mut left_panel,
+                &mut navigation,
+                &mut browse,
+                &mut settings,
+                &mut screen,
+                &mut save,
+            );
+        }
+        assert_eq!(settings, AppSettings::default());
+        assert_eq!(layers, LayerState::default());
+        assert!(!presentation.is_settings_open());
+        assert!(save.is_requested());
+        app.insert_resource(screen)
+            .insert_resource(settings)
+            .insert_resource(save);
+        // This is the synchronous close-path half of the product's
+        // deferred-save plus SaveSettingsSync::IfChanged persistence policy.
+        SaveSettingsSync::IfChanged.apply(app.world_mut());
+    }
+
+    fn exercise_transient_capture_runtime(identifier: &str, reset_requested: bool) {
+        let mut app = persistence_test_app(identifier);
+        assert_eq!(
+            app.world().resource::<AppSettings>(),
+            &nondefault_settings()
+        );
+        let bootstrapped = bootstrap_app_settings(
+            app.world_mut(),
+            reset_requested,
+            SettingsPersistencePolicy::TransientRuntime,
+        );
+        assert_eq!(
+            bootstrapped,
+            if reset_requested {
+                AppSettings::default()
+            } else {
+                nondefault_settings()
+            }
+        );
+        assert_eq!(
+            *app.world().resource::<SettingsPersistencePolicy>(),
+            SettingsPersistencePolicy::TransientRuntime
+        );
+
+        // Match build_app's golden-only runtime override, then force a second
+        // layer convergence so every product-originated write path is armed.
+        let capture_settings = AppSettings {
+            resolution: ResolutionSetting {
+                width: crate::GOLDEN_WIDTH,
+                height: crate::GOLDEN_HEIGHT,
+            },
+            vsync: false,
+            frame_cap: FrameCap::Unlimited,
+            ..default()
+        }
+        .normalized();
+        *app.world_mut().resource_mut::<AppSettings>() = capture_settings;
+        let mut capture_layers = LayerState::default();
+        for layer in [LayerId::Orbits, LayerId::Labels, LayerId::Icons] {
+            capture_layers.set_visible(layer, false);
+        }
+        app.insert_resource(capture_layers)
+            .insert_resource(PresentationState::default())
+            .init_resource::<SettingsSaveRequest>()
+            .insert_resource(TimeUpdateStrategy::ManualDuration(
+                SETTINGS_SAVE_DELAY + Duration::from_millis(1),
+            ))
+            .add_message::<WindowCloseRequested>()
+            .add_message::<AppExit>()
+            .add_systems(
+                Update,
+                (
+                    sync_external_presentation_to_settings,
+                    persist_requested_settings,
+                    save_settings_on_window_close,
+                )
+                    .chain(),
+            );
+        app.world_mut()
+            .resource_mut::<SettingsSaveRequest>()
+            .request();
+
+        // First update consumes the explicit save request. The second changes
+        // persisted layer fields through convergence and attempts close-save.
+        app.update();
+        app.world_mut().write_message(WindowCloseRequested {
+            window: Entity::PLACEHOLDER,
+        });
+        app.update();
+
+        assert!(!app.world().resource::<SettingsSaveRequest>().is_requested());
+        let runtime = app.world().resource::<AppSettings>();
+        assert_eq!(runtime.resolution.width, crate::GOLDEN_WIDTH);
+        assert!(!runtime.layers.orbits);
+        assert!(!runtime.layers.labels);
+        assert!(!runtime.layers.icons);
     }
 
     fn settings_screen_test_app() -> App {
@@ -1455,30 +1695,67 @@ mod tests {
     }
 
     #[test]
-    fn settings_survive_full_process_relaunch() {
-        const PHASE_ENV: &str = "SOLAR_SIM_SETTINGS_TEST_PHASE";
-        match std::env::var(PHASE_ENV).as_deref() {
-            Ok("write") => {
-                let mut app = persistence_test_app();
-                *app.world_mut().resource_mut::<AppSettings>() = nondefault_settings();
-                SaveSettingsSync::Always.apply(app.world_mut());
+    fn explicit_reset_paths_survive_full_process_relaunch() {
+        match std::env::var(SETTINGS_TEST_PHASE_ENV).as_deref() {
+            Ok("write") | Ok("rewrite") => {
+                write_nondefault_settings(&child_settings_identifier());
                 return;
             }
-            Ok("read") => {
-                let app = persistence_test_app();
+            Ok("read-before") | Ok("read-before-product-reset") => {
+                let app = persistence_test_app(&child_settings_identifier());
                 assert_eq!(
                     app.world().resource::<AppSettings>(),
                     &nondefault_settings()
                 );
                 return;
             }
-            Ok("reset") => {
-                let mut app = persistence_test_app();
-                reset_persisted_settings(app.world_mut());
+            Ok("cli-reset") => {
+                let mut app = persistence_test_app(&child_settings_identifier());
+                assert_eq!(
+                    app.world().resource::<AppSettings>(),
+                    &nondefault_settings()
+                );
+                let args = ["solar-sim", "--reset-settings"].map(str::to_owned);
+                let options = crate::RunOptions::from_args(&args).expect("parse reset launch");
+                let initial = bootstrap_app_settings(
+                    app.world_mut(),
+                    options.reset_settings,
+                    SettingsPersistencePolicy::Persistent,
+                );
+                assert_eq!(initial, AppSettings::default());
+                assert_eq!(app.world().resource::<AppSettings>(), &initial);
                 return;
             }
-            Ok("read-reset") => {
-                let app = persistence_test_app();
+            Ok("product-reset") => {
+                restore_defaults_through_in_product_action(&child_settings_identifier());
+                return;
+            }
+            Ok("read-after-cli") | Ok("read-after-product") => {
+                let app = persistence_test_app(&child_settings_identifier());
+                assert_eq!(
+                    app.world().resource::<AppSettings>(),
+                    &AppSettings::default()
+                );
+                return;
+            }
+            Ok("capture-transient") => {
+                exercise_transient_capture_runtime(&child_settings_identifier(), false);
+                return;
+            }
+            Ok("read-after-capture") => {
+                let app = persistence_test_app(&child_settings_identifier());
+                assert_eq!(
+                    app.world().resource::<AppSettings>(),
+                    &nondefault_settings()
+                );
+                return;
+            }
+            Ok("reset-capture-transient") => {
+                exercise_transient_capture_runtime(&child_settings_identifier(), true);
+                return;
+            }
+            Ok("read-after-reset-capture") => {
+                let app = persistence_test_app(&child_settings_identifier());
                 assert_eq!(
                     app.world().resource::<AppSettings>(),
                     &AppSettings::default()
@@ -1488,24 +1765,59 @@ mod tests {
             _ => {}
         }
 
-        let temporary_home = std::env::temp_dir().join(format!(
-            "solar-sim-settings-relaunch-test-{}",
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time after Unix epoch")
+            .as_nanos();
+        let identifier = format!(
+            "com.github.jiayanzeng.solar-sim-test-{}-{nonce}",
             std::process::id()
+        );
+        let temporary_home = std::env::temp_dir().join(format!(
+            "solar-sim-settings-relaunch-test-{}-{nonce}",
+            std::process::id(),
         ));
         std::fs::create_dir(&temporary_home).expect("create isolated settings HOME");
         let executable = std::env::current_exe().expect("current test executable");
-        for phase in ["write", "read", "reset", "read-reset"] {
+        for phase in [
+            "write",
+            "read-before",
+            "cli-reset",
+            "read-after-cli",
+            "rewrite",
+            "read-before-product-reset",
+            "product-reset",
+            "read-after-product",
+            "rewrite",
+            "read-before",
+            "capture-transient",
+            "read-after-capture",
+            "reset-capture-transient",
+            "read-after-reset-capture",
+        ] {
             let status = ProcessCommand::new(&executable)
-                .arg("settings::tests::settings_survive_full_process_relaunch")
+                .arg("settings::tests::explicit_reset_paths_survive_full_process_relaunch")
                 .arg("--exact")
                 .arg("--nocapture")
                 .env("HOME", &temporary_home)
-                .env(PHASE_ENV, phase)
+                .env("XDG_CONFIG_HOME", temporary_home.join("xdg"))
+                .env("APPDATA", temporary_home.join("appdata"))
+                .env("LOCALAPPDATA", temporary_home.join("localappdata"))
+                .env("USERPROFILE", temporary_home.join("userprofile"))
+                .env(SETTINGS_TEST_IDENTIFIER_ENV, &identifier)
+                .env(SETTINGS_TEST_PHASE_ENV, phase)
                 .status()
                 .expect("launch isolated settings process");
             assert!(status.success(), "settings {phase} process failed");
         }
         std::fs::remove_dir_all(&temporary_home).expect("remove isolated settings HOME");
+        if let Some(preferences) = bevy::platform::dirs::preferences_dir() {
+            let platform_path = preferences.join(&identifier);
+            if platform_path.exists() {
+                std::fs::remove_dir_all(platform_path)
+                    .expect("remove platform settings test directory");
+            }
+        }
     }
 
     #[test]

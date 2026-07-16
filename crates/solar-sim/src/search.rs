@@ -26,8 +26,8 @@ use bevy::{
 use sim_core::catalog::{BodyRecord, Catalog, Category};
 
 const SEARCH_DROPDOWN_WIDTH_PX: f32 = 360.0;
-const SEARCH_DROPDOWN_Z_INDEX: i32 = 112;
-const MENU_Z_INDEX: i32 = 114;
+pub(crate) const SEARCH_DROPDOWN_Z_INDEX: i32 = 112;
+pub(crate) const MENU_Z_INDEX: i32 = 114;
 const MAX_DROPDOWN_RESULTS: usize = 8;
 
 const PLANETS_AND_MOONS_SHORTLIST: &[&str] = &[

@@ -45,7 +45,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 11 | Layers quick panel, right rail, Icons layer, UI-off mode | **✅ done** |
 | 12 | Search (alias-aware) + Menu browse with live counts | **✅ done** |
 | 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | **✅ done** |
-| 14 | Settings screen + render-recovery policies | in-progress |
+| 14 | Settings screen + render-recovery policies | **✅ done** |
 | 15 | Texture pass (2K KTX2) + visual polish + golden screenshots | **✅ done** |
 | 16 | Steam: Steamworks init, overlay spike, packaging/signing/depots | deferred |
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
@@ -815,6 +815,39 @@ task order, and acceptance evidence are recorded in
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Completed stabilization Task 5 and returned WP14 to
+  **✅ done** after the independent final review found no blockers. Startup
+  `--reset-settings` now consumes the same semantic
+  `ApplySettings(default)` settings reducer as the accessible in-product
+  `RESTORE DEFAULTS` action, synchronously persists reviewed defaults, and
+  only then derives initial clock/layer/runtime state. Fourteen isolated child
+  phases use a nonce-specific non-production settings identifier plus
+  cross-platform config-root overrides to prove exact persistence before and
+  after parsed CLI reset, the actual in-product action/shared reducer path,
+  ordinary golden capture, and reset-plus-capture. Golden-only
+  resolution/vsync/frame-cap and view-layer overrides now run under an
+  explicit transient persistence policy; external convergence, requested
+  deferred saves, and window-close sync saves cannot overwrite the production
+  file, while an explicit reset remains durable before capture begins.
+
+  The cue-recovery notice now renders above the ordinary HUD/diagnostics but
+  below Search, Browse, and Settings. Its generic teardown recognizes focused
+  descendants and hands focus to `SHOW UI`, the first live control in the
+  active modal, or the semantic Layers rail action, including replay,
+  external-layer, and Settings Apply paths. Composed regressions prove exactly
+  one accessible notice across stable updates, no command/settings/save
+  mutation merely from appearance, one semantic restore command and reviewed
+  default convergence on activation, zero cue notices plus exactly one
+  tabbable `SHOW UI` action when UI is off, overlay ordering, and live focus
+  after every teardown path. Six new regressions raise the workspace suite
+  from 289 to 295 tests (53 `sim-core` · 191 `solar-sim` · 48 `xtask` lib ·
+  2 xtask smoke · 1 active spot-check); the Steam-feature verification passes
+  192 `solar-sim` tests without changing deferred WP16 code.
+  `cargo test`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test -p solar-sim --features steam`,
+  `cargo clippy -p solar-sim --all-targets --features steam -- -D warnings`,
+  `cargo fmt --all -- --check`, and `git diff --check` all pass. No
+  dependency, catalog, generated-asset, physics, or tolerance work changed.
 - **2026-07-17** — Expanded the Task 5 pre-code gate after the independent
   combined review found one further persistence defect. Golden capture uses
   the production settings identifier, replaces the live `AppSettings` with

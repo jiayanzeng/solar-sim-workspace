@@ -5,8 +5,8 @@
 //! duplicate switches; transient panel-open state remains local UI state.
 
 use crate::control::{SimCommand, SimCommandQueue};
-use crate::input_intent::{dolly_command, UiScrollSurface};
-use crate::search::{BrowseMenuRoot, BrowseUiState};
+use crate::input_intent::{dolly_command, ModalSurfaceSet, UiScrollSurface};
+use crate::search::{BrowseMenuRoot, BrowseUiState, SEARCH_DROPDOWN_Z_INDEX};
 use crate::settings::SettingsScreenRoot;
 use crate::ui_kit::{
     checkbox_row, UiTheme, WidgetSpec, WidgetVisualState, INTER_FONT_ASSET, TOP_BAR_HEIGHT_PX,
@@ -30,7 +30,9 @@ use sim_core::catalog::Category;
 const RAIL_Z_INDEX: i32 = 92;
 const LAYERS_PANEL_Z_INDEX: i32 = 91;
 const RESTORE_Z_INDEX: i32 = 120;
-const CUE_RECOVERY_Z_INDEX: i32 = 119;
+// Recovery must remain visible over the ordinary HUD without competing with
+// transient Search or modal surfaces for either pixels or pointer ownership.
+const CUE_RECOVERY_Z_INDEX: i32 = SEARCH_DROPDOWN_Z_INDEX - 1;
 const RAIL_BUTTON_SIZE_PX: f32 = 42.0;
 const LAYERS_PANEL_WIDTH_PX: f32 = 280.0;
 const RAIL_TAB_GROUP_ORDER: i32 = 30;
@@ -322,6 +324,23 @@ struct RailButtonSpec<'a> {
     tab_index: i32,
 }
 
+#[derive(SystemParam)]
+struct CueRecoveryParams<'w, 's> {
+    layers: Res<'w, LayerState>,
+    theme: Res<'w, UiTheme>,
+    asset_server: Res<'w, AssetServer>,
+    roots: Query<'w, 's, Entity, With<VisualCueRecoveryRoot>>,
+    browse: Option<Res<'w, BrowseUiState>>,
+    presentation: Option<Res<'w, PresentationState>>,
+    browse_roots: Query<'w, 's, Entity, With<BrowseMenuRoot>>,
+    settings_roots: Query<'w, 's, Entity, With<SettingsScreenRoot>>,
+    tab_indices: Query<'w, 's, (Entity, &'static TabIndex), Without<UiRestoreAffordance>>,
+    parents: Query<'w, 's, &'static ChildOf>,
+    rail_actions: Query<'w, 's, (Entity, &'static RailAction)>,
+    focus: ResMut<'w, InputFocus>,
+    ui_state: ResMut<'w, RailUiState>,
+}
+
 impl Default for RailUiState {
     fn default() -> Self {
         Self {
@@ -350,21 +369,71 @@ impl Plugin for LayersPlugin {
                     sync_window_mode,
                 )
                     .chain()
+                    .after(ModalSurfaceSet::Rebuild)
+                    .before(ModalSurfaceSet::Focus)
                     .in_set(SimulationSet::Render),
             )
             .add_systems(PostUpdate, sync_hud_visibility.before(UiSystems::Prepare));
     }
 }
 
-fn sync_visual_cue_recovery(
-    mut commands: Commands,
-    layers: Res<LayerState>,
-    theme: Res<UiTheme>,
-    asset_server: Res<AssetServer>,
-    roots: Query<Entity, With<VisualCueRecoveryRoot>>,
-) {
+fn sync_visual_cue_recovery(mut commands: Commands, params: CueRecoveryParams) {
+    let CueRecoveryParams {
+        layers,
+        theme,
+        asset_server,
+        roots,
+        browse,
+        presentation,
+        browse_roots,
+        settings_roots,
+        tab_indices,
+        parents,
+        rail_actions,
+        mut focus,
+        mut ui_state,
+    } = params;
     let needs_recovery = visual_cue_recovery_needed(*layers);
     if !needs_recovery {
+        let focused_recovery = focus.get().is_some_and(|focused| {
+            roots
+                .iter()
+                .any(|root| is_descendant_of(focused, root, &parents))
+        });
+        if focused_recovery && layers.is_visible(LayerId::UserInterface) {
+            let browse_open = browse.as_deref().is_some_and(BrowseUiState::is_open);
+            let settings_open = presentation
+                .as_deref()
+                .is_some_and(|presentation| presentation.is_settings_open());
+            let modal_root = if browse_open {
+                browse_roots.single().ok()
+            } else if settings_open {
+                settings_roots.single().ok()
+            } else {
+                None
+            };
+            let modal_focus =
+                modal_root.and_then(|root| first_tabbable_descendant(root, &tab_indices, &parents));
+            if let Some(destination) = modal_focus {
+                focus.set(destination, FocusCause::Navigated);
+            } else if browse_open || settings_open {
+                // A modal rebuilt later in this frame will seed its own focus.
+                // Clear the doomed recovery entity until that canonical pass.
+                focus.clear();
+            } else {
+                ui_state.restore_focus =
+                    Some(RailFocusTarget::Action(RailAction::ToggleLayersPanel));
+                if let Some(destination) = rail_actions.iter().find_map(|(entity, action)| {
+                    (*action == RailAction::ToggleLayersPanel).then_some(entity)
+                }) {
+                    // Keep focus live before deferred cue teardown, then let
+                    // the semantic target survive any same-frame rail rebuild.
+                    focus.set(destination, FocusCause::Navigated);
+                } else {
+                    focus.clear();
+                }
+            }
+        }
         for root in &roots {
             commands.entity(root).despawn();
         }
@@ -1120,9 +1189,13 @@ fn sync_window_mode(
 mod tests {
     use super::*;
     use crate::control::consume_presentation_command;
-    use crate::search::consume_search_command;
+    use crate::search::{consume_search_command, MENU_Z_INDEX};
+    use crate::settings::{
+        consume_settings_command, converge_presentation_settings, SettingsSaveRequest,
+        SettingsScreenState, SETTINGS_Z_INDEX,
+    };
     use crate::ui_kit::test_layout;
-    use crate::WidgetRoot;
+    use crate::{AppSettings, PersistedLayerState, WidgetRoot};
     use bevy::{
         app::TaskPoolPlugin,
         asset::{AssetApp, AssetPlugin},
@@ -1139,6 +1212,102 @@ mod tests {
         for command in commands.drain() {
             consume_presentation_command(&command, &mut layers, &mut presentation);
         }
+    }
+
+    fn reduce_queued_recovery_commands(
+        mut commands: ResMut<SimCommandQueue>,
+        mut layers: ResMut<LayerState>,
+        mut presentation: ResMut<PresentationState>,
+        mut settings: ResMut<AppSettings>,
+        mut screen: ResMut<SettingsScreenState>,
+        mut save: ResMut<SettingsSaveRequest>,
+    ) {
+        for command in commands.drain() {
+            consume_presentation_command(&command, &mut layers, &mut presentation);
+            consume_settings_command(&command, &mut screen, &mut settings, &mut save);
+            if converge_presentation_settings(&layers, &presentation, &mut settings) {
+                save.request();
+            }
+        }
+    }
+
+    fn cue_less_layers() -> LayerState {
+        let mut layers = LayerState::default();
+        for layer in [LayerId::Orbits, LayerId::Labels, LayerId::Icons] {
+            layers.set_visible(layer, false);
+        }
+        layers
+    }
+
+    fn cue_recovery_app() -> App {
+        let layers = cue_less_layers();
+        let settings = AppSettings {
+            layers: PersistedLayerState::from_snapshot(layers.persistence_snapshot()),
+            ..default()
+        };
+        let mut app = App::new();
+        app.add_plugins((
+            TaskPoolPlugin::default(),
+            AssetPlugin::default(),
+            ScenePlugin,
+        ))
+        .init_asset::<Font>()
+        .insert_resource(UiTheme::default())
+        .insert_resource(layers)
+        .insert_resource(settings)
+        .init_resource::<PresentationState>()
+        .init_resource::<BrowseUiState>()
+        .init_resource::<InputFocus>()
+        .init_resource::<SimCommandQueue>()
+        .init_resource::<SettingsScreenState>()
+        .init_resource::<SettingsSaveRequest>()
+        .init_resource::<RailUiState>()
+        .add_systems(Startup, spawn_restore_affordance)
+        .add_systems(
+            Update,
+            (
+                reduce_queued_recovery_commands,
+                sync_visual_cue_recovery,
+                rebuild_right_rail,
+            )
+                .chain(),
+        )
+        .add_systems(PostUpdate, sync_hud_visibility);
+        app.update();
+        app
+    }
+
+    fn cue_recovery_root(world: &mut World) -> Entity {
+        world
+            .query_filtered::<Entity, With<VisualCueRecoveryRoot>>()
+            .single(world)
+            .expect("exactly one cue-recovery notice")
+    }
+
+    fn cue_recovery_button(world: &mut World) -> Entity {
+        let root = cue_recovery_root(world);
+        world
+            .query::<(
+                Entity,
+                &ChildOf,
+                &bevy::ui_widgets::Button,
+                &AccessibleLabel,
+            )>()
+            .iter(world)
+            .find_map(|(entity, parent, _, label)| {
+                (parent.parent() == root && !label.0.trim().is_empty()).then_some(entity)
+            })
+            .expect("cue-recovery notice has one accessible action")
+    }
+
+    fn toggle_layers_rail_action(world: &mut World) -> Entity {
+        world
+            .query::<(Entity, &RailAction)>()
+            .iter(world)
+            .find_map(|(entity, action)| {
+                (*action == RailAction::ToggleLayersPanel).then_some(entity)
+            })
+            .expect("Toggle Layers rail action")
     }
 
     fn layout_node_rect(world: &World, entity: Entity) -> Rect {
@@ -1303,6 +1472,214 @@ mod tests {
             .drain()
             .collect();
         assert_eq!(queued, vec![SimCommand::RestorePresentationDefaults]);
+    }
+
+    #[test]
+    fn cue_recovery_appears_once_without_mutating_commands_or_persistence() {
+        let mut app = cue_recovery_app();
+        let initial_root = cue_recovery_root(app.world_mut());
+        let initial_settings = app.world().resource::<AppSettings>().clone();
+
+        for _ in 0..3 {
+            app.update();
+            assert_eq!(cue_recovery_root(app.world_mut()), initial_root);
+        }
+
+        let world = app.world_mut();
+        let accessible_actions = world
+            .query::<(&ChildOf, &bevy::ui_widgets::Button, &AccessibleLabel)>()
+            .iter(world)
+            .filter(|(parent, _, label)| {
+                parent.parent() == initial_root && !label.0.trim().is_empty()
+            })
+            .count();
+        assert_eq!(accessible_actions, 1);
+        assert_eq!(world.resource::<AppSettings>(), &initial_settings);
+        assert!(!world.resource::<SettingsSaveRequest>().is_requested());
+        assert_eq!(world.resource_mut::<SimCommandQueue>().drain().count(), 0);
+    }
+
+    #[test]
+    fn cue_recovery_activation_queues_one_semantic_restore_and_converges_defaults() {
+        let mut app = cue_recovery_app();
+        let restore = cue_recovery_button(app.world_mut());
+        app.world_mut().trigger(Activate { entity: restore });
+
+        let queued = app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .collect::<Vec<_>>();
+        assert_eq!(queued, vec![SimCommand::RestorePresentationDefaults]);
+        for command in queued {
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .push(command);
+        }
+        app.update();
+
+        assert_eq!(*app.world().resource::<LayerState>(), LayerState::default());
+        assert_eq!(
+            app.world().resource::<AppSettings>(),
+            &AppSettings::default()
+        );
+        assert!(app.world().resource::<SettingsSaveRequest>().is_requested());
+        assert_eq!(
+            app.world_mut()
+                .query_filtered::<Entity, With<VisualCueRecoveryRoot>>()
+                .iter(app.world())
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn ui_off_removes_cue_recovery_and_yields_to_exactly_one_show_ui_action() {
+        let mut app = cue_recovery_app();
+        let cue = cue_recovery_button(app.world_mut());
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(cue, FocusCause::Navigated);
+        app.world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .push(SimCommand::SetLayerVisibility {
+                layer: LayerId::UserInterface,
+                visible: false,
+            });
+        app.update();
+
+        assert_eq!(
+            app.world_mut()
+                .query_filtered::<Entity, With<VisualCueRecoveryRoot>>()
+                .iter(app.world())
+                .count(),
+            0
+        );
+        let restore = {
+            let world = app.world_mut();
+            let actions = world
+                .query_filtered::<
+                    (Entity, &Visibility, &TabIndex, &AccessibleLabel),
+                    With<UiRestoreAffordance>,
+                >()
+                .iter(world)
+                .map(|(entity, visibility, tab_index, label)| {
+                    (entity, *visibility, *tab_index, label.0.clone())
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(actions.len(), 1);
+            let (entity, visibility, tab_index, label) = &actions[0];
+            assert_eq!(*visibility, Visibility::Visible);
+            assert_eq!(*tab_index, TabIndex(UI_RESTORE_TAB_INDEX));
+            assert_eq!(label, "Restore user interface");
+            *entity
+        };
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(restore));
+    }
+
+    #[test]
+    fn cue_recovery_z_order_yields_to_search_browse_and_settings() {
+        const {
+            // The debug diagnostics overlay is the highest ordinary HUD at 110.
+            assert!(CUE_RECOVERY_Z_INDEX > 110);
+            assert!(CUE_RECOVERY_Z_INDEX < SEARCH_DROPDOWN_Z_INDEX);
+            assert!(SEARCH_DROPDOWN_Z_INDEX < MENU_Z_INDEX);
+            assert!(MENU_Z_INDEX < SETTINGS_Z_INDEX);
+        }
+    }
+
+    #[test]
+    fn external_layer_restore_moves_cue_focus_to_live_toggle_layers_action() {
+        let mut app = cue_recovery_app();
+        let cue = cue_recovery_button(app.world_mut());
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(cue, FocusCause::Navigated);
+        app.world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .push(SimCommand::SetLayerVisibility {
+                layer: LayerId::Labels,
+                visible: true,
+            });
+        app.update();
+
+        assert!(app.world().get_entity(cue).is_err());
+        let fallback = toggle_layers_rail_action(app.world_mut());
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(fallback));
+    }
+
+    #[test]
+    fn external_cue_restore_prefers_browse_then_settings_modal_focus() {
+        let mut browse_app = cue_recovery_app();
+        let cue = cue_recovery_button(browse_app.world_mut());
+        browse_app
+            .world_mut()
+            .resource_mut::<InputFocus>()
+            .set(cue, FocusCause::Navigated);
+        consume_search_command(
+            &SimCommand::SetBrowseOpen(true),
+            &mut browse_app.world_mut().resource_mut::<BrowseUiState>(),
+        );
+        let browse_root = browse_app.world_mut().spawn(BrowseMenuRoot).id();
+        let browse_later = browse_app
+            .world_mut()
+            .spawn((TabIndex(9), ChildOf(browse_root)))
+            .id();
+        let browse_first = browse_app
+            .world_mut()
+            .spawn((TabIndex(3), ChildOf(browse_root)))
+            .id();
+        browse_app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .push(SimCommand::SetLayerVisibility {
+                layer: LayerId::Icons,
+                visible: true,
+            });
+        browse_app.update();
+        assert!(browse_app.world().get_entity(cue).is_err());
+        assert_eq!(
+            browse_app.world().resource::<InputFocus>().get(),
+            Some(browse_first)
+        );
+        assert_ne!(
+            browse_app.world().resource::<InputFocus>().get(),
+            Some(browse_later)
+        );
+
+        let mut settings_app = cue_recovery_app();
+        let cue = cue_recovery_button(settings_app.world_mut());
+        settings_app
+            .world_mut()
+            .resource_mut::<InputFocus>()
+            .set(cue, FocusCause::Navigated);
+        settings_app
+            .world_mut()
+            .resource_mut::<PresentationState>()
+            .open_settings();
+        let settings_root = settings_app.world_mut().spawn(SettingsScreenRoot).id();
+        let settings_later = settings_app
+            .world_mut()
+            .spawn((TabIndex(8), ChildOf(settings_root)))
+            .id();
+        let settings_first = settings_app
+            .world_mut()
+            .spawn((TabIndex(2), ChildOf(settings_root)))
+            .id();
+        settings_app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .push(SimCommand::ApplySettings(Box::default()));
+        settings_app.update();
+        assert!(settings_app.world().get_entity(cue).is_err());
+        assert_eq!(
+            settings_app.world().resource::<InputFocus>().get(),
+            Some(settings_first)
+        );
+        assert_ne!(
+            settings_app.world().resource::<InputFocus>().get(),
+            Some(settings_later)
+        );
     }
 
     #[test]

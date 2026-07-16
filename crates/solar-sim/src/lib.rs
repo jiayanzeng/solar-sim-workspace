@@ -672,9 +672,15 @@ fn build_app_with_platform<P: Plugin>(
     app.add_plugins(default_plugins);
     app.register_type::<AppSettings>()
         .add_plugins(SettingsPlugin::new(SETTINGS_IDENTIFIER));
-    if options.reset_settings {
-        settings::reset_persisted_settings(app.world_mut());
-    }
+    // Resolve the explicit recovery boundary before any clock, layer, window,
+    // or capture state is derived from the loaded settings.
+    let persistence = if golden_capture.is_some() {
+        settings::SettingsPersistencePolicy::TransientRuntime
+    } else {
+        settings::SettingsPersistencePolicy::Persistent
+    };
+    let bootstrapped_settings =
+        settings::bootstrap_app_settings(app.world_mut(), options.reset_settings, persistence);
     let initial_settings = if golden_capture.is_some() {
         let settings = AppSettings {
             resolution: ResolutionSetting {
@@ -687,7 +693,7 @@ fn build_app_with_platform<P: Plugin>(
         };
         settings.normalized()
     } else {
-        app.world().resource::<AppSettings>().clone().normalized()
+        bootstrapped_settings
     };
     let initial_layers = golden_spec.map_or_else(
         || initial_settings.initial_layer_state(),
