@@ -855,6 +855,27 @@ Saturn's complete architecture-valid aggregate plus Io's reticle coverage.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Completed the documentation-only integrated
+  architecture-conformance closeout. Re-reading ARCHITECTURE §§3, 7–10, and
+  12 against current source confirms AC-1 through AC-3 have no remaining
+  exception: Layers-panel visibility is explicit desired-state command traffic
+  with replay and desktop/headless convergence; the §8.2 application graph and
+  focused helper ownership are pinned once in exact order; and top-bar child,
+  geometry, tab, and accessibility order is logo/name → breadcrumb → Search →
+  Menu. Source phases `21352b9`, `da483a1`, and `d35c531` followed baseline
+  `cf7aab1` and were pushed in order to `codex/ui-gameplay-remediation`.
+
+  Final verification from pushed source commit `d35c531` passes **337 tests**
+  (53 `sim-core` · 233 `solar-sim` · 48 `xtask` lib · 2 xtask smoke · 1 active
+  spot-check) and **234 Steam-feature tests**, plus `cargo fmt --all --
+  --check`, both zero-warning clippy configurations,
+  `scripts/check-texture-metadata.sh` (16 assets), and `git diff --check`.
+  Portable replay remains `8282160698094571922`; no test count decreased and
+  no dependency, generated catalog, truth fixture, catalog composition,
+  numerical tolerance, architecture/agent file, Q15 recovery, or Q16 Saturn/Io
+  behavior changed. The conformance plan and stabilization addendum now carry
+  the same evidence. Hyperbolic orbital-period wording stays justified and
+  deferred; WP16/WP17 statuses and their human/hardware gates remain unchanged.
 - **2026-07-17** — Completed architecture-conformance Phase 3 and returned
   WP7 to **✅ done**. The retained BSN top bar now composes logo/product name,
   divider, scrollable navigation breadcrumb, Search, then Menu exactly as

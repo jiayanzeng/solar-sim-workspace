@@ -271,3 +271,67 @@ confirmation is also authorization to stage only the phase's files, create one
 focused commit, and push the current branch to GitHub automatically. Creating a
 pull request, merging, publishing a release, or resuming deferred WP16 remains
 outside this authorization.
+
+## Execution closeout — 2026-07-17
+
+**Status: complete.** The human authorized this plan, and all corrective phases
+were executed, accepted, committed, and pushed in order on
+`codex/ui-gameplay-remediation`:
+
+1. Documentation baseline — `cf7aab1` (`docs: plan architecture conformance
+   remediation`).
+2. AC-1 / WP11 — `21352b9` (`fix: route layers panel through commands`).
+3. AC-2 / WP4 — `da483a1` (`refactor: restore architecture plugin graph`).
+4. AC-3 / WP7 — `d35c531` (`fix: restore search before menu order`).
+
+The final architecture-to-source cross-reference found no remaining exception:
+
+- **AC-1 / ARCHITECTURE §3.4.** `SimCommand::SetLayersPanelOpen(bool)` is the
+  explicit desired-state command. `activate_rail_action` only enqueues it;
+  `consume_presentation_command` is the shared desktop/headless reducer.
+  Replay-v2 serialization, parsing, corrupt-row rejection, combined hashing,
+  idempotence, a static observer boundary test, and ordered desktop/headless
+  convergence all cover the transition. Replay v1 remains accepted.
+- **AC-2 / ARCHITECTURE §8.2.** Application assembly now exposes
+  `TimePlugin → PropagationPlugin → OriginPlugin → CameraPlugin →
+  LabelsPlugin`, followed by `ScenePlugin`, `OrbitLinesPlugin`,
+  `SelectionPlugin`, `UiKit`, `HudPlugin`, `SearchMenuPlugin`,
+  `SettingsUiPlugin`, and `PlatformPlugin`; feature-gated `SteamPlugin` still
+  initializes before `DefaultPlugins`. The assembly regression pins that
+  order, uniqueness, one owner for every focused helper, and required
+  resources. Existing scene tests independently pin one 66-body scene, one
+  camera, 66 labels/57 reticles, 65 orbits, and the exact frame-set chain.
+- **AC-3 / ARCHITECTURE §9.1.** The top-bar BSN child order is logo/product
+  name, breadcrumb, Search, then Menu. Search uses `TabIndex(100)` and Menu
+  `TabIndex(101)`. A resolved-layout regression pins direct-child order and
+  geometry, semantic tab order, and distinct accessibility labels; Search,
+  Browse focus return, and supported viewport/UI-scale suites remain green.
+
+Final verification from pushed source commit `d35c531`:
+
+```text
+cargo test
+  337 passed: 53 sim-core + 233 solar-sim + 48 xtask lib
+              + 2 xtask smoke + 1 active spot-check
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test -p solar-sim --features steam
+  234 passed
+cargo clippy -p solar-sim --all-targets --features steam -- -D warnings
+scripts/check-texture-metadata.sh
+  passed: 16 KTX2 assets
+git diff --check
+```
+
+The final portable replay state hash is `8282160698094571922`. Its only change
+during this conformance cycle occurred in AC-1 because Layers-panel visibility
+became canonical presentation state covered by the combined hash; AC-2 and
+AC-3 were behavior-preserving for replay. No test was removed or weakened, and
+no dependency, generated catalog, truth fixture, catalog composition,
+numerical tolerance, `ARCHITECTURE.md`, or `AGENTS.md` file changed. Q15
+recovery and Q16's text-only Saturn/Io-reticle ruling remain intact.
+
+The hyperbolic orbital-period wording clarification remains a justified,
+deferred documentation item with no source action. WP16 and WP17 remain under
+their existing deferred human/hardware gates; this cycle did not resume Steam
+overlay or packaging implementation.

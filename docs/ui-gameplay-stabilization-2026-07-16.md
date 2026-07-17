@@ -295,3 +295,23 @@ The binding issue descriptions, ordered remediation phases, acceptance
 criteria, and automatic post-verification submission policy are recorded in
 `docs/ui-gameplay-architecture-conformance-2026-07-17.md`. No corrective source
 work is authorized until the human reviews and approves that plan.
+
+The human subsequently approved the corrective plan, and the follow-up is now
+complete on `codex/ui-gameplay-remediation`. AC-1 was submitted as `21352b9`,
+AC-2 as `da483a1`, and AC-3 as `d35c531`, after the documentation baseline
+`cf7aab1`; every commit was pushed in the prescribed order. Layers-panel
+visibility now crosses the shared command/replay boundary, application
+assembly exposes the ARCHITECTURE §8.2 owner graph, and the top bar presents
+and tabs through Search before Menu. The detailed final cross-reference is in
+the conformance plan's execution closeout.
+
+The original 331-test/`1535747298578131566` evidence above remains the exact
+historical stabilization-cycle result. After the architecture follow-up, the
+integrated workspace passes 337 tests (53 `sim-core`, 233 `solar-sim`, 48
+`xtask` library, 2 xtask smoke, and 1 active spot-check); Steam-feature mode
+passes 234 tests. The current portable replay hash is
+`8282160698094571922`, changed only because AC-1 made Layers-panel visibility
+canonical and hash-covered. Formatting, both warning-denied Clippy modes, the
+16-asset texture metadata audit, and `git diff --check` pass. The justified
+hyperbolic-period wording clarification remains deferred, and WP16/WP17 were
+not resumed.
