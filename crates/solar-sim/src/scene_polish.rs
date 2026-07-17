@@ -262,28 +262,42 @@ fn apply_body_emphasis_alpha(
         let Some(body) = loaded.catalog.bodies.get(visual.index) else {
             continue;
         };
-        let Some(mut material) = materials.get_mut(&material_handle.0) else {
+        let alpha = emphasis.body_alpha(visual.index);
+        let Some(material) = materials.get(&material_handle.0) else {
             continue;
         };
-        let alpha = emphasis.body_alpha(visual.index);
-        material.base_color = if body.texture.is_some() && material.base_color_texture.is_some() {
+        let base_color = if body.texture.is_some() && material.base_color_texture.is_some() {
             Color::WHITE.with_alpha(alpha)
         } else {
             let (red, green, blue) = body.color_srgb;
             Color::srgb_u8(red, green, blue).with_alpha(alpha)
         };
-        material.alpha_mode = if body.category != Category::Star && alpha < 0.999 {
+        let alpha_mode = if body.category != Category::Star && alpha < 0.999 {
             AlphaMode::Blend
         } else {
             AlphaMode::Opaque
         };
-    }
-    for (ring, material_handle) in &rings {
+        if material.base_color == base_color && material.alpha_mode == alpha_mode {
+            continue;
+        }
         let Some(mut material) = materials.get_mut(&material_handle.0) else {
             continue;
         };
-        material.base_color =
-            Color::srgba(0.92, 0.86, 0.72, 0.9 * emphasis.body_alpha(ring.body_index));
+        material.base_color = base_color;
+        material.alpha_mode = alpha_mode;
+    }
+    for (ring, material_handle) in &rings {
+        let base_color = Color::srgba(0.92, 0.86, 0.72, 0.9 * emphasis.body_alpha(ring.body_index));
+        let Some(material) = materials.get(&material_handle.0) else {
+            continue;
+        };
+        if material.base_color == base_color {
+            continue;
+        }
+        let Some(mut material) = materials.get_mut(&material_handle.0) else {
+            continue;
+        };
+        material.base_color = base_color;
     }
 }
 
@@ -291,6 +305,10 @@ fn apply_body_emphasis_alpha(
 mod tests {
     use super::*;
     use crate::{load_catalog_text, propagate_catalog, BodyStates};
+    use bevy::{
+        app::TaskPoolPlugin,
+        asset::{AssetApp, AssetEvent, AssetEventSystems, AssetPlugin},
+    };
     use sim_core::time::{RateIndex, JULIAN_YEAR_S};
     use std::{collections::BTreeMap, time::Duration};
 
@@ -355,6 +373,21 @@ mod tests {
             .unwrap()
             .base_color
             .alpha()
+    }
+
+    #[derive(Resource, Debug, Default)]
+    struct ModifiedMaterialIds(Vec<AssetId<StandardMaterial>>);
+
+    fn collect_modified_materials(
+        mut events: MessageReader<AssetEvent<StandardMaterial>>,
+        mut modified: ResMut<ModifiedMaterialIds>,
+    ) {
+        modified
+            .0
+            .extend(events.read().filter_map(|event| match event {
+                AssetEvent::Modified { id } => Some(*id),
+                _ => None,
+            }));
     }
 
     #[test]
@@ -497,6 +530,72 @@ mod tests {
                 .alpha(),
             0.9 * expected_mercury_alpha
         );
+    }
+
+    #[test]
+    fn emphasis_mutates_only_affected_material_assets_and_stable_frames_write_none() {
+        let (loaded, mut emphasis) = emphasis_for_real_catalog();
+        let saturn = loaded.index_of("saturn").unwrap();
+        let uranus = loaded.index_of("uranus").unwrap();
+        let saturn_emphasis = emphasis.bodies[saturn].as_mut().unwrap();
+        saturn_emphasis.engaged = true;
+        saturn_emphasis.blend = 0.5;
+        emphasis.any_engaged = true;
+
+        let mut app = App::new();
+        app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default()))
+            .init_asset::<StandardMaterial>()
+            .insert_resource(loaded)
+            .insert_resource(emphasis)
+            .init_resource::<ModifiedMaterialIds>()
+            .add_systems(Update, apply_body_emphasis_alpha)
+            .add_systems(
+                PostUpdate,
+                collect_modified_materials.after(AssetEventSystems),
+            );
+        let (saturn_color, uranus_color) = {
+            let loaded = app.world().resource::<LoadedCatalog>();
+            (
+                loaded.catalog.bodies[saturn].color_srgb,
+                loaded.catalog.bodies[uranus].color_srgb,
+            )
+        };
+        let (saturn_material, uranus_material) = {
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+            (
+                materials.add(StandardMaterial {
+                    base_color: Color::srgb_u8(saturn_color.0, saturn_color.1, saturn_color.2),
+                    ..default()
+                }),
+                materials.add(StandardMaterial {
+                    base_color: Color::srgb_u8(uranus_color.0, uranus_color.1, uranus_color.2),
+                    ..default()
+                }),
+            )
+        };
+        app.world_mut().spawn((
+            BodyVisual { index: saturn },
+            MeshMaterial3d(saturn_material.clone()),
+        ));
+        app.world_mut().spawn((
+            BodyVisual { index: uranus },
+            MeshMaterial3d(uranus_material.clone()),
+        ));
+
+        app.update();
+        let modified = &app.world().resource::<ModifiedMaterialIds>().0;
+        assert!(modified.contains(&saturn_material.id()));
+        assert!(!modified.contains(&uranus_material.id()));
+        assert_eq!(material_alpha(&app, &saturn_material), 0.5);
+        assert_eq!(material_alpha(&app, &uranus_material), 1.0);
+
+        app.world_mut()
+            .resource_mut::<ModifiedMaterialIds>()
+            .0
+            .clear();
+        app.world_mut().clear_trackers();
+        app.update();
+        assert!(app.world().resource::<ModifiedMaterialIds>().0.is_empty());
     }
 
     #[test]

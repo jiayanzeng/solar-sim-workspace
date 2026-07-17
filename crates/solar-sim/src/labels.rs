@@ -46,15 +46,15 @@ struct LabelVisual {
 }
 
 #[derive(Component, Debug, Clone, Copy)]
-struct BodyReticle;
+pub(crate) struct BodyReticle;
 
 #[derive(Component, Debug, Clone, Copy)]
-struct BodyLabelText;
+pub(crate) struct BodyLabelText;
 
 #[derive(Component, Debug, Clone, Copy)]
-struct LabelEmphasisColor {
-    body_index: usize,
-    base_color: Color,
+pub(crate) struct LabelEmphasisColor {
+    pub(crate) body_index: usize,
+    pub(crate) base_color: Color,
 }
 
 #[derive(Component, Debug, Clone, Copy)]
@@ -405,7 +405,7 @@ struct LabelRenderResources<'w> {
     emphasis: Option<Res<'w, OrbitEmphasisState>>,
 }
 
-fn sync_label_emphasis_alpha(
+pub(crate) fn sync_label_emphasis_alpha(
     emphasis: Option<Res<OrbitEmphasisState>>,
     mut colors: Query<(
         &LabelEmphasisColor,
@@ -419,10 +419,15 @@ fn sync_label_emphasis_alpha(
             .map_or(1.0, |emphasis| emphasis.body_alpha(fade.body_index));
         let color = fade.base_color.with_alpha(alpha);
         if let Some(mut text_color) = text_color {
-            text_color.0 = color;
+            if text_color.0 != color {
+                text_color.0 = color;
+            }
         }
         if let Some(mut border_color) = border_color {
-            *border_color = BorderColor::all(color);
+            let desired = BorderColor::all(color);
+            if *border_color != desired {
+                *border_color = desired;
+            }
         }
     }
 }
@@ -444,18 +449,24 @@ fn sync_label_layer_children(
             .as_ref()
             .is_none_or(|layers| layers.is_visible(LayerId::Icons));
     for mut node in &mut texts {
-        node.display = if labels_visible {
+        let display = if labels_visible {
             Display::Flex
         } else {
             Display::None
         };
+        if node.display != display {
+            node.display = display;
+        }
     }
     for mut node in &mut reticles {
-        node.display = if icons_visible {
+        let display = if icons_visible {
             Display::Flex
         } else {
             Display::None
         };
+        if node.display != display {
+            node.display = display;
+        }
     }
 }
 
@@ -565,14 +576,28 @@ fn project_and_declutter_labels(
     let placements = layout_projected_labels(&candidates, viewport_bounds);
     for (entity, label, visual, mut node) in &mut labels {
         if let Some(rect) = placements.get(&label.index) {
-            node.left = px(rect.min.x);
-            node.top = px(rect.min.y);
             let size = visual.size(labels_visible, icons_visible);
-            node.width = px(size.x);
-            node.height = px(size.y);
-            node.display = Display::Flex;
+            let (left, top, width, height, display) = (
+                px(rect.min.x),
+                px(rect.min.y),
+                px(size.x),
+                px(size.y),
+                Display::Flex,
+            );
+            if node.left != left
+                || node.top != top
+                || node.width != width
+                || node.height != height
+                || node.display != display
+            {
+                node.left = left;
+                node.top = top;
+                node.width = width;
+                node.height = height;
+                node.display = display;
+            }
         } else {
-            hide_label_root(entity, &mut node, focus.as_deref_mut());
+            hide_label_root(entity, node, focus.as_deref_mut());
         }
     }
 }
@@ -583,10 +608,12 @@ fn label_passes_emphasis(emphasis: Option<&OrbitEmphasisState>, body_index: usiz
 
 fn hide_label_root(
     entity: Entity,
-    node: &mut Node,
+    mut node: Mut<'_, Node>,
     focus: Option<&mut bevy::input_focus::InputFocus>,
 ) {
-    node.display = Display::None;
+    if node.display != Display::None {
+        node.display = Display::None;
+    }
     if let Some(focus) = focus {
         if focus.get() == Some(entity) {
             focus.clear();
@@ -598,8 +625,8 @@ fn hide_all_labels(
     labels: &mut Query<(Entity, &BodyLabel, &LabelVisual, &mut Node)>,
     mut focus: Option<&mut bevy::input_focus::InputFocus>,
 ) {
-    for (entity, _, _, mut node) in labels {
-        hide_label_root(entity, &mut node, focus.as_deref_mut());
+    for (entity, _, _, node) in labels {
+        hide_label_root(entity, node, focus.as_deref_mut());
     }
 }
 
@@ -1132,6 +1159,99 @@ mod tests {
     }
 
     #[test]
+    fn stable_label_layers_and_colors_emit_zero_component_writes() {
+        #[derive(Resource, Default)]
+        struct WriteCounts {
+            text_colors: usize,
+            border_colors: usize,
+            text_nodes: usize,
+            icon_nodes: usize,
+        }
+
+        fn count_writes(
+            changed_text_colors: Query<(), Changed<TextColor>>,
+            changed_border_colors: Query<(), Changed<BorderColor>>,
+            changed_text_nodes: Query<(), (With<BodyLabelText>, Changed<Node>)>,
+            changed_icon_nodes: Query<(), (With<BodyReticle>, Changed<Node>)>,
+            mut counts: ResMut<WriteCounts>,
+        ) {
+            counts.text_colors += changed_text_colors.iter().count();
+            counts.border_colors += changed_border_colors.iter().count();
+            counts.text_nodes += changed_text_nodes.iter().count();
+            counts.icon_nodes += changed_icon_nodes.iter().count();
+        }
+
+        let text_base = Color::srgb(0.8, 0.82, 0.85);
+        let icon_base = Color::srgb(0.4, 0.7, 0.9);
+        let mut app = App::new();
+        app.insert_resource(LayerState::default())
+            .init_resource::<WriteCounts>()
+            .add_systems(
+                Update,
+                (sync_label_layer_children, sync_label_emphasis_alpha),
+            )
+            .add_systems(
+                Update,
+                count_writes
+                    .after(sync_label_layer_children)
+                    .after(sync_label_emphasis_alpha),
+            );
+        let text = app
+            .world_mut()
+            .spawn((
+                BodyLabelText,
+                LabelEmphasisColor {
+                    body_index: 7,
+                    base_color: text_base,
+                },
+                TextColor(text_base),
+                Node::default(),
+            ))
+            .id();
+        let icon = app
+            .world_mut()
+            .spawn((
+                BodyReticle,
+                LabelEmphasisColor {
+                    body_index: 7,
+                    base_color: icon_base,
+                },
+                BorderColor::all(icon_base),
+                Node::default(),
+            ))
+            .id();
+        app.update();
+
+        *app.world_mut().resource_mut::<WriteCounts>() = WriteCounts::default();
+        app.update();
+        let counts = app.world().resource::<WriteCounts>();
+        assert_eq!(counts.text_colors, 0);
+        assert_eq!(counts.border_colors, 0);
+        assert_eq!(counts.text_nodes, 0);
+        assert_eq!(counts.icon_nodes, 0);
+
+        *app.world_mut().resource_mut::<WriteCounts>() = WriteCounts::default();
+        app.world_mut()
+            .resource_mut::<LayerState>()
+            .set_visible(LayerId::Labels, false);
+        app.update();
+        let world = app.world();
+        assert_eq!(
+            world.entity(text).get::<Node>().unwrap().display,
+            Display::None
+        );
+        let counts = world.resource::<WriteCounts>();
+        assert_eq!(counts.text_nodes, 1);
+        assert_eq!(counts.icon_nodes, 0);
+        assert_eq!(counts.text_colors, 0);
+        assert_eq!(counts.border_colors, 0);
+        assert_eq!(
+            world.entity(icon).get::<Node>().unwrap().display,
+            Display::Flex
+        );
+    }
+
+    #[test]
     fn startup_spawns_every_accessible_label_and_reticle_style() {
         let loaded = catalog();
         let saturn = loaded.index_of("saturn").unwrap();
@@ -1175,31 +1295,63 @@ mod tests {
     #[test]
     fn hiding_a_label_root_clears_only_its_own_invisible_focus() {
         let mut world = World::new();
-        let hidden = world.spawn_empty().id();
+        let hidden = world
+            .spawn(Node {
+                display: Display::Flex,
+                ..default()
+            })
+            .id();
         let other = world.spawn_empty().id();
         let mut focus = bevy::input_focus::InputFocus::default();
-        let mut node = Node {
-            display: Display::Flex,
-            ..default()
-        };
 
         focus.set(hidden, bevy::input_focus::FocusCause::Navigated);
-        hide_label_root(hidden, &mut node, Some(&mut focus));
-        assert_eq!(node.display, Display::None);
+        hide_label_root(
+            hidden,
+            world.entity_mut(hidden).get_mut::<Node>().unwrap(),
+            Some(&mut focus),
+        );
+        assert_eq!(
+            world.entity(hidden).get::<Node>().unwrap().display,
+            Display::None
+        );
         assert_eq!(focus.get(), None);
 
-        node.display = Display::Flex;
+        world.entity_mut(hidden).get_mut::<Node>().unwrap().display = Display::Flex;
         focus.set(other, bevy::input_focus::FocusCause::Navigated);
-        hide_label_root(hidden, &mut node, Some(&mut focus));
-        assert_eq!(node.display, Display::None);
+        hide_label_root(
+            hidden,
+            world.entity_mut(hidden).get_mut::<Node>().unwrap(),
+            Some(&mut focus),
+        );
+        assert_eq!(
+            world.entity(hidden).get::<Node>().unwrap().display,
+            Display::None
+        );
         assert_eq!(focus.get(), Some(other));
     }
 
     #[test]
     fn high_rate_emphasis_fades_saturn_text_and_io_icon_then_restores_truth() {
+        #[derive(Resource, Default)]
+        struct LabelColorWrites(Vec<usize>);
+
+        fn count_label_color_writes(
+            text_colors: Query<&LabelEmphasisColor, (With<TextColor>, Changed<TextColor>)>,
+            border_colors: Query<&LabelEmphasisColor, (With<BorderColor>, Changed<BorderColor>)>,
+            mut writes: ResMut<LabelColorWrites>,
+        ) {
+            writes
+                .0
+                .extend(text_colors.iter().map(|fade| fade.body_index));
+            writes
+                .0
+                .extend(border_colors.iter().map(|fade| fade.body_index));
+        }
+
         let loaded = catalog();
         let saturn = loaded.index_of("saturn").unwrap();
         let io = loaded.index_of("io").unwrap();
+        let uranus = loaded.index_of("uranus").unwrap();
         let states = propagate_catalog(&loaded.catalog, 0.0).unwrap();
         let states_before = states.0.clone();
         let ray_inputs = ([0.0, 0.0, 0.0], [0.0, 0.0, -2.0], [0.0, 0.0, -10.0], 1.0);
@@ -1207,6 +1359,7 @@ mod tests {
             ray_sphere_hit_distance(ray_inputs.0, ray_inputs.1, ray_inputs.2, ray_inputs.3);
         let saturn_text_base = Color::srgb(0.88, 0.9, 0.94);
         let io_icon_base = Color::srgb(0.75, 0.62, 0.4);
+        let uranus_text_base = Color::srgb(0.7, 0.82, 0.9);
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
@@ -1216,8 +1369,13 @@ mod tests {
             .insert_resource(states)
             .init_resource::<Assets<StandardMaterial>>()
             .init_resource::<bevy::input_focus::InputFocus>()
+            .init_resource::<LabelColorWrites>()
             .add_plugins(ScenePolishPlugin)
-            .add_systems(PostUpdate, sync_label_emphasis_alpha);
+            .add_systems(PostUpdate, sync_label_emphasis_alpha)
+            .add_systems(
+                PostUpdate,
+                count_label_color_writes.after(sync_label_emphasis_alpha),
+            );
 
         let saturn_root = app
             .world_mut()
@@ -1263,6 +1421,17 @@ mod tests {
                 ChildOf(io_root),
             ))
             .id();
+        let _uranus_text = app
+            .world_mut()
+            .spawn((
+                BodyLabelText,
+                LabelEmphasisColor {
+                    body_index: uranus,
+                    base_color: uranus_text_base,
+                },
+                TextColor(uranus_text_base),
+            ))
+            .id();
 
         // Initialize Bevy's real-time clock before counting the fifteen
         // 60 Hz cross-fade updates; the first TimePlugin update has zero
@@ -1272,6 +1441,7 @@ mod tests {
             0.0,
             RateIndex::new(12).unwrap().seconds_per_second() / 60.0,
         );
+        app.world_mut().resource_mut::<LabelColorWrites>().0.clear();
 
         // Seven 60 Hz frames place the shared 0.25-second transition in its
         // interior, proving that text and reticle use the same continuous
@@ -1306,6 +1476,13 @@ mod tests {
                 .alpha()
                 .to_bits(),
             io_alpha.to_bits()
+        );
+        let writes = &app.world().resource::<LabelColorWrites>().0;
+        assert!(writes.contains(&saturn));
+        assert!(writes.contains(&io));
+        assert!(
+            !writes.contains(&uranus),
+            "the same transition must not rewrite unaffected Uranus text"
         );
         assert_eq!(
             app.world()
@@ -1375,6 +1552,10 @@ mod tests {
             None,
             "a display-none planet label cannot retain keyboard focus"
         );
+
+        app.world_mut().resource_mut::<LabelColorWrites>().0.clear();
+        app.update();
+        assert!(app.world().resource::<LabelColorWrites>().0.is_empty());
 
         *app.world_mut().resource_mut::<SimulationTickAdvance>() =
             SimulationTickAdvance::between(0.0, RateIndex::REAL.seconds_per_second() / 60.0);
@@ -1446,9 +1627,11 @@ mod tests {
                 let mut entity_mut = world.entity_mut(entity);
                 let mut node = entity_mut.get_mut::<Node>().unwrap();
                 if visible {
-                    node.display = Display::Flex;
+                    if node.display != Display::Flex {
+                        node.display = Display::Flex;
+                    }
                 } else {
-                    hide_label_root(entity, &mut node, Some(&mut focus));
+                    hide_label_root(entity, node, Some(&mut focus));
                 }
             });
     }

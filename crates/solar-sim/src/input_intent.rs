@@ -261,8 +261,14 @@ impl Plugin for InputIntentPlugin {
 }
 
 fn latch_interaction_state(inputs: InteractionInputs, mut state: ResMut<InteractionState>) {
-    state.context = inputs.context();
-    state.focused_widget_owns_activation = inputs.focused_widget_owns_activation();
+    let context = inputs.context();
+    let focused_widget_owns_activation = inputs.focused_widget_owns_activation();
+    if state.context != context {
+        state.context = context;
+    }
+    if state.focused_widget_owns_activation != focused_widget_owns_activation {
+        state.focused_widget_owns_activation = focused_widget_owns_activation;
+    }
 }
 
 #[derive(SystemParam)]
@@ -417,11 +423,14 @@ fn sync_pointer_capture(
     parents: Query<&ChildOf>,
     mut capture: ResMut<PointerCaptureState>,
 ) {
-    capture.pointer_over_scroll_surface = hover_map.values().any(|hits| {
+    let pointer_over_scroll_surface = hover_map.values().any(|hits| {
         hits.keys()
             .copied()
             .any(|entity| is_within_scroll_surface(entity, &scroll_surfaces, &parents))
     });
+    if capture.pointer_over_scroll_surface != pointer_over_scroll_surface {
+        capture.pointer_over_scroll_surface = pointer_over_scroll_surface;
+    }
 }
 
 const fn resolve_interaction_context(
@@ -585,11 +594,25 @@ pub(crate) fn dolly_command(delta: f64) -> SimCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::control::consume_presentation_command;
+    use crate::labels::{
+        sync_label_emphasis_alpha, BodyLabel, BodyLabelText, BodyReticle, LabelEmphasisColor,
+    };
+    use crate::orbit_lines::rendered_orbit_brightness;
     use crate::search::consume_search_command;
+    use crate::surface_textures::SaturnRing;
     use crate::ui_kit::test_layout;
-    use crate::{ZOOM_IN_DOLLY_DELTA, ZOOM_OUT_DOLLY_DELTA};
+    use crate::{
+        load_catalog_text, propagate_catalog, replay_headless, visual_cue_recovery_needed,
+        BodyVisual, CameraController, CommandRecording, HeadlessSimulation, LeftPanelTab,
+        LoadedCatalog, OrbitLinesPlugin, ReplayStream, ScenePolishPlugin, SimulationClock,
+        SimulationTickAdvance, ViewOptionsState, EMPHASIZED_ORBIT_BRIGHTNESS, ZOOM_IN_DOLLY_DELTA,
+        ZOOM_OUT_DOLLY_DELTA,
+    };
     use bevy::{
+        color::Alpha,
         ecs::entity::EntityHashMap,
+        gizmos::GizmoAsset,
         input::{
             keyboard::{Key, KeyboardInput},
             ButtonState, InputPlugin,
@@ -598,7 +621,8 @@ mod tests {
         picking::{backend::HitData, pointer::PointerId},
         window::PrimaryWindow,
     };
-    use std::collections::HashSet;
+    use sim_core::time::{SimClock, StartMode};
+    use std::{collections::HashSet, time::Duration};
 
     fn clear_focus_on_escape(
         mut input: On<FocusedInput<KeyboardInput>>,
@@ -682,6 +706,37 @@ mod tests {
             .init_resource::<SimCommandQueue>()
             .add_plugins(InputIntentPlugin);
         app
+    }
+
+    #[test]
+    fn stable_input_routing_state_does_not_advertise_false_changes() {
+        #[derive(Resource, Debug, Default, PartialEq, Eq)]
+        struct RoutingChanges {
+            interaction: bool,
+            pointer_capture: bool,
+        }
+
+        fn capture_changes(
+            interaction: Res<InteractionState>,
+            pointer_capture: Res<PointerCaptureState>,
+            mut changes: ResMut<RoutingChanges>,
+        ) {
+            changes.interaction = interaction.is_changed();
+            changes.pointer_capture = pointer_capture.is_changed();
+        }
+
+        let mut app = interaction_test_app(false, false);
+        app.init_resource::<RoutingChanges>()
+            .add_systems(PostUpdate, capture_changes);
+        app.update();
+
+        *app.world_mut().resource_mut::<RoutingChanges>() = RoutingChanges::default();
+        app.update();
+
+        assert_eq!(
+            *app.world().resource::<RoutingChanges>(),
+            RoutingChanges::default()
+        );
     }
 
     #[test]
@@ -1201,6 +1256,546 @@ mod tests {
             Some(browse_button),
             "Browse remains the canonical higher-priority modal once UI returns"
         );
+    }
+
+    #[test]
+    fn composed_real_catalog_stabilization_lifecycle_crosses_every_interaction_boundary() {
+        fn recorded_step(
+            simulation: &mut HeadlessSimulation,
+            recording: &mut CommandRecording,
+            wall_now_t: &mut f64,
+            wall_delta_s: f64,
+            commands: &[SimCommand],
+        ) {
+            *wall_now_t += wall_delta_s;
+            simulation
+                .step_with_wall_time(wall_delta_s, *wall_now_t, commands, Some(recording))
+                .unwrap();
+        }
+
+        // Text ownership, modal routing, and pointer capture are exercised
+        // through one real input-plugin lifecycle.
+        let mut interaction_app = interaction_test_app(false, false);
+        let editable = interaction_app
+            .world_mut()
+            .spawn(EditableText::new("io"))
+            .id();
+        interaction_app
+            .world_mut()
+            .resource_mut::<InputFocus>()
+            .set(editable, FocusCause::Navigated);
+        {
+            let mut keys = interaction_app
+                .world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>();
+            keys.press(KeyCode::KeyS);
+            keys.press(KeyCode::Space);
+            keys.press(KeyCode::Digit1);
+        }
+        interaction_app
+            .world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Right);
+        interaction_app.world_mut().write_message(MouseMotion {
+            delta: Vec2::new(8.0, -3.0),
+        });
+        interaction_app.world_mut().write_message(MouseWheel {
+            unit: bevy::input::mouse::MouseScrollUnit::Line,
+            x: 0.0,
+            y: 2.0,
+            window: Entity::PLACEHOLDER,
+            phase: bevy::input::touch::TouchPhase::Moved,
+        });
+        interaction_app.update();
+        assert_eq!(
+            interaction_app
+                .world()
+                .resource::<InteractionState>()
+                .context(),
+            InteractionContext::TextEdit
+        );
+        assert_eq!(
+            interaction_app.world().resource::<InputFocus>().get(),
+            Some(editable)
+        );
+        assert_eq!(
+            interaction_app
+                .world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .count(),
+            0,
+            "focused text must suppress gameplay keyboard, drag, and wheel input"
+        );
+        interaction_app
+            .world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .reset_all();
+        interaction_app
+            .world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .reset_all();
+        interaction_app
+            .world_mut()
+            .resource_mut::<InputFocus>()
+            .clear();
+
+        // Browse retains priority over Settings, then hands ownership back in
+        // the documented order without exposing gameplay between modals. Both
+        // Escape actions pass through the raw-input-to-command boundary.
+        consume_search_command(
+            &SimCommand::SetBrowseOpen(true),
+            &mut interaction_app.world_mut().resource_mut::<BrowseUiState>(),
+        );
+        interaction_app
+            .world_mut()
+            .resource_mut::<PresentationState>()
+            .open_settings();
+        interaction_app.update();
+        assert_eq!(
+            interaction_app
+                .world()
+                .resource::<InteractionState>()
+                .context(),
+            InteractionContext::BrowseModal
+        );
+        interaction_app
+            .world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Escape);
+        interaction_app.update();
+        let browse_commands = interaction_app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .collect::<Vec<_>>();
+        assert_eq!(
+            browse_commands,
+            vec![SimCommand::SetBrowseOpen(false)],
+            "Browse must be the sole owner of Escape while both modals exist"
+        );
+        let close_browse = &browse_commands[0];
+        consume_search_command(
+            close_browse,
+            &mut interaction_app.world_mut().resource_mut::<BrowseUiState>(),
+        );
+        interaction_app
+            .world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .reset_all();
+        interaction_app.update();
+        assert_eq!(
+            interaction_app
+                .world()
+                .resource::<InteractionState>()
+                .context(),
+            InteractionContext::SettingsModal
+        );
+        interaction_app
+            .world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Escape);
+        interaction_app.update();
+        let settings_commands = interaction_app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .collect::<Vec<_>>();
+        assert_eq!(
+            settings_commands,
+            vec![SimCommand::CloseSettings],
+            "Settings must become the sole Escape owner after Browse closes"
+        );
+        let close_settings = &settings_commands[0];
+        interaction_app
+            .world_mut()
+            .resource_scope(|world, mut layers: Mut<LayerState>| {
+                let mut presentation = world.resource_mut::<PresentationState>();
+                consume_presentation_command(close_settings, &mut layers, &mut presentation);
+            });
+        interaction_app
+            .world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .reset_all();
+        interaction_app.update();
+        assert_eq!(
+            interaction_app
+                .world()
+                .resource::<InteractionState>()
+                .context(),
+            InteractionContext::Gameplay
+        );
+
+        let hover_camera = interaction_app.world_mut().spawn_empty().id();
+        let hover_surface = interaction_app.world_mut().spawn(UiScrollSurface).id();
+        let hovered_child = interaction_app
+            .world_mut()
+            .spawn(ChildOf(hover_surface))
+            .id();
+        let mut hits = EntityHashMap::default();
+        hits.insert(
+            hovered_child,
+            HitData {
+                camera: hover_camera,
+                depth: 0.0,
+                position: None,
+                normal: None,
+                extra: None,
+            },
+        );
+        interaction_app
+            .world_mut()
+            .resource_mut::<HoverMap>()
+            .insert(PointerId::Mouse, hits);
+        interaction_app.world_mut().write_message(MouseWheel {
+            unit: bevy::input::mouse::MouseScrollUnit::Line,
+            x: 0.0,
+            y: 2.0,
+            window: Entity::PLACEHOLDER,
+            phase: bevy::input::touch::TouchPhase::Moved,
+        });
+        interaction_app.update();
+        assert_eq!(
+            interaction_app
+                .world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .count(),
+            0,
+            "a hovered scroll surface must own the wheel instead of Dolly"
+        );
+        interaction_app
+            .world_mut()
+            .resource_mut::<HoverMap>()
+            .clear();
+        interaction_app.world_mut().write_message(MouseWheel {
+            unit: bevy::input::mouse::MouseScrollUnit::Line,
+            x: 0.0,
+            y: 2.0,
+            window: Entity::PLACEHOLDER,
+            phase: bevy::input::touch::TouchPhase::Moved,
+        });
+        interaction_app.update();
+        assert_eq!(
+            interaction_app
+                .world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .collect::<Vec<_>>(),
+            vec![SimCommand::Dolly { delta: 2.0 }],
+            "the same wheel event must return to camera Dolly over the viewport"
+        );
+
+        // Keyboard focus moves a real registered scroll surface just enough
+        // to keep its final action reachable.
+        let mut scroll_app = test_layout::app(800, 600, 2.0);
+        scroll_app
+            .add_systems(Update, ensure_focused_control_visible)
+            .add_observer(scroll_registered_surface_into_view);
+        let surface = scroll_app
+            .world_mut()
+            .spawn((
+                UiScrollSurface,
+                Node {
+                    width: px(200),
+                    height: px(100),
+                    flex_direction: FlexDirection::Column,
+                    overflow: Overflow::scroll_y(),
+                    ..default()
+                },
+                ScrollPosition::default(),
+            ))
+            .id();
+        let mut last = Entity::PLACEHOLDER;
+        for index in 0..5 {
+            last = scroll_app
+                .world_mut()
+                .spawn((
+                    TabIndex(index),
+                    Node {
+                        width: percent(100),
+                        min_height: px(50),
+                        flex_shrink: 0.0,
+                        ..default()
+                    },
+                    ChildOf(surface),
+                ))
+                .id();
+        }
+        test_layout::settle(&mut scroll_app);
+        scroll_app
+            .world_mut()
+            .resource_mut::<InputFocus>()
+            .set(last, FocusCause::Navigated);
+        test_layout::settle(&mut scroll_app);
+        assert_eq!(
+            scroll_app.world().resource::<InputFocus>().get(),
+            Some(last)
+        );
+        assert!(
+            scroll_app
+                .world()
+                .entity(surface)
+                .get::<ScrollPosition>()
+                .unwrap()
+                .y
+                > 0.0
+        );
+
+        let catalog = load_catalog_text(include_str!("../../../assets/catalog.ron")).unwrap();
+        let jupiter = catalog
+            .bodies
+            .iter()
+            .position(|body| body.id == "jupiter")
+            .unwrap();
+        let io = catalog
+            .bodies
+            .iter()
+            .position(|body| body.id == "io")
+            .unwrap();
+        let mut simulation = HeadlessSimulation::new(&catalog).unwrap();
+        let mut recording = CommandRecording::default();
+        let mut wall_now_t = simulation.clock().t();
+        let frame_delta_s = 1.0 / 60.0;
+
+        recorded_step(
+            &mut simulation,
+            &mut recording,
+            &mut wall_now_t,
+            frame_delta_s,
+            &[
+                SimCommand::TravelToBody("jupiter".into()),
+                SimCommand::SetLeftPanelTab(LeftPanelTab::Collection),
+            ],
+        );
+        assert_eq!(simulation.camera().selected_body_index(), jupiter);
+        assert_eq!(
+            simulation.navigation_label(),
+            "Solar System › Jupiter › Moons"
+        );
+        recorded_step(
+            &mut simulation,
+            &mut recording,
+            &mut wall_now_t,
+            1.0 / 90.0,
+            &[SimCommand::TravelToBody("io".into())],
+        );
+        assert_eq!(simulation.camera().selected_body_index(), io);
+        assert_eq!(simulation.navigation_label(), "Solar System › Jupiter › Io");
+
+        recorded_step(
+            &mut simulation,
+            &mut recording,
+            &mut wall_now_t,
+            1.0 / 48.0,
+            &[
+                SimCommand::SetLayerVisibility {
+                    layer: LayerId::Orbits,
+                    visible: false,
+                },
+                SimCommand::SetLayerVisibility {
+                    layer: LayerId::Labels,
+                    visible: false,
+                },
+                SimCommand::SetLayerVisibility {
+                    layer: LayerId::Icons,
+                    visible: false,
+                },
+            ],
+        );
+        assert!(visual_cue_recovery_needed(*simulation.layer_state()));
+        recorded_step(
+            &mut simulation,
+            &mut recording,
+            &mut wall_now_t,
+            frame_delta_s,
+            &[
+                SimCommand::ApplySettings(Box::default()),
+                SimCommand::RestorePresentationDefaults,
+            ],
+        );
+        assert_eq!(simulation.app_settings(), &AppSettings::default());
+        assert_eq!(simulation.layer_state(), &LayerState::default());
+        assert!(!visual_cue_recovery_needed(*simulation.layer_state()));
+        assert!(simulation.settings_save_requested());
+
+        let before_high_rate = simulation.clock().t();
+        recorded_step(
+            &mut simulation,
+            &mut recording,
+            &mut wall_now_t,
+            frame_delta_s,
+            &[SimCommand::SetRate(RateIndex::MAX)],
+        );
+        let high_rate_advance = (simulation.clock().t() - before_high_rate).abs();
+        assert!(high_rate_advance > 0.0);
+
+        // The same body-indexed emphasis state drives Saturn's sphere/ring,
+        // text, and orbit plus Io's architecture-valid reticle.
+        let loaded = LoadedCatalog::new(catalog.clone());
+        let saturn = loaded.index_of("saturn").unwrap();
+        let io = loaded.index_of("io").unwrap();
+        let sun = loaded.index_of("sun").unwrap();
+        let saturn_color = loaded.catalog.bodies[saturn].color_srgb;
+        let io_color = loaded.catalog.bodies[io].color_srgb;
+        let render_t = simulation.clock().t();
+        let render_states = propagate_catalog(&loaded.catalog, render_t).unwrap();
+        let render_camera =
+            CameraController::new(sun, render_states.0[sun].position_km, 3_000_000.0);
+        let render_clock = SimClock::new(
+            StartMode::FixedEpoch {
+                jd_tdb: sim_core::time::jd_tdb_from_t(render_t),
+            },
+            render_t,
+        );
+        let mut render_app = App::new();
+        render_app
+            .init_resource::<Time<Real>>()
+            .init_resource::<Assets<StandardMaterial>>()
+            .init_resource::<Assets<GizmoAsset>>()
+            .insert_resource(loaded)
+            .insert_resource(render_states)
+            .insert_resource(render_camera)
+            .insert_resource(SimulationClock(render_clock))
+            .insert_resource(LayerState::default())
+            .insert_resource(ViewOptionsState::default())
+            .add_plugins((ScenePolishPlugin, OrbitLinesPlugin))
+            .add_systems(PostUpdate, sync_label_emphasis_alpha);
+        let (sphere_material, ring_material) = {
+            let mut materials = render_app
+                .world_mut()
+                .resource_mut::<Assets<StandardMaterial>>();
+            (
+                materials.add(StandardMaterial {
+                    base_color: Color::srgb_u8(saturn_color.0, saturn_color.1, saturn_color.2),
+                    ..default()
+                }),
+                materials.add(StandardMaterial {
+                    base_color: Color::srgba(0.92, 0.86, 0.72, 0.9),
+                    alpha_mode: AlphaMode::Blend,
+                    ..default()
+                }),
+            )
+        };
+        render_app.world_mut().spawn((
+            BodyVisual { index: saturn },
+            MeshMaterial3d(sphere_material.clone()),
+        ));
+        render_app.world_mut().spawn((
+            SaturnRing { body_index: saturn },
+            MeshMaterial3d(ring_material.clone()),
+        ));
+        let saturn_label = render_app
+            .world_mut()
+            .spawn((BodyLabel { index: saturn }, Node::default()))
+            .id();
+        let saturn_text_base = Color::srgb_u8(saturn_color.0, saturn_color.1, saturn_color.2);
+        let saturn_text = render_app
+            .world_mut()
+            .spawn((
+                BodyLabelText,
+                LabelEmphasisColor {
+                    body_index: saturn,
+                    base_color: saturn_text_base,
+                },
+                TextColor(saturn_text_base),
+                ChildOf(saturn_label),
+            ))
+            .id();
+        let io_label = render_app
+            .world_mut()
+            .spawn((BodyLabel { index: io }, Node::default()))
+            .id();
+        let io_reticle_base = Color::srgb_u8(io_color.0, io_color.1, io_color.2);
+        let io_reticle = render_app
+            .world_mut()
+            .spawn((
+                BodyReticle,
+                LabelEmphasisColor {
+                    body_index: io,
+                    base_color: io_reticle_base,
+                },
+                BorderColor::all(io_reticle_base),
+                ChildOf(io_label),
+            ))
+            .id();
+        render_app.update();
+        for _ in 0..15 {
+            *render_app
+                .world_mut()
+                .resource_mut::<SimulationTickAdvance>() =
+                SimulationTickAdvance::between(0.0, high_rate_advance);
+            render_app
+                .world_mut()
+                .resource_mut::<Time<Real>>()
+                .advance_by(Duration::from_secs_f64(frame_delta_s));
+            render_app.update();
+        }
+        {
+            let materials = render_app.world().resource::<Assets<StandardMaterial>>();
+            assert_eq!(
+                materials.get(&sphere_material).unwrap().base_color.alpha(),
+                0.0
+            );
+            assert_eq!(
+                materials.get(&ring_material).unwrap().base_color.alpha(),
+                0.0
+            );
+        }
+        assert_eq!(
+            render_app
+                .world()
+                .entity(saturn_text)
+                .get::<TextColor>()
+                .unwrap()
+                .0
+                .alpha(),
+            0.0
+        );
+        assert_eq!(
+            render_app
+                .world()
+                .entity(io_reticle)
+                .get::<BorderColor>()
+                .unwrap()
+                .top
+                .alpha(),
+            0.0
+        );
+        assert_eq!(
+            rendered_orbit_brightness(render_app.world_mut(), saturn),
+            Some(EMPHASIZED_ORBIT_BRIGHTNESS)
+        );
+        assert_eq!(
+            rendered_orbit_brightness(render_app.world_mut(), io),
+            Some(EMPHASIZED_ORBIT_BRIGHTNESS)
+        );
+
+        for frame in 0..240 {
+            let wall_delta_s = match frame % 3 {
+                0 => 1.0 / 48.0,
+                1 => 1.0 / 60.0,
+                _ => 1.0 / 90.0,
+            };
+            let commands = if frame == 0 {
+                vec![SimCommand::SnapToLive]
+            } else {
+                Vec::new()
+            };
+            recorded_step(
+                &mut simulation,
+                &mut recording,
+                &mut wall_now_t,
+                wall_delta_s,
+                &commands,
+            );
+        }
+        assert!(simulation.clock().is_live(wall_now_t));
+        let replay = ReplayStream::from_text(&recording.stream().to_text()).unwrap();
+        assert_eq!(&replay, recording.stream());
+        let replayed =
+            replay_headless(&catalog, &replay, simulation.frame(), frame_delta_s).unwrap();
+        assert_eq!(replayed.state_hash(), simulation.state_hash());
     }
 
     #[test]

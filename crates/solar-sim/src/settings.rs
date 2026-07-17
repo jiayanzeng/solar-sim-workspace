@@ -448,7 +448,7 @@ struct SettingsScrollArea;
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct RenderErrorScreen;
 
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, Default, PartialEq)]
 pub(crate) struct SettingsScreenState {
     open: bool,
     draft: AppSettings,
@@ -459,6 +459,32 @@ pub(crate) struct SettingsScreenState {
 
 #[derive(Resource, Debug, Default)]
 pub(crate) struct SettingsSaveRequest(bool);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RuntimeSettingsKey {
+    display_mode: DisplayModeSetting,
+    resolution: ResolutionSetting,
+    vsync: bool,
+    frame_cap: FrameCap,
+    quality: QualityPreset,
+    ui_scale_bits: u32,
+}
+
+impl RuntimeSettingsKey {
+    fn from_settings(settings: &AppSettings) -> Self {
+        Self {
+            display_mode: settings.display_mode,
+            resolution: settings.resolution,
+            vsync: settings.vsync,
+            frame_cap: settings.frame_cap,
+            quality: settings.quality,
+            ui_scale_bits: settings.ui_scale.to_bits(),
+        }
+    }
+}
+
+#[derive(Resource, Debug, Default)]
+struct AppliedRuntimeSettings(Option<RuntimeSettingsKey>);
 
 /// Controls whether runtime settings changes may reach the product settings
 /// file. Golden capture deliberately uses transient overrides while ordinary
@@ -481,7 +507,6 @@ impl SettingsSaveRequest {
         self.0 = true;
     }
 
-    #[cfg(test)]
     pub(crate) const fn is_requested(&self) -> bool {
         self.0
     }
@@ -521,6 +546,7 @@ impl Plugin for ProductSettingsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SettingsScreenState>()
             .init_resource::<SettingsSaveRequest>()
+            .init_resource::<AppliedRuntimeSettings>()
             .init_resource::<SettingsPersistencePolicy>()
             .init_resource::<RenderRecoveryStatus>()
             .insert_resource(RenderErrorHandler(product_render_error_policy))
@@ -554,17 +580,25 @@ pub(crate) fn consume_settings_command(
     match command {
         SimCommand::ApplySettings(committed) => {
             let committed = committed.as_ref().clone().normalized();
-            *settings = committed.clone();
-            screen.draft = committed;
-            screen.dirty = true;
             save.0 = true;
+            if *settings != committed {
+                *settings = committed.clone();
+            }
+            if screen.draft != committed {
+                screen.draft = committed;
+                screen.dirty = true;
+            }
         }
         SimCommand::RestorePresentationDefaults => {
             let defaults = AppSettings::default();
-            settings.layers = defaults.layers;
-            screen.draft.layers = defaults.layers;
-            screen.dirty = true;
             save.0 = true;
+            if settings.layers != defaults.layers {
+                settings.layers = defaults.layers;
+            }
+            if screen.draft.layers != defaults.layers {
+                screen.draft.layers = defaults.layers;
+                screen.dirty = true;
+            }
         }
         _ => {}
     }
@@ -624,7 +658,10 @@ fn sync_settings_screen(
     mut screen: ResMut<SettingsScreenState>,
     mut focus: ResMut<InputFocus>,
 ) {
-    if sync_settings_screen_state(&presentation, &settings, &mut screen) {
+    let changed =
+        sync_settings_screen_state(&presentation, &settings, screen.bypass_change_detection());
+    if changed {
+        screen.set_changed();
         focus.clear();
     }
 }
@@ -650,6 +687,7 @@ pub(crate) fn converge_presentation_settings(
 
 fn apply_settings_to_runtime(
     settings: Res<AppSettings>,
+    mut applied: ResMut<AppliedRuntimeSettings>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
     mut ui_scale: ResMut<UiScale>,
     mut winit: ResMut<WinitSettings>,
@@ -659,34 +697,57 @@ fn apply_settings_to_runtime(
         return;
     }
     let normalized = settings.clone().normalized();
+    let key = RuntimeSettingsKey::from_settings(&normalized);
+    if applied.0 == Some(key) {
+        return;
+    }
     for mut window in &mut windows {
-        window.mode = if normalized.display_mode.is_fullscreen() {
+        let desired_mode = if normalized.display_mode.is_fullscreen() {
             WindowMode::BorderlessFullscreen(MonitorSelection::Current)
         } else {
             WindowMode::Windowed
         };
-        window.resolution.set(
-            normalized.resolution.width as f32,
-            normalized.resolution.height as f32,
-        );
-        window.present_mode = if normalized.vsync {
+        if window.mode != desired_mode {
+            window.mode = desired_mode;
+        }
+        let desired_width = normalized.resolution.width as f32;
+        let desired_height = normalized.resolution.height as f32;
+        if window.resolution.width() != desired_width
+            || window.resolution.height() != desired_height
+        {
+            window.resolution.set(desired_width, desired_height);
+        }
+        let desired_present_mode = if normalized.vsync {
             PresentMode::AutoVsync
         } else {
             PresentMode::AutoNoVsync
         };
+        if window.present_mode != desired_present_mode {
+            window.present_mode = desired_present_mode;
+        }
     }
-    ui_scale.0 = normalized.ui_scale;
+    if ui_scale.0 != normalized.ui_scale {
+        ui_scale.0 = normalized.ui_scale;
+    }
     let update_mode = normalized
         .frame_cap
         .hz()
         .map_or(UpdateMode::Continuous, |hz| {
             UpdateMode::reactive(Duration::from_secs_f64(1.0 / f64::from(hz)))
         });
-    winit.focused_mode = update_mode;
-    winit.unfocused_mode = update_mode;
-    for mut msaa in &mut cameras {
-        *msaa = normalized.quality.msaa();
+    if winit.focused_mode != update_mode {
+        winit.focused_mode = update_mode;
     }
+    if winit.unfocused_mode != update_mode {
+        winit.unfocused_mode = update_mode;
+    }
+    let desired_msaa = normalized.quality.msaa();
+    for mut msaa in &mut cameras {
+        if *msaa != desired_msaa {
+            *msaa = desired_msaa;
+        }
+    }
+    applied.0 = Some(key);
 }
 
 fn sync_external_presentation_to_settings(
@@ -702,10 +763,11 @@ fn sync_external_presentation_to_settings(
     if settings.is_changed() {
         return;
     }
-    if converge_presentation_settings(&layers, &presentation, &mut settings)
-        && persistence.allows_disk_writes()
-    {
-        commands.queue(SaveSettingsDeferred(SETTINGS_SAVE_DELAY));
+    if converge_presentation_settings(&layers, &presentation, settings.bypass_change_detection()) {
+        settings.set_changed();
+        if persistence.allows_disk_writes() {
+            commands.queue(SaveSettingsDeferred(SETTINGS_SAVE_DELAY));
+        }
     }
 }
 
@@ -714,7 +776,11 @@ fn persist_requested_settings(
     mut request: ResMut<SettingsSaveRequest>,
     mut commands: Commands,
 ) {
-    if std::mem::take(&mut request.0) && persistence.allows_disk_writes() {
+    if !request.0 {
+        return;
+    }
+    request.0 = false;
+    if persistence.allows_disk_writes() {
         commands.queue(SaveSettingsDeferred(SETTINGS_SAVE_DELAY));
     }
 }
@@ -1198,6 +1264,7 @@ fn activate_setting_action(
     {
         screen.restore_focus = Some(*action);
     }
+    let draft_before = screen.draft.clone();
     match *action {
         SettingAction::Close => {
             sim_commands.push(SimCommand::CloseSettings);
@@ -1241,7 +1308,9 @@ fn activate_setting_action(
         }
         SettingAction::ToggleLayer(layer) => screen.draft.layers.toggle(layer),
     }
-    screen.dirty = true;
+    if screen.draft != draft_before {
+        screen.dirty = true;
+    }
 }
 
 fn next_ui_scale(current: f32) -> f32 {
@@ -1392,6 +1461,16 @@ mod tests {
         text::Font,
         time::TimeUpdateStrategy,
     };
+
+    #[derive(Resource, Debug, Default)]
+    struct AppSettingsChangeCount(usize);
+
+    fn count_app_settings_changes(
+        settings: Res<AppSettings>,
+        mut count: ResMut<AppSettingsChangeCount>,
+    ) {
+        count.0 = usize::from(settings.is_changed());
+    }
     use sim_core::time::T_MAX_S;
     use std::{
         process::Command as ProcessCommand,
@@ -1878,6 +1957,133 @@ mod tests {
     }
 
     #[test]
+    fn identical_explicit_settings_commands_persist_without_repainting() {
+        let mut settings = AppSettings::default();
+        let mut screen = SettingsScreenState::default();
+        let screen_before = screen.clone();
+        let mut save = SettingsSaveRequest::default();
+
+        consume_settings_command(
+            &SimCommand::ApplySettings(Box::default()),
+            &mut screen,
+            &mut settings,
+            &mut save,
+        );
+        assert_eq!(settings, AppSettings::default());
+        assert_eq!(screen, screen_before);
+        assert!(
+            save.is_requested(),
+            "explicit Apply remains a disk boundary"
+        );
+
+        save.0 = false;
+        consume_settings_command(
+            &SimCommand::RestorePresentationDefaults,
+            &mut screen,
+            &mut settings,
+            &mut save,
+        );
+        assert_eq!(screen, screen_before);
+        assert!(
+            save.is_requested(),
+            "explicit recovery remains durable even when defaults are already active"
+        );
+    }
+
+    #[test]
+    fn idle_settings_save_request_is_not_rewritten() {
+        #[derive(Resource, Default)]
+        struct SaveRequestChanged(bool);
+
+        fn capture_change(
+            request: Res<SettingsSaveRequest>,
+            mut changed: ResMut<SaveRequestChanged>,
+        ) {
+            changed.0 = request.is_changed();
+        }
+
+        let mut app = App::new();
+        app.init_resource::<SettingsSaveRequest>()
+            .insert_resource(SettingsPersistencePolicy::TransientRuntime)
+            .init_resource::<SaveRequestChanged>()
+            .add_systems(Update, (persist_requested_settings, capture_change).chain());
+        app.update();
+
+        app.world_mut().resource_mut::<SaveRequestChanged>().0 = false;
+        app.update();
+        assert!(!app.world().resource::<SaveRequestChanged>().0);
+
+        app.world_mut()
+            .resource_mut::<SettingsSaveRequest>()
+            .request();
+        app.update();
+        assert!(app.world().resource::<SaveRequestChanged>().0);
+        assert!(!app.world().resource::<SettingsSaveRequest>().is_requested());
+    }
+
+    #[test]
+    fn presentation_only_settings_changes_do_not_reapply_window_runtime_values() {
+        let mut app = App::new();
+        app.insert_resource(AppSettings::default())
+            .init_resource::<AppliedRuntimeSettings>()
+            .init_resource::<UiScale>()
+            .init_resource::<WinitSettings>()
+            .add_systems(Update, apply_settings_to_runtime);
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow))
+            .id();
+        app.world_mut().spawn((Camera3d::default(), Msaa::Off));
+        app.update();
+
+        app.world_mut()
+            .entity_mut(window)
+            .get_mut::<Window>()
+            .unwrap()
+            .resolution
+            .set(1_111.0, 777.0);
+        {
+            let mut settings = app.world_mut().resource_mut::<AppSettings>();
+            settings.layers.icons = false;
+            settings.units = DistanceUnit::Miles;
+            settings.start_mode = StartModeSetting::Live;
+        }
+        app.update();
+
+        let resolution = &app
+            .world()
+            .entity(window)
+            .get::<Window>()
+            .unwrap()
+            .resolution;
+        assert_eq!((resolution.width(), resolution.height()), (1_111.0, 777.0));
+    }
+
+    #[test]
+    fn stable_presentation_convergence_does_not_mark_settings_changed() {
+        let mut app = App::new();
+        app.insert_resource(AppSettings::default())
+            .init_resource::<LayerState>()
+            .init_resource::<PresentationState>()
+            .init_resource::<SettingsPersistencePolicy>()
+            .init_resource::<AppSettingsChangeCount>()
+            .add_systems(
+                Update,
+                (
+                    sync_external_presentation_to_settings,
+                    count_app_settings_changes,
+                )
+                    .chain(),
+            );
+        app.update();
+
+        app.world_mut().resource_mut::<AppSettingsChangeCount>().0 = 0;
+        app.update();
+
+        assert_eq!(app.world().resource::<AppSettingsChangeCount>().0, 0);
+    }
+
+    #[test]
     fn display_mode_is_staged_until_apply_and_revert_discards_it() {
         let mut app = App::new();
         app.insert_resource(AppSettings::default())
@@ -2141,7 +2347,7 @@ mod tests {
     }
 
     #[test]
-    fn every_nonclosing_draft_action_retains_scroll_and_focus() {
+    fn changed_draft_actions_restore_context_while_noops_retain_entity_identity() {
         let mut app = settings_screen_test_app();
         app.update();
         let actions = expected_settings_tab_order()
@@ -2153,12 +2359,19 @@ mod tests {
                 )
             })
             .collect::<Vec<_>>();
+        let mut no_op_count = 0;
 
         for action in actions {
             let entity = settings_action_entity(app.world_mut(), action);
-            let scroll = settings_scroll_entity(app.world_mut());
+            let original_scroll = settings_scroll_entity(app.world_mut());
+            let root = app
+                .world_mut()
+                .query_filtered::<Entity, With<SettingsScreenRoot>>()
+                .single(app.world())
+                .unwrap();
+            let draft_before = app.world().resource::<SettingsScreenState>().draft.clone();
             app.world_mut()
-                .entity_mut(scroll)
+                .entity_mut(original_scroll)
                 .get_mut::<ScrollPosition>()
                 .expect("settings scroll position")
                 .y = 137.0;
@@ -2166,6 +2379,7 @@ mod tests {
                 .resource_mut::<InputFocus>()
                 .set(entity, FocusCause::Navigated);
             app.world_mut().trigger(Activate { entity });
+            let draft_changed = app.world().resource::<SettingsScreenState>().draft != draft_before;
             app.update();
 
             let focused = app
@@ -2187,12 +2401,28 @@ mod tests {
                 137.0,
                 "{action:?}"
             );
-            assert_eq!(
-                app.world().resource::<SettingsScreenState>().scroll_y,
-                137.0,
-                "{action:?}"
-            );
+            let current_root = app
+                .world_mut()
+                .query_filtered::<Entity, With<SettingsScreenRoot>>()
+                .single(app.world())
+                .unwrap();
+            if draft_changed {
+                assert_ne!(current_root, root, "{action:?}");
+                assert_eq!(
+                    app.world().resource::<SettingsScreenState>().scroll_y,
+                    137.0,
+                    "{action:?}"
+                );
+            } else {
+                no_op_count += 1;
+                assert_eq!(current_root, root, "{action:?}");
+                assert_eq!(scroll, original_scroll, "{action:?}");
+            }
         }
+        assert!(
+            no_op_count > 0,
+            "the matrix must exercise selected-value noops"
+        );
     }
 
     #[test]

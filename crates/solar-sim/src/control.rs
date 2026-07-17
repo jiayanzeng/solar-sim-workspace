@@ -5,11 +5,13 @@
 //! applies user intent to simulation state. Per-frame clock, propagation, and
 //! moving-focus evolution are deterministic updates driven by explicit inputs.
 
+#[cfg(test)]
+use crate::propagate_into;
 use crate::{
-    left_panel, propagate_into, search, settings, AppSettings, BodySizeScale, BodyStates, LayerId,
-    LayerState, LeftPanelTab, LoadedCatalog, MoonVisibilityMode, NavigationDestination,
-    NavigationStack, PresentationState, PropagationError, DEFAULT_CAMERA_DISTANCE_UNITS,
-    KM_PER_RENDER_UNIT,
+    left_panel, propagate_at_changed_time, search, settings, AppSettings, BodySizeScale,
+    BodyStates, LayerId, LayerState, LeftPanelTab, LoadedCatalog, MoonVisibilityMode,
+    NavigationDestination, NavigationStack, PresentationState, PropagationError, PropagationStamp,
+    DEFAULT_CAMERA_DISTANCE_UNITS, KM_PER_RENDER_UNIT,
 };
 use bevy::prelude::{Resource, Vec3};
 use sim_core::catalog::{Catalog, CatalogError, Category};
@@ -98,6 +100,40 @@ struct TravelTween {
     target_distance_units: f64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CameraControllerSnapshot {
+    selected_body_index: usize,
+    focus_body_index: usize,
+    focus_position_bits: [u64; 3],
+    yaw_bits: u64,
+    pitch_bits: u64,
+    distance_bits: u64,
+    travel: Option<TravelTweenSnapshot>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TravelTweenSnapshot {
+    target_index: usize,
+    elapsed_bits: u64,
+    duration_bits: u64,
+    start_focus_bits: [u64; 3],
+    start_distance_bits: u64,
+    target_distance_bits: u64,
+}
+
+impl From<TravelTween> for TravelTweenSnapshot {
+    fn from(tween: TravelTween) -> Self {
+        Self {
+            target_index: tween.target_index,
+            elapsed_bits: tween.elapsed_s.to_bits(),
+            duration_bits: tween.duration_s.to_bits(),
+            start_focus_bits: tween.start_focus_km.map(f64::to_bits),
+            start_distance_bits: tween.start_distance_units.to_bits(),
+            target_distance_bits: tween.target_distance_units.to_bits(),
+        }
+    }
+}
+
 /// The camera's simulation-side truth. All values remain f64 until
 /// `render_translation` is called by the render-only camera system.
 #[derive(Resource, Debug, Clone)]
@@ -167,6 +203,21 @@ impl CameraController {
 
     pub fn is_travelling(&self) -> bool {
         self.travel.is_some()
+    }
+
+    /// Exact semantic snapshot used at the Bevy mutation boundary. Raw f64
+    /// bits make the comparison deterministic and avoid treating NaN as a
+    /// perpetual change if a corrupt command is ever rejected too late.
+    pub(crate) fn semantic_snapshot(&self) -> CameraControllerSnapshot {
+        CameraControllerSnapshot {
+            selected_body_index: self.selected_body_index,
+            focus_body_index: self.focus_body_index,
+            focus_position_bits: self.focus_position_km.map(f64::to_bits),
+            yaw_bits: self.yaw_rad.to_bits(),
+            pitch_bits: self.pitch_rad.to_bits(),
+            distance_bits: self.distance_units.to_bits(),
+            travel: self.travel.map(TravelTweenSnapshot::from),
+        }
     }
 
     pub(crate) fn render_translation(&self) -> Vec3 {
@@ -356,15 +407,18 @@ pub(crate) fn advance_camera_controller(
     camera: &mut CameraController,
     states: &BodyStates,
     wall_dt_s: f64,
-) {
+) -> bool {
+    let before = camera.semantic_snapshot();
     let Some(travel) = camera.travel else {
         if let Some(state) = states.0.get(camera.focus_body_index) {
-            camera.focus_position_km = state.position_km;
+            if camera.focus_position_km.map(f64::to_bits) != state.position_km.map(f64::to_bits) {
+                camera.focus_position_km = state.position_km;
+            }
         }
-        return;
+        return camera.semantic_snapshot() != before;
     };
     let Some(target) = states.0.get(travel.target_index) else {
-        return;
+        return false;
     };
 
     let elapsed_s = (travel.elapsed_s + wall_dt_s.max(0.0)).min(travel.duration_s);
@@ -374,21 +428,36 @@ pub(crate) fn advance_camera_controller(
         1.0
     };
     let eased = progress * progress * (3.0 - 2.0 * progress);
-    camera.focus_position_km = lerp3(travel.start_focus_km, target.position_km, eased);
-    camera.distance_units = lerp(
+    let focus_position_km = lerp3(travel.start_focus_km, target.position_km, eased);
+    if camera.focus_position_km.map(f64::to_bits) != focus_position_km.map(f64::to_bits) {
+        camera.focus_position_km = focus_position_km;
+    }
+    let distance_units = lerp(
         travel.start_distance_units,
         travel.target_distance_units,
         eased,
     );
+    if camera.distance_units.to_bits() != distance_units.to_bits() {
+        camera.distance_units = distance_units;
+    }
 
     if elapsed_s >= travel.duration_s {
         camera.focus_body_index = travel.target_index;
-        camera.focus_position_km = target.position_km;
-        camera.distance_units = travel.target_distance_units;
+        if camera.focus_position_km.map(f64::to_bits) != target.position_km.map(f64::to_bits) {
+            camera.focus_position_km = target.position_km;
+        }
+        if camera.distance_units.to_bits() != travel.target_distance_units.to_bits() {
+            camera.distance_units = travel.target_distance_units;
+        }
         camera.travel = None;
-    } else if let Some(active) = camera.travel.as_mut() {
+    } else if let Some(active) = camera
+        .travel
+        .as_mut()
+        .filter(|active| active.elapsed_s.to_bits() != elapsed_s.to_bits())
+    {
         active.elapsed_s = elapsed_s;
     }
+    camera.semantic_snapshot() != before
 }
 
 pub(crate) fn framing_distance_units(loaded: &LoadedCatalog, body_index: usize) -> f64 {
@@ -718,6 +787,7 @@ pub struct HeadlessSimulation {
     loaded: LoadedCatalog,
     clock: SimClock,
     states: BodyStates,
+    propagation: PropagationStamp,
     camera: CameraController,
     layers: LayerState,
     presentation: PresentationState,
@@ -738,6 +808,7 @@ impl HeadlessSimulation {
         let loaded = LoadedCatalog::new(catalog.clone());
         let wall_now_t = 0.0;
         let clock = SimClock::new(StartMode::default(), wall_now_t);
+        let propagation = PropagationStamp::initialized(clock.t());
         let states = crate::propagate_catalog(&loaded.catalog, clock.t())
             .map_err(ReplayRunError::Propagation)?;
         let focus_body_index = loaded.index_of("sun").ok_or(ReplayRunError::MissingSun)?;
@@ -763,6 +834,7 @@ impl HeadlessSimulation {
             loaded,
             clock,
             states,
+            propagation,
             camera,
             layers: LayerState::default(),
             presentation: PresentationState::default(),
@@ -796,6 +868,21 @@ impl HeadlessSimulation {
 
     pub fn layer_state(&self) -> &LayerState {
         &self.layers
+    }
+
+    #[cfg(test)]
+    pub(crate) fn navigation_label(&self) -> String {
+        self.navigation.label()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn app_settings(&self) -> &AppSettings {
+        &self.app_settings
+    }
+
+    #[cfg(test)]
+    pub(crate) fn settings_save_requested(&self) -> bool {
+        self.settings_save.is_requested()
     }
 
     pub fn layer_state_hash(&self) -> u64 {
@@ -861,7 +948,12 @@ impl HeadlessSimulation {
         );
         self.wall_now_t = wall_now_t;
         self.clock.tick(wall_dt_s, wall_now_t);
-        propagate_into(&self.loaded.catalog, self.clock.t(), &mut self.states)?;
+        propagate_at_changed_time(
+            &self.loaded.catalog,
+            self.clock.t(),
+            &mut self.states,
+            &mut self.propagation,
+        )?;
         advance_camera_controller(&mut self.camera, &self.states, wall_dt_s);
         left_panel::sync_left_panel_selection_state(
             &self.camera,
@@ -1526,7 +1618,7 @@ impl Fnv1a {
 mod tests {
     use super::*;
     use crate::load_catalog_text;
-    use sim_core::time::{t_from_jd_tdb, T_MIN_S};
+    use sim_core::time::{t_from_jd_tdb, T_MAX_S, T_MIN_S};
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
     const FRAME_DT_S: f64 = 1.0 / 60.0;
@@ -2601,6 +2693,109 @@ mod tests {
             recording.stream().entries()[0].sim_time_s,
             t_from_jd_tdb(2_461_042.0)
         );
+    }
+
+    #[test]
+    fn headless_paused_and_rate_only_frames_reuse_exact_body_truth() {
+        let catalog = catalog();
+        let mut simulation = HeadlessSimulation::new(&catalog).unwrap();
+        let initial_t = simulation.clock.t();
+        let initial_states = simulation.states.0.clone();
+        assert_eq!(simulation.propagation.generation(), 1);
+
+        simulation
+            .step_with_wall_time(0.0, 0.0, &[SimCommand::Pause], None)
+            .unwrap();
+        simulation
+            .step_with_wall_time(
+                0.0,
+                0.0,
+                &[
+                    SimCommand::SetRate(RateIndex::MAX),
+                    SimCommand::SetLayerVisibility {
+                        layer: LayerId::Labels,
+                        visible: false,
+                    },
+                    SimCommand::SetBodySize(BodySizeScale::X10),
+                ],
+                None,
+            )
+            .unwrap();
+        assert_eq!(simulation.clock.t().to_bits(), initial_t.to_bits());
+        assert_eq!(simulation.propagation.generation(), 1);
+        assert_eq!(simulation.states.0, initial_states);
+
+        let target_t = initial_t + sim_core::catalog::SECONDS_PER_DAY;
+        simulation
+            .step_with_wall_time(0.0, 0.0, &[SimCommand::SetTime(target_t)], None)
+            .unwrap();
+        assert_eq!(simulation.propagation.generation(), 2);
+        let fresh = crate::propagate_catalog(&catalog, target_t).unwrap();
+        assert_eq!(simulation.states.0, fresh.0);
+
+        simulation
+            .step_with_wall_time(
+                0.0,
+                0.0,
+                &[SimCommand::SetTime(target_t), SimCommand::Pause],
+                None,
+            )
+            .unwrap();
+        assert_eq!(simulation.propagation.generation(), 2);
+        assert_eq!(simulation.states.0, fresh.0);
+    }
+
+    #[test]
+    fn headless_propagation_tracks_actual_pinned_and_live_eased_time_only() {
+        let catalog = catalog();
+        let mut pinned = HeadlessSimulation::new(&catalog).unwrap();
+        pinned
+            .step_with_wall_time(
+                0.0,
+                0.0,
+                &[
+                    SimCommand::SetTime(T_MAX_S),
+                    SimCommand::SetRate(RateIndex::MAX),
+                    SimCommand::Play,
+                ],
+                None,
+            )
+            .unwrap();
+        assert_eq!(pinned.clock.t(), T_MAX_S);
+        assert_eq!(pinned.propagation.generation(), 2);
+
+        // A configured +100 yr/s rate does not fabricate propagation work at
+        // the pin because the exact post-tick time did not advance.
+        pinned
+            .step_with_wall_time(FRAME_DT_S, FRAME_DT_S, &[], None)
+            .unwrap();
+        assert_eq!(pinned.clock.t(), T_MAX_S);
+        assert_eq!(pinned.propagation.generation(), 2);
+
+        pinned
+            .step_with_wall_time(
+                FRAME_DT_S,
+                2.0 * FRAME_DT_S,
+                &[SimCommand::SetRate(RateIndex::MIN)],
+                None,
+            )
+            .unwrap();
+        assert!(pinned.clock.t() < T_MAX_S);
+        assert_eq!(pinned.propagation.generation(), 3);
+
+        let mut live = HeadlessSimulation::new(&catalog).unwrap();
+        let wall_now_t = 1.0e9;
+        live.step_with_wall_time(FRAME_DT_S, wall_now_t, &[SimCommand::SnapToLive], None)
+            .unwrap();
+        let first_eased_t = live.clock.t();
+        assert_eq!(live.propagation.generation(), 2);
+
+        live.step_with_wall_time(FRAME_DT_S, wall_now_t + FRAME_DT_S, &[], None)
+            .unwrap();
+        assert_ne!(live.clock.t().to_bits(), first_eased_t.to_bits());
+        assert_eq!(live.propagation.generation(), 3);
+        let fresh = crate::propagate_catalog(&catalog, live.clock.t()).unwrap();
+        assert_eq!(live.states.0, fresh.0);
     }
 
     #[test]

@@ -660,27 +660,36 @@ fn sync_time_playback_controls(
     } else {
         0.0
     };
+    let rate_label = if playing {
+        clock.0.rate().label()
+    } else {
+        "PAUSED".to_string()
+    };
     for mut label in &mut rate_labels {
-        **label = if playing {
-            clock.0.rate().label()
-        } else {
-            "PAUSED".to_string()
-        };
+        if label.as_str() != rate_label {
+            **label = rate_label.clone();
+        }
     }
     for (entity, value, drag) in &sliders {
         if !drag.dragging && value.0 != slider_value {
             commands.entity(entity).insert(SliderValue(slider_value));
         }
     }
+    let desired_play_background = if playing {
+        with_alpha(theme.colors.accent, 40)
+    } else {
+        theme.colors.panel.color()
+    };
     for mut background in &mut play_buttons {
-        background.0 = if playing {
-            with_alpha(theme.colors.accent, 40)
-        } else {
-            theme.colors.panel.color()
-        };
+        if background.0 != desired_play_background {
+            background.0 = desired_play_background;
+        }
     }
+    let desired_glyph = if playing { "Ⅱ" } else { "▶" };
     for mut glyph in &mut play_glyphs {
-        **glyph = if playing { "Ⅱ" } else { "▶" }.to_string();
+        if glyph.as_str() != desired_glyph {
+            **glyph = desired_glyph.to_string();
+        }
     }
 }
 
@@ -697,32 +706,46 @@ fn sync_live_chip(
     } else {
         theme.colors.text_disabled.color()
     };
+    let desired_chip_background = if is_live {
+        with_alpha(theme.colors.status_live, 28)
+    } else {
+        theme.colors.background.color()
+    };
+    let desired_chip_border = BorderColor::all(if is_live {
+        theme.colors.status_live.color()
+    } else {
+        theme.colors.separator.color()
+    });
     for (mut background, mut border) in &mut live_chips {
-        background.0 = if is_live {
-            with_alpha(theme.colors.status_live, 28)
-        } else {
-            theme.colors.background.color()
-        };
-        *border = BorderColor::all(if is_live {
-            theme.colors.status_live.color()
-        } else {
-            theme.colors.separator.color()
-        });
+        if background.0 != desired_chip_background {
+            background.0 = desired_chip_background;
+        }
+        if *border != desired_chip_border {
+            *border = desired_chip_border;
+        }
     }
     for mut dot in &mut live_dots {
-        dot.0 = dot_color;
+        if dot.0 != dot_color {
+            dot.0 = dot_color;
+        }
     }
+    let desired_text_color = if is_live {
+        theme.colors.status_live.color()
+    } else {
+        theme.colors.text_disabled.color()
+    };
     for mut text in &mut live_text {
-        text.0 = if is_live {
-            theme.colors.status_live.color()
-        } else {
-            theme.colors.text_disabled.color()
-        };
+        if text.0 != desired_text_color {
+            text.0 = desired_text_color;
+        }
     }
 }
 
+type ChangedTimeRateSliders<'w, 's> =
+    Query<'w, 's, (Entity, &'static SliderValue), (With<TimeRateSlider>, Changed<SliderValue>)>;
+
 fn update_slider_thumb(
-    sliders: Query<(Entity, &SliderValue), With<TimeRateSlider>>,
+    sliders: ChangedTimeRateSliders,
     children: Query<&Children>,
     mut thumbs: Query<&mut Node, With<TimeSliderThumb>>,
 ) {
@@ -730,7 +753,10 @@ fn update_slider_thumb(
         let position = (value.0 + SLIDER_LIMIT) / (2.0 * SLIDER_LIMIT) * 100.0;
         for descendant in children.iter_descendants(slider) {
             if let Ok(mut thumb) = thumbs.get_mut(descendant) {
-                thumb.left = percent(position);
+                let desired = percent(position);
+                if thumb.left != desired {
+                    thumb.left = desired;
+                }
             }
         }
     }
@@ -847,6 +873,49 @@ mod tests {
     use std::time::Duration;
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
+
+    #[derive(Resource, Debug, Default)]
+    struct TimeControlWrites {
+        texts: usize,
+        backgrounds: usize,
+        borders: usize,
+        text_colors: usize,
+        nodes: usize,
+    }
+
+    type ChangedTimeControlTexts<'w, 's> = Query<
+        'w,
+        's,
+        Entity,
+        (
+            Changed<Text>,
+            Or<(With<TimeRateLabel>, With<PlayPauseGlyph>)>,
+        ),
+    >;
+    type ChangedTimeControlBackgrounds<'w, 's> = Query<
+        'w,
+        's,
+        Entity,
+        (
+            Changed<BackgroundColor>,
+            Or<(With<PlayPauseButton>, With<LiveChip>, With<LiveDot>)>,
+        ),
+    >;
+
+    fn count_time_control_writes(
+        texts: ChangedTimeControlTexts,
+        backgrounds: ChangedTimeControlBackgrounds,
+        borders: Query<Entity, (Changed<BorderColor>, With<LiveChip>)>,
+        text_colors: Query<Entity, (Changed<TextColor>, With<LiveText>)>,
+        nodes: Query<Entity, (Changed<Node>, With<TimeSliderThumb>)>,
+        mut writes: ResMut<TimeControlWrites>,
+    ) {
+        writes.texts = texts.iter().count();
+        writes.backgrounds = backgrounds.iter().count();
+        writes.borders = borders.iter().count();
+        writes.text_colors = text_colors.iter().count();
+        writes.nodes = nodes.iter().count();
+    }
 
     fn time_edit_keypress(
         field: TimeEditField,
@@ -1052,6 +1121,63 @@ mod tests {
         assert!(!live_chip_active(&wrong_rate, now));
         assert!(!live_chip_active(&snapping, now));
         assert!(live_chip_active(&live, now));
+    }
+
+    #[test]
+    fn stable_time_controls_do_not_rewrite_components() {
+        let theme = UiTheme::default();
+        let mut clock = SimClock::new(StartMode::default(), 0.0);
+        clock.pause();
+        let mut app = App::new();
+        app.insert_resource(theme)
+            .insert_resource(SimulationClock(clock))
+            .init_resource::<TimeControlWrites>()
+            .add_systems(
+                Update,
+                (
+                    sync_time_playback_controls,
+                    sync_live_chip,
+                    update_slider_thumb,
+                    count_time_control_writes,
+                )
+                    .chain(),
+            );
+        app.world_mut().spawn((TimeRateLabel, Text::new("PAUSED")));
+        app.world_mut()
+            .spawn((PlayPauseButton, BackgroundColor(theme.colors.panel.color())));
+        app.world_mut().spawn((PlayPauseGlyph, Text::new("▶")));
+        app.world_mut().spawn((
+            LiveChip,
+            BackgroundColor(theme.colors.background.color()),
+            BorderColor::all(theme.colors.separator.color()),
+        ));
+        app.world_mut()
+            .spawn((LiveDot, BackgroundColor(theme.colors.text_disabled.color())));
+        app.world_mut()
+            .spawn((LiveText, TextColor(theme.colors.text_disabled.color())));
+        let slider = app
+            .world_mut()
+            .spawn((TimeRateSlider, SliderValue(0.0), SliderDragState::default()))
+            .id();
+        app.world_mut().spawn((
+            TimeSliderThumb,
+            Node {
+                left: percent(50),
+                ..default()
+            },
+            ChildOf(slider),
+        ));
+        app.update();
+
+        *app.world_mut().resource_mut::<TimeControlWrites>() = TimeControlWrites::default();
+        app.update();
+
+        let writes = app.world().resource::<TimeControlWrites>();
+        assert_eq!(writes.texts, 0);
+        assert_eq!(writes.backgrounds, 0);
+        assert_eq!(writes.borders, 0);
+        assert_eq!(writes.text_colors, 0);
+        assert_eq!(writes.nodes, 0);
     }
 
     #[test]

@@ -241,7 +241,9 @@ pub(super) fn update_breadcrumb(
     }
     let label = navigation.label();
     for mut breadcrumb in &mut breadcrumbs {
-        **breadcrumb = label.clone();
+        if breadcrumb.as_str() != label {
+            **breadcrumb = label.clone();
+        }
     }
 }
 
@@ -271,7 +273,9 @@ pub(super) fn rebuild_actionable_breadcrumb(
         commands.entity(root).despawn();
     }
     for mut visibility in &mut legacy_text {
-        *visibility = Visibility::Hidden;
+        if *visibility != Visibility::Hidden {
+            *visibility = Visibility::Hidden;
+        }
     }
     let root = commands
         .spawn((
@@ -529,6 +533,33 @@ mod tests {
             .get::<BreadcrumbAction>()
             .unwrap();
         assert_eq!(action.target_id, "earth");
+    }
+
+    #[test]
+    fn stable_navigation_retains_breadcrumb_entity_identity() {
+        let mut navigation = NavigationStack::root();
+        navigation.push("jupiter", "Jupiter");
+        let mut app = test_layout::app(960, 600, 1.0);
+        app.insert_resource(UiTheme::default())
+            .insert_resource(navigation)
+            .add_systems(Startup, spawn_top_bar)
+            .add_systems(Update, rebuild_actionable_breadcrumb);
+        test_layout::settle(&mut app);
+        let root = app
+            .world_mut()
+            .query_filtered::<Entity, With<BreadcrumbOverlayRoot>>()
+            .single(app.world())
+            .unwrap();
+
+        test_layout::settle(&mut app);
+
+        assert_eq!(
+            app.world_mut()
+                .query_filtered::<Entity, With<BreadcrumbOverlayRoot>>()
+                .single(app.world())
+                .unwrap(),
+            root
+        );
     }
 
     #[test]

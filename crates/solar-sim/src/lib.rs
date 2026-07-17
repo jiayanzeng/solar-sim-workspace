@@ -445,6 +445,54 @@ fn propagate_into(
     Ok(())
 }
 
+/// Exact-time reuse stamp for the immutable startup catalog.
+///
+/// Runtime catalog hot reload is deliberately not an architectural contract:
+/// startup validation fixes catalog truth for the process lifetime. Therefore
+/// the complete propagation cache key is the exact f64 simulation-time bits.
+/// Reusing that key introduces zero temporal approximation error.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct PropagationStamp {
+    last_t_bits: Option<u64>,
+    generation: u64,
+}
+
+impl PropagationStamp {
+    pub(crate) fn initialized(t_s: f64) -> Self {
+        Self {
+            last_t_bits: Some(t_s.to_bits()),
+            generation: 1,
+        }
+    }
+
+    fn needs_propagation(self, t_s: f64) -> bool {
+        self.last_t_bits != Some(t_s.to_bits())
+    }
+
+    #[cfg(test)]
+    fn generation(self) -> u64 {
+        self.generation
+    }
+}
+
+/// Shared desktop/headless exact-time propagation policy. `BodyStates` are
+/// left bit-identical when time is unchanged, while every distinct exact time
+/// is evaluated once through the same f64 pipeline.
+pub(crate) fn propagate_at_changed_time(
+    catalog: &Catalog,
+    t_s: f64,
+    states: &mut BodyStates,
+    stamp: &mut PropagationStamp,
+) -> Result<bool, PropagationError> {
+    if !stamp.needs_propagation(t_s) {
+        return Ok(false);
+    }
+    propagate_into(catalog, t_s, states)?;
+    stamp.last_t_bits = Some(t_s.to_bits());
+    stamp.generation = stamp.generation.saturating_add(1);
+    Ok(true)
+}
+
 fn add_f64(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 }
@@ -592,7 +640,8 @@ pub struct PropagationPlugin;
 
 impl Plugin for PropagationPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, propagate_bodies.in_set(SimulationSet::Propagation));
+        app.init_resource::<PropagationStamp>()
+            .add_systems(Update, propagate_bodies.in_set(SimulationSet::Propagation));
     }
 }
 
@@ -746,6 +795,7 @@ fn build_app_with_platform<P: Plugin>(
     let initial_commands = SimCommandQueue::default();
     app.insert_resource(SimulationClock(initial_clock))
         .insert_resource(SimulationTickAdvance::default())
+        .insert_resource(PropagationStamp::default())
         .insert_resource(initial_commands)
         .insert_resource(CommandRecording::default())
         .insert_resource(SimulationFrame::default())
@@ -801,7 +851,8 @@ fn build_app_with_platform<P: Plugin>(
             }
             app.insert_resource(camera)
                 .insert_resource(loaded)
-                .insert_resource(states);
+                .insert_resource(states)
+                .insert_resource(PropagationStamp::initialized(initial_t_s));
         }
         Err(error) => {
             app.insert_resource(CatalogFailure(error.to_string()))
@@ -912,38 +963,92 @@ fn apply_sim_commands(gate: SimCommandGate) {
         if matches!(command, SimCommand::SimulateDeviceLoss) {
             request_debug_device_loss(&mut debug_device_loss);
         }
+        let clock_before = clock_semantic_state(&clock.0);
+        let camera_before = camera.as_deref().map(CameraController::semantic_snapshot);
         let layers_before = *layers;
         let presentation_before = *presentation;
+        let view_options_before = (*view_options).clone();
+        let left_panel_before = (*left_panel).clone();
+        let navigation_before = (*navigation).clone();
+        let browse_before = (*browse).clone();
+        let app_settings_before = (*app_settings).clone();
+        let settings_screen_before = (*settings_screen).clone();
+        let settings_save_before = settings_save.is_requested();
         consume_application_command(
             &command,
             loaded.as_deref(),
             layers.bypass_change_detection(),
             presentation.bypass_change_detection(),
-            &mut view_options,
-            &mut left_panel,
-            &mut navigation,
-            &mut browse,
-            &mut app_settings,
-            &mut settings_screen,
-            &mut settings_save,
+            view_options.bypass_change_detection(),
+            left_panel.bypass_change_detection(),
+            navigation.bypass_change_detection(),
+            browse.bypass_change_detection(),
+            app_settings.bypass_change_detection(),
+            settings_screen.bypass_change_detection(),
+            settings_save.bypass_change_detection(),
         );
+        if let (Some(loaded), Some(camera)) = (loaded.as_deref(), camera.as_mut()) {
+            let command_report = consume_sim_command(
+                &command,
+                &mut clock.bypass_change_detection().0,
+                camera.bypass_change_detection(),
+                loaded,
+                &navigation,
+            );
+            let camera = camera.bypass_change_detection();
+            write_tick_report(command_report, &mut reports);
+            left_panel::sync_left_panel_selection_state(
+                camera,
+                loaded,
+                left_panel.bypass_change_detection(),
+                navigation.bypass_change_detection(),
+            );
+        }
+        if clock_semantic_state(&clock.0) != clock_before {
+            clock.set_changed();
+        }
+        if camera.as_deref().map(CameraController::semantic_snapshot) != camera_before {
+            if let Some(camera) = camera.as_mut() {
+                camera.set_changed();
+            }
+        }
         if *layers != layers_before {
             layers.set_changed();
         }
         if *presentation != presentation_before {
             presentation.set_changed();
         }
-        if let (Some(loaded), Some(camera)) = (loaded.as_deref(), camera.as_deref_mut()) {
-            let report = consume_sim_command(&command, &mut clock.0, camera, loaded, &navigation);
-            write_tick_report(report, &mut reports);
-            left_panel::sync_left_panel_selection_state(
-                camera,
-                loaded,
-                &mut left_panel,
-                &mut navigation,
-            );
+        if *view_options != view_options_before {
+            view_options.set_changed();
+        }
+        if *left_panel != left_panel_before {
+            left_panel.set_changed();
+        }
+        if *navigation != navigation_before {
+            navigation.set_changed();
+        }
+        if *browse != browse_before {
+            browse.set_changed();
+        }
+        if *app_settings != app_settings_before {
+            app_settings.set_changed();
+        }
+        if *settings_screen != settings_screen_before {
+            settings_screen.set_changed();
+        }
+        if settings_save.is_requested() != settings_save_before {
+            settings_save.set_changed();
         }
     }
+}
+
+fn clock_semantic_state(clock: &SimClock) -> (u64, sim_core::time::RateIndex, bool, bool) {
+    (
+        clock.t().to_bits(),
+        clock.rate(),
+        clock.is_playing(),
+        clock.is_snapping(),
+    )
 }
 
 fn tick_clock(
@@ -968,7 +1073,9 @@ fn tick_clock(
         wall_dt_s,
         wall_now_t,
     );
-    *tick_advance = actual_advance;
+    if *tick_advance != actual_advance {
+        *tick_advance = actual_advance;
+    }
     let after = (
         clock.0.t().to_bits(),
         clock.0.rate(),
@@ -1004,22 +1111,35 @@ fn propagate_bodies(
     loaded: Option<Res<LoadedCatalog>>,
     clock: Res<SimulationClock>,
     states: Option<ResMut<BodyStates>>,
+    mut stamp: ResMut<PropagationStamp>,
     mut fault: ResMut<PropagationFault>,
 ) {
-    if !clock.is_changed() {
+    if !stamp.needs_propagation(clock.0.t()) {
         return;
     }
     let (Some(loaded), Some(mut states)) = (loaded, states) else {
         return;
     };
-    match propagate_into(&loaded.catalog, clock.0.t(), &mut states) {
-        Ok(()) => fault.0 = None,
+    match propagate_at_changed_time(
+        &loaded.catalog,
+        clock.0.t(),
+        states.bypass_change_detection(),
+        stamp.bypass_change_detection(),
+    ) {
+        Ok(changed) => {
+            debug_assert!(changed);
+            states.set_changed();
+            stamp.set_changed();
+            if fault.0.is_some() {
+                fault.0 = None;
+            }
+        }
         Err(error) => {
             let message = error.to_string();
             if fault.0.as_deref() != Some(message.as_str()) {
                 error!("{message}");
+                fault.0 = Some(message);
             }
-            fault.0 = Some(message);
         }
     }
 }
@@ -1032,7 +1152,16 @@ fn advance_camera_focus(
     let (Some(states), Some(mut camera)) = (states, camera) else {
         return;
     };
-    advance_camera_controller(&mut camera, &states, time.delta_secs_f64());
+    if !states.is_changed() && !camera.is_travelling() {
+        return;
+    }
+    if advance_camera_controller(
+        camera.bypass_change_detection(),
+        &states,
+        time.delta_secs_f64(),
+    ) {
+        camera.set_changed();
+    }
 }
 
 pub fn rebase_position(position_km: [f64; 3], focus_km: [f64; 3]) -> Vec3 {
@@ -1053,10 +1182,16 @@ fn update_focus_and_rebase(
     let (Some(states), Some(camera)) = (states, camera) else {
         return;
     };
+    if !states.is_changed() && !camera.is_changed() {
+        return;
+    }
     let focus_position_km = camera.focus_position_km();
     for (visual, mut transform) in &mut bodies {
         if let Some(state) = states.0.get(visual.index) {
-            transform.translation = rebase_position(state.position_km, focus_position_km);
+            let translation = rebase_position(state.position_km, focus_position_km);
+            if transform.translation != translation {
+                transform.translation = translation;
+            }
         }
     }
 }
@@ -1166,9 +1301,18 @@ fn update_camera(
     controller: Res<CameraController>,
     mut camera: Query<&mut Transform, With<Camera3d>>,
 ) {
+    if !controller.is_changed() {
+        return;
+    }
+    let mut desired = Transform::from_translation(controller.render_translation());
+    desired.look_at(Vec3::ZERO, Vec3::Y);
     for mut transform in &mut camera {
-        transform.translation = controller.render_translation();
-        transform.look_at(Vec3::ZERO, Vec3::Y);
+        if transform.translation != desired.translation {
+            transform.translation = desired.translation;
+        }
+        if transform.rotation != desired.rotation {
+            transform.rotation = desired.rotation;
+        }
     }
 }
 
@@ -1441,6 +1585,83 @@ mod tests {
         assert_eq!(states.0[io], expected);
     }
 
+    #[derive(Resource, Default)]
+    struct BodyStateChangeProbe(u64);
+
+    fn count_body_state_changes(states: Res<BodyStates>, mut probe: ResMut<BodyStateChangeProbe>) {
+        if states.is_changed() {
+            probe.0 += 1;
+        }
+    }
+
+    #[test]
+    fn desktop_propagation_reuses_exact_time_and_changes_once_for_a_time_jump() {
+        let catalog = catalog();
+        let mut clock = SimClock::new(StartMode::default(), 0.0);
+        clock.pause();
+        let initial_t = clock.t();
+        let initial_states = propagate_catalog(&catalog, initial_t).unwrap();
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(LoadedCatalog::new(catalog.clone()))
+            .insert_resource(SimulationClock(clock))
+            .insert_resource(initial_states.clone())
+            .insert_resource(PropagationStamp::initialized(initial_t))
+            .init_resource::<PropagationFault>()
+            .init_resource::<BodyStateChangeProbe>()
+            .add_systems(Update, (propagate_bodies, count_body_state_changes).chain());
+
+        // The inserted truth is generation one. An idle frame observes the
+        // initial Bevy insertion but performs no second propagation.
+        app.update();
+        assert_eq!(app.world().resource::<PropagationStamp>().generation(), 1);
+        let inserted_change_count = app.world().resource::<BodyStateChangeProbe>().0;
+        assert_eq!(app.world().resource::<BodyStates>().0, initial_states.0);
+
+        app.update();
+        assert_eq!(app.world().resource::<PropagationStamp>().generation(), 1);
+        assert_eq!(
+            app.world().resource::<BodyStateChangeProbe>().0,
+            inserted_change_count
+        );
+
+        // Rate is UI-facing clock state, not propagation truth while paused.
+        app.world_mut()
+            .resource_mut::<SimulationClock>()
+            .0
+            .set_rate(RateIndex::MAX);
+        app.update();
+        assert_eq!(app.world().resource::<PropagationStamp>().generation(), 1);
+        assert_eq!(
+            app.world().resource::<BodyStateChangeProbe>().0,
+            inserted_change_count
+        );
+
+        let target_t = initial_t + sim_core::catalog::SECONDS_PER_DAY;
+        app.world_mut()
+            .resource_mut::<SimulationClock>()
+            .0
+            .set_t(target_t);
+        app.update();
+        assert_eq!(app.world().resource::<PropagationStamp>().generation(), 2);
+        assert_eq!(
+            app.world().resource::<BodyStateChangeProbe>().0,
+            inserted_change_count + 1
+        );
+        let fresh = propagate_catalog(&catalog, target_t).unwrap();
+        assert_eq!(app.world().resource::<BodyStates>().0, fresh.0);
+
+        // Reusing the exact f64 key has a zero-kilometre cache error and does
+        // not advertise a second BodyStates change.
+        app.update();
+        assert_eq!(app.world().resource::<PropagationStamp>().generation(), 2);
+        assert_eq!(
+            app.world().resource::<BodyStateChangeProbe>().0,
+            inserted_change_count + 1
+        );
+        assert_eq!(app.world().resource::<BodyStates>().0, fresh.0);
+    }
+
     #[test]
     fn planet_states_match_direct_core_output_bit_for_bit_at_catalog_epoch() {
         let catalog = catalog();
@@ -1547,6 +1768,71 @@ mod tests {
             let rebased = rebase_position(one_km_away, position);
             assert!((rebased.x - 0.001).abs() <= 2.0e-8, "{id}: {rebased:?}");
         }
+    }
+
+    #[derive(Resource, Default)]
+    struct TransformWriteProbe(usize);
+
+    fn capture_transform_writes(
+        changed: Query<(), Changed<Transform>>,
+        mut probe: ResMut<TransformWriteProbe>,
+    ) {
+        probe.0 = changed.iter().count();
+    }
+
+    #[test]
+    fn idle_origin_and_camera_systems_do_not_rewrite_unchanged_transforms() {
+        let states = BodyStates(vec![
+            StateVector::default(),
+            StateVector {
+                position_km: [1_000.0, 0.0, 0.0],
+                velocity_km_s: [0.0; 3],
+            },
+        ]);
+        let camera = CameraController::new(0, [0.0; 3], DEFAULT_CAMERA_DISTANCE_UNITS);
+        let body_translation = rebase_position(states.0[1].position_km, [0.0; 3]);
+        let mut camera_transform = Transform::from_translation(camera.render_translation());
+        camera_transform.look_at(Vec3::ZERO, Vec3::Y);
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(states)
+            .insert_resource(camera)
+            .init_resource::<TransformWriteProbe>();
+        app.world_mut().spawn((
+            BodyVisual { index: 1 },
+            Transform::from_translation(body_translation),
+        ));
+        app.world_mut()
+            .spawn((Camera3d::default(), camera_transform));
+        app.add_systems(
+            Update,
+            (
+                advance_camera_focus,
+                update_focus_and_rebase,
+                update_camera,
+                capture_transform_writes,
+            )
+                .chain(),
+        );
+
+        app.update();
+        app.update();
+        assert_eq!(app.world().resource::<TransformWriteProbe>().0, 0);
+
+        // Even upstream false-positive flags cannot force a transform write;
+        // the render values are compared before acquiring mutable component
+        // access.
+        app.world_mut().resource_mut::<BodyStates>().set_changed();
+        app.world_mut()
+            .resource_mut::<CameraController>()
+            .set_changed();
+        app.update();
+        assert_eq!(app.world().resource::<TransformWriteProbe>().0, 0);
+
+        app.world_mut().resource_mut::<BodyStates>().0[1].position_km[0] = 2_000.0;
+        app.update();
+        assert_eq!(app.world().resource::<TransformWriteProbe>().0, 1);
     }
 
     #[test]
@@ -1773,6 +2059,173 @@ mod tests {
                 SimulationSet::Camera,
                 SimulationSet::Render,
             ]
+        );
+    }
+
+    #[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
+    struct SemanticChangeProbe {
+        clock: bool,
+        camera: bool,
+        layers: bool,
+        presentation: bool,
+        view_options: bool,
+        left_panel: bool,
+        navigation: bool,
+        browse: bool,
+        app_settings: bool,
+        settings_screen: bool,
+        settings_save: bool,
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn capture_semantic_change_flags(
+        clock: Res<SimulationClock>,
+        camera: Res<CameraController>,
+        layers: Res<LayerState>,
+        presentation: Res<PresentationState>,
+        view_options: Res<ViewOptionsState>,
+        left_panel: Res<left_panel::LeftPanelUiState>,
+        navigation: Res<NavigationStack>,
+        browse: Res<search::BrowseUiState>,
+        app_settings: Res<AppSettings>,
+        settings_screen: Res<settings::SettingsScreenState>,
+        settings_save: Res<settings::SettingsSaveRequest>,
+        mut probe: ResMut<SemanticChangeProbe>,
+    ) {
+        *probe = SemanticChangeProbe {
+            clock: clock.is_changed(),
+            camera: camera.is_changed(),
+            layers: layers.is_changed(),
+            presentation: presentation.is_changed(),
+            view_options: view_options.is_changed(),
+            left_panel: left_panel.is_changed(),
+            navigation: navigation.is_changed(),
+            browse: browse.is_changed(),
+            app_settings: app_settings.is_changed(),
+            settings_screen: settings_screen.is_changed(),
+            settings_save: settings_save.is_changed(),
+        };
+    }
+
+    fn command_gate_change_test_app() -> App {
+        let catalog = catalog();
+        let clock = SimClock::new(StartMode::default(), 0.0);
+        let states = propagate_catalog(&catalog, clock.t()).unwrap();
+        let loaded = LoadedCatalog::new(catalog);
+        let sun = loaded.index_of("sun").unwrap();
+        let camera = CameraController::new(
+            sun,
+            states.0[sun].position_km,
+            DEFAULT_CAMERA_DISTANCE_UNITS,
+        );
+        let mut left_panel = left_panel::LeftPanelUiState::default();
+        let mut navigation = NavigationStack::default();
+        left_panel::sync_left_panel_selection_state(
+            &camera,
+            &loaded,
+            &mut left_panel,
+            &mut navigation,
+        );
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<SimCommandQueue>()
+            .insert_resource(SimulationClock(clock))
+            .insert_resource(loaded)
+            .insert_resource(camera)
+            .init_resource::<SimulationFrame>()
+            .init_resource::<CommandRecording>()
+            .init_resource::<LayerState>()
+            .init_resource::<PresentationState>()
+            .init_resource::<ViewOptionsState>()
+            .insert_resource(left_panel)
+            .insert_resource(navigation)
+            .init_resource::<search::BrowseUiState>()
+            .init_resource::<AppSettings>()
+            .init_resource::<settings::SettingsScreenState>()
+            .init_resource::<settings::SettingsSaveRequest>()
+            .init_resource::<SemanticChangeProbe>()
+            .add_message::<ClockTickReport>()
+            .add_systems(
+                Update,
+                (apply_sim_commands, capture_semantic_change_flags).chain(),
+            );
+        #[cfg(debug_assertions)]
+        app.init_resource::<DebugDeviceLossRequest>();
+        app
+    }
+
+    #[test]
+    fn duplicate_commands_preserve_semantic_change_flags_but_still_request_explicit_save() {
+        let mut app = command_gate_change_test_app();
+        app.update();
+
+        {
+            let mut queue = app.world_mut().resource_mut::<SimCommandQueue>();
+            queue.push(SimCommand::SetLayerVisibility {
+                layer: LayerId::Labels,
+                visible: true,
+            });
+            queue.push(SimCommand::SetBodySize(BodySizeScale::X1));
+            queue.push(SimCommand::SetLeftPanelCollapsed(false));
+            queue.push(SimCommand::SetBrowseOpen(false));
+            queue.push(SimCommand::CloseSettings);
+            queue.push(SimCommand::ApplySettings(Box::default()));
+        }
+        app.update();
+
+        assert_eq!(
+            *app.world().resource::<SemanticChangeProbe>(),
+            SemanticChangeProbe {
+                settings_save: true,
+                ..default()
+            }
+        );
+        assert!(app
+            .world()
+            .resource::<settings::SettingsSaveRequest>()
+            .is_requested());
+
+        app.world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .push(SimCommand::Pause);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<SemanticChangeProbe>(),
+            SemanticChangeProbe {
+                clock: true,
+                ..default()
+            }
+        );
+
+        app.world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .push(SimCommand::Pause);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<SemanticChangeProbe>(),
+            SemanticChangeProbe::default()
+        );
+
+        app.world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .push(SimCommand::SetTime(T_MAX_S + 1.0));
+        app.update();
+        assert_eq!(
+            *app.world().resource::<SemanticChangeProbe>(),
+            SemanticChangeProbe {
+                clock: true,
+                ..default()
+            }
+        );
+
+        app.world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .push(SimCommand::SetTime(T_MAX_S + 1.0));
+        app.update();
+        assert_eq!(
+            *app.world().resource::<SemanticChangeProbe>(),
+            SemanticChangeProbe::default(),
+            "a repeated explicit clamp may emit its report without advertising changed clock truth"
         );
     }
 

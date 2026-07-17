@@ -465,7 +465,7 @@ enum BrowseFocusTarget {
     Menu,
 }
 
-#[derive(Resource, Debug, Default)]
+#[derive(Resource, Debug, Clone, Default, PartialEq)]
 pub(crate) struct BrowseUiState {
     open: bool,
     expanded: [bool; 3],
@@ -490,17 +490,21 @@ impl BrowseUiState {
 pub(crate) fn consume_search_command(command: &SimCommand, state: &mut BrowseUiState) {
     match command {
         SimCommand::SetBrowseOpen(open) => {
-            let was_open = state.open;
-            state.restore_focus = (was_open && !open).then_some(BrowseFocusTarget::Menu);
-            if !was_open || !open {
-                state.restore_action = None;
+            if state.open == *open {
+                return;
             }
+            let was_open = state.open;
+            state.restore_focus = (was_open && !*open).then_some(BrowseFocusTarget::Menu);
+            state.restore_action = None;
             state.open = *open;
             state.dirty = true;
         }
         SimCommand::SetBrowseColumnExpanded { column, expanded } => {
             let column = usize::from(*column);
             if let Some(value) = state.expanded.get_mut(column) {
+                if *value == *expanded {
+                    return;
+                }
                 *value = *expanded;
                 state.scroll_y[column] = 0.0;
                 state.reset_scroll_column = Some(column);
@@ -508,6 +512,14 @@ pub(crate) fn consume_search_command(command: &SimCommand, state: &mut BrowseUiS
             }
         }
         SimCommand::RestorePresentationDefaults => {
+            let changed = state.open
+                || state.expanded != [false; 3]
+                || state.scroll_y != [0.0; 3]
+                || state.restore_action.is_some()
+                || state.reset_scroll_column.is_some();
+            if !changed {
+                return;
+            }
             let was_open = state.open;
             state.open = false;
             state.expanded = [false; 3];
@@ -582,12 +594,15 @@ fn sync_search_input(
         return;
     };
     let value = editable.value().to_string();
+    let desired_hint_visibility = if value.is_empty() {
+        Visibility::Visible
+    } else {
+        Visibility::Hidden
+    };
     for mut visibility in &mut hints {
-        *visibility = if value.is_empty() {
-            Visibility::Visible
-        } else {
-            Visibility::Hidden
-        };
+        if *visibility != desired_hint_visibility {
+            *visibility = desired_hint_visibility;
+        }
     }
 
     if let Some(expected) = state.pending_value.as_deref() {
@@ -1436,6 +1451,16 @@ mod tests {
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
 
+    #[derive(Resource, Debug, Default)]
+    struct SearchHintWrites(usize);
+
+    fn count_search_hint_writes(
+        hints: Query<Entity, (With<SearchHint>, Changed<Visibility>)>,
+        mut writes: ResMut<SearchHintWrites>,
+    ) {
+        writes.0 = hints.iter().count();
+    }
+
     fn real_catalog() -> Catalog {
         load_catalog_text(REAL_CATALOG).expect("committed catalog must load")
     }
@@ -1471,6 +1496,13 @@ mod tests {
             .query_filtered::<Entity, With<T>>()
             .iter(world)
             .count()
+    }
+
+    fn component_entity<T: Component>(world: &mut World) -> Entity {
+        world
+            .query_filtered::<Entity, With<T>>()
+            .single(world)
+            .unwrap()
     }
 
     #[test]
@@ -1670,6 +1702,69 @@ mod tests {
         );
         app.update();
         assert_eq!(app.world().resource::<InputFocus>().get(), Some(menu));
+    }
+
+    #[test]
+    fn duplicate_browse_commands_retain_the_live_surface_entity() {
+        let mut app = App::new();
+        app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default()))
+            .init_asset::<Font>()
+            .insert_resource(LoadedCatalog::new(real_catalog()))
+            .insert_resource(UiTheme::default())
+            .insert_resource(BrowseUiState {
+                open: true,
+                dirty: true,
+                ..default()
+            })
+            .init_resource::<InputFocus>()
+            .add_systems(Update, rebuild_browse_menu);
+        app.update();
+        let root = component_entity::<BrowseMenuRoot>(app.world_mut());
+
+        let before = app.world().resource::<BrowseUiState>().clone();
+        consume_search_command(
+            &SimCommand::SetBrowseOpen(true),
+            &mut app.world_mut().resource_mut::<BrowseUiState>(),
+        );
+        consume_search_command(
+            &SimCommand::SetBrowseColumnExpanded {
+                column: 0,
+                expanded: false,
+            },
+            &mut app.world_mut().resource_mut::<BrowseUiState>(),
+        );
+        assert_eq!(*app.world().resource::<BrowseUiState>(), before);
+        app.update();
+
+        assert_eq!(component_entity::<BrowseMenuRoot>(app.world_mut()), root);
+
+        let mut closed = BrowseUiState::default();
+        let closed_before = closed.clone();
+        consume_search_command(&SimCommand::SetBrowseOpen(false), &mut closed);
+        consume_search_command(&SimCommand::RestorePresentationDefaults, &mut closed);
+        assert_eq!(closed, closed_before);
+    }
+
+    #[test]
+    fn stable_search_hint_visibility_is_not_rewritten() {
+        let mut app = App::new();
+        app.init_resource::<InputFocus>()
+            .init_resource::<SearchUiState>()
+            .init_resource::<SearchHintWrites>()
+            .add_systems(
+                Update,
+                (
+                    sync_search_input,
+                    count_search_hint_writes.after(sync_search_input),
+                ),
+            );
+        app.world_mut().spawn((SearchInput, EditableText::new("")));
+        app.world_mut().spawn((SearchHint, Visibility::Visible));
+        app.update();
+
+        app.world_mut().resource_mut::<SearchHintWrites>().0 = 0;
+        app.update();
+        assert_eq!(app.world().resource::<SearchHintWrites>().0, 0);
     }
 
     #[test]

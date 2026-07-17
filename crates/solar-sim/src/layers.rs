@@ -295,6 +295,8 @@ struct RailUiState {
     rail_scroll_y: f32,
     layers_scroll_y: f32,
     restore_focus: Option<RailFocusTarget>,
+    rendered_layers: Option<LayerState>,
+    rendered_fullscreen: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -349,6 +351,8 @@ impl Default for RailUiState {
             rail_scroll_y: 0.0,
             layers_scroll_y: 0.0,
             restore_focus: None,
+            rendered_layers: None,
+            rendered_fullscreen: None,
         }
     }
 }
@@ -587,9 +591,21 @@ fn rebuild_right_rail(mut commands: Commands, params: RailRenderParams) {
         rail_actions,
         layer_toggles,
     } = params;
-    if !ui_state.dirty && !layers.is_changed() && !presentation.is_changed() {
+    let render_inputs_changed = ui_state.rendered_layers != Some(*layers)
+        || ui_state.rendered_fullscreen != Some(presentation.is_fullscreen());
+    if !ui_state.dirty && !render_inputs_changed {
+        if layers.is_visible(LayerId::UserInterface)
+            && presentation.is_changed()
+            && !presentation.is_settings_open()
+        {
+            if let Some(target) = ui_state.restore_focus.take() {
+                queue_rail_focus_restore(&mut commands, target);
+            }
+        }
         return;
     }
+    ui_state.rendered_layers = Some(*layers);
+    ui_state.rendered_fullscreen = Some(presentation.is_fullscreen());
     if let Some(focused) = focus.get() {
         if let Ok(action) = rail_actions.get(focused) {
             ui_state.restore_focus = Some(RailFocusTarget::Action(*action));
@@ -955,7 +971,7 @@ fn activate_rail_action(
     if focus.get() == Some(activate.entity)
         && matches!(
             action,
-            RailAction::ToggleLayersPanel | RailAction::ToggleFullscreen
+            RailAction::ToggleLayersPanel | RailAction::ToggleFullscreen | RailAction::OpenSettings
         )
     {
         ui_state.restore_focus = Some(RailFocusTarget::Action(*action));
@@ -1068,35 +1084,44 @@ fn sync_hud_visibility(params: HudVisibilityParams) {
         mut focus,
     } = params;
     let ui_visible = layers.is_visible(LayerId::UserInterface);
+    let desired_hud_visibility = if ui_visible {
+        Visibility::Visible
+    } else {
+        Visibility::Hidden
+    };
     for mut visibility in &mut hud {
-        *visibility = if ui_visible {
-            Visibility::Visible
-        } else {
-            Visibility::Hidden
-        };
+        if *visibility != desired_hud_visibility {
+            *visibility = desired_hud_visibility;
+        }
     }
+    let desired_restore_visibility = if ui_visible {
+        Visibility::Hidden
+    } else {
+        Visibility::Visible
+    };
     for (mut visibility, mut group) in &mut restore_groups {
-        *visibility = if ui_visible {
-            Visibility::Hidden
-        } else {
-            Visibility::Visible
-        };
-        group.modal = !ui_visible;
+        if *visibility != desired_restore_visibility {
+            *visibility = desired_restore_visibility;
+        }
+        if group.modal == ui_visible {
+            group.modal = !ui_visible;
+        }
     }
     let mut restore_entity = None;
     for (entity, mut visibility, tab_index) in &mut restore {
         restore_entity = Some(entity);
-        *visibility = if ui_visible {
-            Visibility::Hidden
-        } else {
-            Visibility::Visible
-        };
+        if *visibility != desired_restore_visibility {
+            *visibility = desired_restore_visibility;
+        }
         if let Some(mut tab_index) = tab_index {
-            tab_index.0 = if ui_visible {
+            let desired_tab_index = if ui_visible {
                 DISABLED_TAB_INDEX
             } else {
                 UI_RESTORE_TAB_INDEX
             };
+            if tab_index.0 != desired_tab_index {
+                tab_index.0 = desired_tab_index;
+            }
         }
         if !ui_visible && focus.get() != Some(entity) {
             focus.set(entity, FocusCause::Navigated);
@@ -1181,7 +1206,9 @@ fn sync_window_mode(
         WindowMode::Windowed
     };
     for mut window in &mut windows {
-        window.mode = desired;
+        if window.mode != desired {
+            window.mode = desired;
+        }
     }
 }
 
@@ -1203,6 +1230,24 @@ mod tests {
         text::Font,
     };
     use std::collections::HashSet;
+
+    #[derive(Resource, Debug, Default)]
+    struct HudComponentWrites {
+        visibility: usize,
+        tab_groups: usize,
+        tab_indices: usize,
+    }
+
+    fn count_hud_component_writes(
+        visibility: Query<Entity, Changed<Visibility>>,
+        tab_groups: Query<Entity, Changed<TabGroup>>,
+        tab_indices: Query<Entity, Changed<TabIndex>>,
+        mut writes: ResMut<HudComponentWrites>,
+    ) {
+        writes.visibility = visibility.iter().count();
+        writes.tab_groups = tab_groups.iter().count();
+        writes.tab_indices = tab_indices.iter().count();
+    }
 
     fn reduce_queued_layer_commands(
         mut commands: ResMut<SimCommandQueue>,
@@ -1380,6 +1425,7 @@ mod tests {
                 rail_scroll_y: 0.0,
                 layers_scroll_y: 0.0,
                 restore_focus: None,
+                ..default()
             })
             .add_systems(
                 Update,
@@ -1751,6 +1797,7 @@ mod tests {
             rail_scroll_y: 13.0,
             layers_scroll_y: 29.0,
             restore_focus: None,
+            ..default()
         })
         .add_systems(Startup, spawn_restore_affordance)
         .add_systems(
@@ -1875,6 +1922,91 @@ mod tests {
     }
 
     #[test]
+    fn stable_rail_and_layers_surface_retain_entity_identity() {
+        let mut app = rendered_rail_app(true);
+        let (rail, panel) = {
+            let world = app.world_mut();
+            (
+                world
+                    .query_filtered::<Entity, With<RightRailRoot>>()
+                    .single(world)
+                    .unwrap(),
+                world
+                    .query_filtered::<Entity, With<LayersPanelRoot>>()
+                    .single(world)
+                    .unwrap(),
+            )
+        };
+
+        app.update();
+
+        let world = app.world_mut();
+        assert_eq!(
+            world
+                .query_filtered::<Entity, With<RightRailRoot>>()
+                .single(world)
+                .unwrap(),
+            rail
+        );
+        assert_eq!(
+            world
+                .query_filtered::<Entity, With<LayersPanelRoot>>()
+                .single(world)
+                .unwrap(),
+            panel
+        );
+
+        app.world_mut()
+            .resource_mut::<PresentationState>()
+            .open_settings();
+        app.update();
+        let world = app.world_mut();
+        assert_eq!(
+            world
+                .query_filtered::<Entity, With<RightRailRoot>>()
+                .single(world)
+                .unwrap(),
+            rail
+        );
+        assert_eq!(
+            world
+                .query_filtered::<Entity, With<LayersPanelRoot>>()
+                .single(world)
+                .unwrap(),
+            panel
+        );
+    }
+
+    #[test]
+    fn stable_hud_visibility_does_not_rewrite_components() {
+        let mut app = App::new();
+        app.init_resource::<LayerState>()
+            .init_resource::<InputFocus>()
+            .init_resource::<HudComponentWrites>()
+            .add_systems(
+                PostUpdate,
+                (sync_hud_visibility, count_hud_component_writes).chain(),
+            );
+        app.world_mut().spawn((HudSurface, Visibility::Visible));
+        app.world_mut()
+            .spawn((UiRestoreTabGroup, Visibility::Hidden, TabGroup::new(0)));
+        app.world_mut().spawn((
+            UiRestoreAffordance,
+            Visibility::Hidden,
+            TabIndex(DISABLED_TAB_INDEX),
+        ));
+        app.update();
+
+        *app.world_mut().resource_mut::<HudComponentWrites>() = HudComponentWrites::default();
+        app.update();
+
+        let writes = app.world().resource::<HudComponentWrites>();
+        assert_eq!(writes.visibility, 0);
+        assert_eq!(writes.tab_groups, 0);
+        assert_eq!(writes.tab_indices, 0);
+    }
+
+    #[test]
     fn rail_and_layers_reach_last_actions_for_required_viewports() {
         for (width, height, scale) in test_layout::required_viewports() {
             let mut app = test_layout::app(width, height, scale);
@@ -1888,6 +2020,7 @@ mod tests {
                     rail_scroll_y: 0.0,
                     layers_scroll_y: 0.0,
                     restore_focus: None,
+                    ..default()
                 })
                 .add_systems(Update, rebuild_right_rail);
             test_layout::settle(&mut app);
@@ -2071,6 +2204,32 @@ mod tests {
             .entity(restore_group)
             .get::<TabGroup>()
             .is_some_and(|group| group.modal));
+        assert_eq!(
+            app.world().resource::<RailUiState>().restore_focus,
+            Some(RailFocusTarget::Layer(LayerId::UserInterface))
+        );
+
+        // External/replayed modal transitions may occur while the complete
+        // HUD is hidden. They must not consume the rail target before SHOW UI
+        // can restore it.
+        app.world_mut()
+            .resource_mut::<PresentationState>()
+            .open_settings();
+        app.update();
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(restore));
+        assert_eq!(
+            app.world().resource::<RailUiState>().restore_focus,
+            Some(RailFocusTarget::Layer(LayerId::UserInterface))
+        );
+        app.world_mut()
+            .resource_mut::<PresentationState>()
+            .close_settings();
+        app.update();
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(restore));
+        assert_eq!(
+            app.world().resource::<RailUiState>().restore_focus,
+            Some(RailFocusTarget::Layer(LayerId::UserInterface))
+        );
 
         app.world_mut().trigger(Activate { entity: restore });
         app.update();

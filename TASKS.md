@@ -38,7 +38,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 4 | Propagation + floating origin: 66 colored spheres at 2026 positions | **✅ done** |
 | 5 | Camera rig, input-intent layer, key map, travel tween, replay determinism | **✅ done** |
 | 6 | Orbit lines (adaptive; hyperbolic arc), colors, fades | **✅ done** |
-| 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | in-progress |
+| 7 | `ui_kit`: theme, fonts, BSN widgets, top bar + breadcrumb | **✅ done** |
 | 8 | Time bar: detented log slider, editable date/clock, LIVE chip | **✅ done** |
 | 9 | Labels/reticles, tiered declutter, contextual moon visibility, picking | **✅ done** |
 | 10 | Left panel: Info tab, collection pages, View Options | **✅ done** |
@@ -829,6 +829,55 @@ ruling and corresponding architecture update.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Completed stabilization Task 7 and returned WP7 to
+  **✅ done** after re-reading the locked plan and closing every retained
+  update-efficiency acceptance item. The command boundary now bypasses Bevy
+  mutation tracking while reducers run, compares complete semantic
+  before/after state, and marks clock, camera, presentation, View Options,
+  navigation, settings, and transient UI resources only when their values
+  actually change. Duplicate commands and repeated clamped time edits retain
+  exact state flags, while explicit Apply/Restore actions still request
+  durable settings writes. Stable input ownership and pointer-capture state
+  likewise publish no false changes.
+
+  Desktop and headless execution now share an exact f64 simulation-time
+  propagation stamp: paused, UI-only, rate-only, and range-pinned frames reuse
+  bit-identical 66-body truth, while each distinct `SetTime`, playback,
+  reverse-from-pin, or eased-LIVE time propagates exactly once. Orbit geometry
+  uses the complete drifted elements, effective mean motion, and parent GM as
+  its exact key. Its documented reuse error is zero kilometres and zero render
+  units; fresh-versus-retained tests cover all eight secular planets at the
+  1800/2300 limits, catalog epoch, and high-confidence boundary, both fitted
+  hyperbolic and two-body-GM paths, and the complete catalog-derived
+  smallest-body-to-Sedna zoom domain without changing physics or tolerances.
+
+  Stable emphasis, labels/reticles, body transforms/visibility, orbit lines
+  and Gizmo assets, time controls, HUD, search, and breadcrumb values now
+  avoid component/material/asset rewrites. Retained render keys preserve
+  settings, Layers/rail, Browse, and left-panel entity identity for stable or
+  unrelated values; required structural rebuilds retain semantic focus and
+  scroll. Default-valued View Options overrides are canonicalized away, and
+  camera yaw/zoom no longer scans all body presentation when selection is
+  unchanged. Review also found and fixed a hidden-UI edge: an external
+  Settings open/close can no longer consume the saved rail target before
+  `SHOW UI` restores it.
+
+  The composed real-catalog lifecycle now drives the actual text/modal input
+  router, exact single-owner Escape commands, hovered-scroll wheel capture
+  versus viewport Dolly, focus-driven scrolling, Jupiter collection → Io
+  navigation, cue-less settings recovery, Saturn's real sphere/ring/text/orbit
+  aggregate plus Io's architecture-valid reticle, and variable-wall-delta
+  LIVE replay with an identical parsed stream and final hash. Independent
+  architecture, command/simulation, and retained-UI reviews found no remaining
+  Task 7 blocker. Final evidence is green: `cargo test` passes **331 tests**
+  (53 `sim-core` · 227 `solar-sim` · 48 `xtask` lib · 2 xtask smoke · 1
+  active spot-check); `cargo fmt --all -- --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`, and
+  `git diff --check` pass; the untouched compatibility path passes 228
+  `solar-sim` tests and zero-warning clippy with `--features steam`. Q16
+  remains open, WP13 remains `blocked(Q16)`, and no Saturn icon, Steam/WP16
+  source, dependency, catalog/generated/truth asset, persisted schema, or
+  numerical-tolerance change was made.
 - **2026-07-17** — Began the required pre-code review for stabilization Task
   7, reopening WP7 as the coordinating retained-UI/update-efficiency package
   from the green 303-test Task 6 commit. Re-reading ARCHITECTURE invariants
