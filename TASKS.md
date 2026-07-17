@@ -697,10 +697,10 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Next up (dependency order)
 
-The completed stabilization cycle has a human-requested architecture-
-conformance follow-up. Execution is awaiting review and authorization of
-`docs/ui-gameplay-architecture-conformance-2026-07-17.md`; no work package is
-currently reopened by this queue.
+The stabilization and architecture-conformance cycles are complete. The human
+approved `docs/ui-gameplay-bug-audit-2026-07-17.md`, closed Q17, and authorized
+Phase 1. No work package is reopened until the approved documentation baseline
+is submitted.
 
 1. [ ] **Hyperbolic orbital-period omission — justified.** Deferred
    documentation clarification only; no immediate source action. WP10
@@ -715,9 +715,19 @@ currently reopened by this queue.
 4. [x] **AC-3 — top-bar order non-compliance.** Restore Search-before-Menu
    visual and keyboard order with responsive/accessibility regressions.
    Coordinate under WP7.
-5. After the conformance phases are accepted and submitted in order, continue
-   with the still-deferred WP16 and dependent WP17 only under their existing
-   human authorization and hardware gates.
+5. [ ] **UA-1/UA-2 — camera and pointer ownership.** After plan approval,
+   correct in-flight dolly continuity and ordinary-HUD raw-input capture as one
+   integrated WP5 phase.
+6. [ ] **UA-3/UA-4 — non-blocking responsive toasts.** After Phase 1 is
+   accepted and submitted, correct toast picking and small/high-scale layout
+   as one WP8 phase.
+7. [ ] **UA-5/UA-6 — epoch and native OOM recovery.** After Phase 2 is
+   accepted and submitted, make the saved/displayed fixed JD agree with the
+   supported boot clock and implement Q17's synchronous/main-thread native OOM
+   surface as one WP14 phase. Preserve `StopRendering`; no new dependency is
+   authorized.
+8. WP16 Steam work remains deferred and untouched. Continue WP16 and dependent
+   WP17 only under their existing human authorization and hardware gates.
 
 ## Open questions (humans close these)
 
@@ -853,8 +863,61 @@ icon-bearing fast body used to prove the shared Icons-layer reticle blend.
 Accordingly, stabilization Task 6's aggregate acceptance is satisfied by
 Saturn's complete architecture-valid aggregate plus Io's reticle coverage.
 
+### Q17 — CLOSED (human, 2026-07-17).
+
+ARCHITECTURE §8.5 requires `OutOfMemory → StopRendering` with a user-facing
+error screen. The current handler returns Bevy 0.19
+`RenderErrorPolicy::StopRendering`, then an Update system spawns the Bevy UI
+error node. Bevy documents that policy as stopping all further rendering, so
+the post-stop node cannot reach a displayed frame; changing the native window
+title is visible but is not the specified error screen. Which approved surface
+must implement the contract: a native/platform error surface compatible with
+stopped rendering (and, if necessary, an explicitly approved dependency), an
+architecture ruling that the native window-title fallback is sufficient, or a
+different human-specified mechanism? Agents must preserve `StopRendering` and
+must not add a dependency or reinterpret "error screen" before this question
+is closed. Full evidence and phase gates:
+`docs/ui-gameplay-bug-audit-2026-07-17.md` §UA-6 and Phase 3.
+
+Human ruling on 2026-07-17: use a native platform error surface exposed by
+`winit` or an equivalent platform abstraction already present in the
+dependency tree. The invocation must be synchronous or correctly marshalled to
+the main thread so the surface gains focus before shutdown or a stopped-render
+state. The Bevy UI node and window-title fallback are insufficient. Preserve
+`OutOfMemory → StopRendering`; this ruling does not authorize a new dependency
+or a `Cargo.toml` edit. Integrate the accepted correction with WP14 epoch
+normalization after the WP5 and WP8 phases.
+
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Human approved the complete UA corrective order and
+  authorized Phase 1 under WP5. Q17 is closed with a native-platform-surface
+  ruling: OOM must synchronously display, or main-thread marshal, a native
+  error surface through `winit` or an equivalent abstraction already present
+  in the dependency tree before returning/remaining in `StopRendering`;
+  neither a later Bevy UI node nor the window title is sufficient. No new
+  dependency or `Cargo.toml` edit is authorized. WP14 will integrate this
+  correction with epoch normalization after the accepted WP5 and WP8 phases.
+- **2026-07-17** — Completed a documentation-only UI/gameplay source audit
+  against ARCHITECTURE §§3, 7–10, 12, the current work-package briefs, both
+  prior stabilization/conformance records, and the pinned Bevy 0.19 input,
+  picking, and render-error behavior. The audit identifies six uncorrected
+  issues: in-flight dolly rebases from a stale travel start; ordinary HUD hover
+  does not own raw orbit/dolly input; toast nodes violate the non-blocking
+  picking contract; fixed toast width overflows the 800×600/2.0-scale case;
+  persisted fixed epochs can disagree with the clamped boot clock; and the
+  post-`StopRendering` Bevy OOM screen cannot be displayed. The last item is
+  recorded as Q17 because a compatible user-facing surface requires a human
+  architecture/dependency ruling rather than an agent invention.
+
+  `docs/ui-gameplay-bug-audit-2026-07-17.md` records source evidence,
+  non-findings, ordered WP5 → WP8 → WP14 correction phases, per-phase
+  objectives and acceptance criteria, and automatic submission gates. No WP
+  was reopened and no source, dependency, generated/truth asset, Steam/WP16,
+  architecture, or agent-rule file changed. The clean baseline passes **337
+  tests** (53 `sim-core` · 233 `solar-sim` · 48 `xtask` lib · 2 xtask smoke ·
+  1 active spot-check), `cargo fmt --all -- --check`, and zero-warning
+  `cargo clippy --workspace --all-targets -- -D warnings`.
 - **2026-07-17** — Completed the documentation-only integrated
   architecture-conformance closeout. Re-reading ARCHITECTURE §§3, 7–10, and
   12 against current source confirms AC-1 through AC-3 have no remaining
