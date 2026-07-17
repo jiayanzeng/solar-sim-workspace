@@ -5,6 +5,7 @@
 //! keyboard or mouse state; future UI widgets join at the command queue seam.
 
 use crate::control::{SimCommand, SimCommandQueue};
+use crate::layers::HudSurface;
 use crate::search::{BrowseMenuRoot, BrowseUiState, SearchDropdownRoot};
 use crate::settings::SettingsScreenRoot;
 use crate::{
@@ -121,8 +122,9 @@ pub(crate) struct InteractionState {
 
 #[derive(Resource, Debug, Default)]
 struct PointerCaptureState {
-    // Scroll hover is pointer routing state, not a competing interaction context.
+    // Pointer hover is routing state, not a competing interaction context.
     pointer_over_scroll_surface: bool,
+    pointer_over_hud_surface: bool,
 }
 
 #[cfg(test)]
@@ -420,6 +422,7 @@ fn scroll_registered_surface_into_view(
 fn sync_pointer_capture(
     hover_map: Res<HoverMap>,
     scroll_surfaces: Query<(), With<UiScrollSurface>>,
+    hud_surfaces: Query<Entity, With<HudSurface>>,
     parents: Query<&ChildOf>,
     mut capture: ResMut<PointerCaptureState>,
 ) {
@@ -428,8 +431,18 @@ fn sync_pointer_capture(
             .copied()
             .any(|entity| is_within_scroll_surface(entity, &scroll_surfaces, &parents))
     });
-    if capture.pointer_over_scroll_surface != pointer_over_scroll_surface {
+    let pointer_over_hud_surface = hover_map.values().any(|hits| {
+        hits.keys().copied().any(|entity| {
+            hud_surfaces
+                .iter()
+                .any(|root| is_descendant_of(entity, root, &parents))
+        })
+    });
+    if capture.pointer_over_scroll_surface != pointer_over_scroll_surface
+        || capture.pointer_over_hud_surface != pointer_over_hud_surface
+    {
         capture.pointer_over_scroll_surface = pointer_over_scroll_surface;
+        capture.pointer_over_hud_surface = pointer_over_hud_surface;
     }
 }
 
@@ -504,7 +517,7 @@ fn collect_raw_intents(
         wheel.clear();
         return;
     }
-    if buttons.pressed(MouseButton::Right) {
+    if buttons.pressed(MouseButton::Right) && !capture.pointer_over_hud_surface {
         for event in motion.read() {
             intents.0.push(InputIntent::Orbit {
                 delta_yaw: f64::from(event.delta.x),
@@ -514,7 +527,10 @@ fn collect_raw_intents(
     } else {
         motion.clear();
     }
-    if ownership.blocks_gameplay() || capture.pointer_over_scroll_surface {
+    if ownership.blocks_gameplay()
+        || capture.pointer_over_scroll_surface
+        || capture.pointer_over_hud_surface
+    {
         wheel.clear();
     } else {
         for event in wheel.read() {
@@ -706,6 +722,22 @@ mod tests {
             .init_resource::<SimCommandQueue>()
             .add_plugins(InputIntentPlugin);
         app
+    }
+
+    fn write_orbit_and_dolly_input(app: &mut App) {
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Right);
+        app.world_mut().write_message(MouseMotion {
+            delta: Vec2::new(6.0, -4.0),
+        });
+        app.world_mut().write_message(MouseWheel {
+            unit: bevy::input::mouse::MouseScrollUnit::Line,
+            x: 0.0,
+            y: 2.0,
+            window: Entity::PLACEHOLDER,
+            phase: bevy::input::touch::TouchPhase::Moved,
+        });
     }
 
     #[test]
@@ -943,6 +975,70 @@ mod tests {
                 .drain()
                 .collect::<Vec<_>>(),
             vec![SimCommand::Dolly { delta: 2.0 }]
+        );
+    }
+
+    #[test]
+    fn hovered_hud_surfaces_own_drag_and_wheel_while_the_viewport_remains_gameplay() {
+        let mut app = interaction_test_app(false, false);
+        let camera = app.world_mut().spawn_empty().id();
+
+        for surface_name in [
+            "Top bar",
+            "Left panel",
+            "Right rail",
+            "Layers quick panel",
+            "Settings screen",
+        ] {
+            let surface = app
+                .world_mut()
+                .spawn((Name::new(surface_name), HudSurface))
+                .id();
+            let hovered_child = app.world_mut().spawn(ChildOf(surface)).id();
+            let mut hits = EntityHashMap::default();
+            hits.insert(
+                hovered_child,
+                HitData {
+                    camera,
+                    depth: 0.0,
+                    position: None,
+                    normal: None,
+                    extra: None,
+                },
+            );
+            app.world_mut()
+                .resource_mut::<HoverMap>()
+                .insert(PointerId::Mouse, hits);
+            write_orbit_and_dolly_input(&mut app);
+
+            app.update();
+
+            assert_eq!(
+                app.world_mut()
+                    .resource_mut::<SimCommandQueue>()
+                    .drain()
+                    .count(),
+                0,
+                "{surface_name} leaked raw camera input"
+            );
+        }
+
+        app.world_mut().resource_mut::<HoverMap>().clear();
+        write_orbit_and_dolly_input(&mut app);
+        app.update();
+
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .collect::<Vec<_>>(),
+            vec![
+                SimCommand::Orbit {
+                    delta_yaw: 6.0,
+                    delta_pitch: -4.0,
+                },
+                SimCommand::Dolly { delta: 2.0 },
+            ]
         );
     }
 

@@ -283,6 +283,10 @@ pub(crate) fn consume_sim_command(
             let (minimum, maximum) = zoom_limits(loaded, camera.selected_body_index);
             camera.distance_units = (camera.distance_units * factor).clamp(minimum, maximum);
             if let Some(travel) = camera.travel.as_mut() {
+                // A user's in-flight dolly becomes the follow distance. Keep
+                // both endpoints at the visible f64 pose so the next tween
+                // update cannot re-evaluate from the pre-dolly start and jump.
+                travel.start_distance_units = camera.distance_units;
                 travel.target_distance_units = camera.distance_units;
             }
         }
@@ -1637,9 +1641,10 @@ mod tests {
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
     const FRAME_DT_S: f64 = 1.0 / 60.0;
-    // Architecture-conformance Phase 1 adds canonical Layers-panel visibility
-    // to the deterministic presentation identity.
-    const PORTABLE_REPLAY_HASH: u64 = 8_282_160_698_094_571_922;
+    // UA Phase 1 intentionally changes the deterministic camera identity:
+    // mixed replays now preserve an in-flight dolly instead of jumping from
+    // the stale pre-dolly travel start on the next frame.
+    const PORTABLE_REPLAY_HASH: u64 = 10_452_357_387_508_502_282;
 
     fn catalog() -> Catalog {
         load_catalog_text(REAL_CATALOG).expect("committed catalog must load")
@@ -1780,6 +1785,88 @@ mod tests {
         propagate_into(&loaded.catalog, clock.t(), &mut states).unwrap();
         advance_camera_controller(&mut camera, &states, FRAME_DT_S);
         assert_eq!(camera.focus_position_km(), states.0[io].position_km);
+    }
+
+    #[test]
+    fn in_flight_dolly_rebases_visible_distance_without_reversing_or_resetting_focus() {
+        let loaded = LoadedCatalog::new(catalog());
+        let sun = loaded.index_of("sun").unwrap();
+        let io = loaded.index_of("io").unwrap();
+        let states = crate::propagate_catalog(&loaded.catalog, 0.0).unwrap();
+
+        for progress in [0.0, 0.25, 0.5, 0.75, 0.99] {
+            for delta in [1.0, -1.0] {
+                let mut clock = SimClock::new(StartMode::default(), 0.0);
+                let mut camera = CameraController::new(
+                    sun,
+                    states.0[sun].position_km,
+                    DEFAULT_CAMERA_DISTANCE_UNITS,
+                );
+                consume_sim_command(
+                    &SimCommand::TravelToBody("io".into()),
+                    &mut clock,
+                    &mut camera,
+                    &loaded,
+                    &NavigationStack::root(),
+                );
+                advance_camera_controller(&mut camera, &states, TRAVEL_DURATION_S * progress);
+
+                let visible_before = camera.distance_units();
+                let focus_before = camera.focus_position_km();
+                let tween_before = camera.travel.unwrap();
+                let factor = (1.0_f64 - delta * 0.1).clamp(0.1, 10.0);
+                let (minimum, maximum) = zoom_limits(&loaded, io);
+                let expected = (visible_before * factor).clamp(minimum, maximum);
+
+                consume_sim_command(
+                    &SimCommand::Dolly { delta },
+                    &mut clock,
+                    &mut camera,
+                    &loaded,
+                    &NavigationStack::root(),
+                );
+
+                let rebased = camera.travel.unwrap();
+                assert_eq!(camera.distance_units(), expected, "progress={progress}");
+                assert_eq!(
+                    rebased.start_distance_units, expected,
+                    "progress={progress}"
+                );
+                assert_eq!(
+                    rebased.target_distance_units, expected,
+                    "progress={progress}"
+                );
+                assert_eq!(
+                    rebased.elapsed_s, tween_before.elapsed_s,
+                    "progress={progress}"
+                );
+                assert_eq!(
+                    rebased.duration_s, tween_before.duration_s,
+                    "progress={progress}"
+                );
+                assert_eq!(
+                    camera.focus_position_km(),
+                    focus_before,
+                    "progress={progress}"
+                );
+
+                advance_camera_controller(&mut camera, &states, FRAME_DT_S);
+                assert_eq!(
+                    camera.distance_units(),
+                    expected,
+                    "the next frame reversed the requested dolly at progress={progress}"
+                );
+                advance_camera_controller(&mut camera, &states, TRAVEL_DURATION_S);
+                assert!(!camera.is_travelling(), "progress={progress}");
+                assert_eq!(camera.distance_units(), expected, "progress={progress}");
+                assert_eq!(camera.focus_body_index(), io, "progress={progress}");
+                assert_eq!(
+                    camera.focus_position_km(),
+                    states.0[io].position_km,
+                    "progress={progress}"
+                );
+            }
+        }
     }
 
     #[test]

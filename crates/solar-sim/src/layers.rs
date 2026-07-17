@@ -547,6 +547,7 @@ fn spawn_restore_affordance(
         .spawn((
             Name::new("Restore user interface"),
             UiRestoreAffordance,
+            HudSurface,
             bevy::ui_widgets::Button,
             AccessibleLabel::new("Restore user interface"),
             TabIndex(DISABLED_TAB_INDEX),
@@ -2288,6 +2289,7 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(app.world().resource::<InputFocus>().get(), Some(restore));
+        assert!(app.world().entity(restore).contains::<HudSurface>());
         assert_eq!(
             app.world().entity(restore).get::<Visibility>(),
             Some(&Visibility::Visible)

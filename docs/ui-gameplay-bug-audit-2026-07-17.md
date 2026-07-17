@@ -279,6 +279,19 @@ and add the evidence to the newest `TASKS.md` change-log entry. Stage only the
 phase files, inspect the staged diff, commit the code/tests/docs, and push the
 current `codex/` branch automatically. Do not submit a partial phase.
 
+**Execution result (2026-07-17).** Complete. Active-travel dolly now makes the
+clamped visible f64 distance both distance endpoints without resetting focus
+elapsed/duration or the moving-target path. Hover ancestry under the existing
+`HudSurface` contract suppresses raw right-drag and wheel camera input; the
+viewport remains unmarked/gameplay-owned, registered scroll retains its own
+wheel path, and the UI-off restore button now joins the HUD contract. Tests
+cover both dolly directions at 0/25/50/75/99% travel and the five required HUD
+classes versus viewport routing. The deterministic mixed replay remains
+self-equal and intentionally changes its pinned state hash to
+`10452357387508502282` because the corrected stream no longer performs the
+stale-start camera jump. All phase submission gates pass with 339 workspace
+tests and 236 Steam-feature tests.
+
 ### Phase 2 — Make toasts non-blocking and responsive as one WP8 change
 
 **Objectives.** Implement the literal non-blocking toast contract and keep

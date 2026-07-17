@@ -698,9 +698,9 @@ Optional post-beta. No brief until un-deferred by the human.
 ## Next up (dependency order)
 
 The stabilization and architecture-conformance cycles are complete. The human
-approved `docs/ui-gameplay-bug-audit-2026-07-17.md`, closed Q17, and authorized
-Phase 1. No work package is reopened until the approved documentation baseline
-is submitted.
+approved `docs/ui-gameplay-bug-audit-2026-07-17.md` and closed Q17. The
+documentation baseline is pushed at `e0aa1d7`; corrective Phase 1 is accepted
+and WP5 has returned to done. Phase 2/WP8 is next after Phase 1 submission.
 
 1. [ ] **Hyperbolic orbital-period omission — justified.** Deferred
    documentation clarification only; no immediate source action. WP10
@@ -715,7 +715,7 @@ is submitted.
 4. [x] **AC-3 — top-bar order non-compliance.** Restore Search-before-Menu
    visual and keyboard order with responsive/accessibility regressions.
    Coordinate under WP7.
-5. [ ] **UA-1/UA-2 — camera and pointer ownership.** After plan approval,
+5. [x] **UA-1/UA-2 — camera and pointer ownership.** After plan approval,
    correct in-flight dolly continuity and ordinary-HUD raw-input capture as one
    integrated WP5 phase.
 6. [ ] **UA-3/UA-4 — non-blocking responsive toasts.** After Phase 1 is
@@ -890,6 +890,45 @@ normalization after the WP5 and WP8 phases.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Completed UA Phase 1 and returned WP5 to **✅ done**.
+  Active-travel Dolly now clamps the visible f64 distance and assigns that
+  exact value to both distance endpoints, so the next camera update cannot
+  re-evaluate from the stale pre-dolly start; focus elapsed/duration, moving
+  target, interruption, zoom limits, and final Follow remain unchanged.
+  Pointer capture now walks hovered ancestry to the existing `HudSurface`
+  ownership boundary: top bar, left panel, right rail, Layers panel, Settings,
+  and the UI-off restore action suppress background right-drag Orbit and wheel
+  Dolly, while the unmarked viewport and registered scroll path retain their
+  prior commands.
+
+  Two new regressions exercise both dolly directions at 0%, 25%, 50%, 75%, and
+  99% travel, plus all five required HUD classes against viewport routing. The
+  600-frame mixed replay still round-trips to identical state; its reviewed
+  portable hash changes from `8282160698094571922` to
+  `10452357387508502282` solely because its repeated in-flight Dolly commands
+  now preserve the corrected visible distance instead of jumping. `cargo test`
+  passes **339 tests** (53 `sim-core` · 235 `solar-sim` · 48 `xtask` lib · 2
+  xtask smoke · 1 active spot-check); `cargo test -p solar-sim --features
+  steam` passes **236 tests**. `cargo fmt --all -- --check`, zero-warning
+  default and Steam-feature clippy, and `git diff --check` pass. No dependency,
+  replay schema, generated/truth asset, catalog, physics, tolerance, Steam/WP16,
+  architecture, or agent-rule change is included.
+- **2026-07-17** — Began approved UA Phase 1 with WP5 as the sole
+  **in-progress** package after pushing documentation baseline `e0aa1d7`.
+  Re-read ARCHITECTURE invariants 4 and 7, §§8.2–8.3, 9, 10.3, and 12; the WP5
+  brief; the complete stabilization input-ownership contract; and
+  `docs/ui-gameplay-bug-audit-2026-07-17.md` Phase 1 before source work.
+
+  The reviewed camera transition will clamp the user-requested visible dolly
+  distance, then make that exact value both the distance segment's start and
+  final follow distance while a travel is active. The focus tween keeps its
+  original elapsed/duration and moving-target path, so dolly cannot reset or
+  jump focus. Pointer ownership will derive from hovered ancestry under the
+  existing `HudSurface` marker; registered scroll remains UI-owned, while the
+  unmarked full-window viewport remains gameplay-owned. The retained UI-off
+  restore action will join the same HUD marker contract. Raw events still have
+  one owner and emit only `InputIntent → SimCommand`; no replay schema,
+  dependency, Steam, catalog, physics, or unrelated UI change is in scope.
 - **2026-07-17** — Human approved the complete UA corrective order and
   authorized Phase 1 under WP5. Q17 is closed with a native-platform-surface
   ruling: OOM must synchronously display, or main-thread marshal, a native
