@@ -697,10 +697,11 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Next up (dependency order)
 
-The stabilization and architecture-conformance cycles are complete. The human
-approved `docs/ui-gameplay-bug-audit-2026-07-17.md` and closed Q17. Phase 1 is
-pushed at `bf197b2`; Phase 2 is pushed at `5178784`; Phase 3 is accepted and
-WP14 has returned to done while its phase commit is prepared.
+The stabilization, architecture-conformance, and UI/gameplay corrective cycles
+are complete. The human approved `docs/ui-gameplay-bug-audit-2026-07-17.md`
+and closed Q17. The documentation baseline and three source phases are pushed
+at `e0aa1d7`, `bf197b2`, `5178784`, and `90f30a8`; integrated closeout is
+accepted while its documentation-only commit is prepared.
 
 1. [ ] **Hyperbolic orbital-period omission — justified.** Deferred
    documentation clarification only; no immediate source action. WP10
@@ -890,6 +891,30 @@ normalization after the WP5 and WP8 phases.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Completed the integrated UI/gameplay corrective closeout.
+  Re-read the complete approved audit, every phase record, and the cumulative
+  source diff. UA-1 through UA-6 now close as a composed set: camera travel and
+  HUD ownership, responsive pass-through toasts, fixed-epoch convergence, and
+  synchronous native OOM notification all retain the shared command, layout,
+  persistence, recovery, and deterministic-state boundaries.
+
+  Targeted closeout evidence passed for in-flight dolly, HUD-versus-viewport
+  input, all 12 toast tests, all 23 Settings/recovery tests, all 4 Q15 cue
+  recovery tests, Saturn-text/Io-reticle emphasis, hyperbolic period omission,
+  the real-catalog stabilization lifecycle, and the portable replay hash. The
+  final `cargo test` remains **345 passed** (53 `sim-core` · 241 `solar-sim`
+  · 48 `xtask` library · 2 smoke · 1 active spot-check), up from the
+  337-test baseline; the Steam-feature suite remains **242 passed**. Default
+  and Steam-feature clippy are warning-free, and formatting/diff checks pass.
+
+  The cumulative deletion review removes no regression test or architecture
+  invariant; the one changed replay hash is the Phase 1 documented consequence
+  of eliminating the stale-start camera jump. Scope checks confirm no edit to
+  `ARCHITECTURE.md`, any `AGENTS.md`, dependency/lockfile, generated catalog,
+  spot-check truth, physics tolerance, Steam/WP16 source, or WP17 hardware
+  scope. Saturn stays text-only, Io supplies reticle coverage, hyperbolic
+  period omission remains justified/deferred, Q15 recovery stays explicit and
+  transient, and WP16 remains deferred.
 - **2026-07-17** — Completed UA Phase 3 and returned WP14 to **✅ done**.
   One TDB-only normalizer now derives the supported fixed-JD interval from
   `T_MIN_S`, `T_MAX_S`, and `jd_tdb_from_t`; finite values clamp to the exact

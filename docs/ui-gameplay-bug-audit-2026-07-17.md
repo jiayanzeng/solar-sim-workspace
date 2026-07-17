@@ -481,6 +481,27 @@ the authoritative status record without broadening scope.
 push that evidence automatically after all applicable criteria pass. Never
 describe UA-6 as complete without its native-surface invocation evidence.
 
+**Execution result (2026-07-17).** Complete. The full audit, phase records,
+and cumulative source diff were re-reviewed before testing. Targeted checks
+passed for both WP5 corrections; the complete toast and Settings/recovery
+subsystems; Q15 cue recovery; Saturn text plus Io reticle emphasis;
+hyperbolic-period omission; the integrated real-catalog lifecycle; and replay
+portability. UA-1 through UA-6 are closed by implementation and regression
+evidence, including the injected same-thread, exactly-once native OOM surface
+invocation required by Q17.
+
+The final workspace remains at 345 passing tests (53 `sim-core`, 241
+`solar-sim`, 48 `xtask` library, 2 smoke, and 1 active spot-check), eight above
+the 337-test baseline. The Steam-feature suite remains at 242 passing tests.
+Default and Steam-feature clippy runs have zero warnings;
+`cargo fmt --all -- --check` and `git diff --check` pass. Cumulative deletion
+and scope reviews found no weakened/removed regression, read-only file,
+dependency or lockfile, generated/truth asset, catalog/physics change,
+Steam/WP16 source, or WP17 hardware work. Saturn remains text-only; Io retains
+reticle coverage; hyperbolic omission remains justified and deferred; Q15
+recovery remains available; and the Steam stash/work package remains
+untouched and deferred.
+
 ## Repository-wide submission gates for every source phase
 
 Each phase is atomic. Before every automatic GitHub submission:
