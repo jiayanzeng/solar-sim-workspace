@@ -44,7 +44,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 10 | Left panel: Info tab, collection pages, View Options | **✅ done** |
 | 11 | Layers quick panel, right rail, Icons layer, UI-off mode | **✅ done** |
 | 12 | Search (alias-aware) + Menu browse with live counts | **✅ done** |
-| 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | blocked(Q16) |
+| 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | **✅ done** |
 | 14 | Settings screen + render-recovery policies | **✅ done** |
 | 15 | Texture pass (2K KTX2) + visual polish + golden screenshots | **✅ done** |
 | 16 | Steam: Steamworks init, overlay spike, packaging/signing/depots | deferred |
@@ -813,7 +813,7 @@ is off. Exact WP14 layer persistence remains intact. The integrated design,
 task order, and acceptance evidence are recorded in
 `docs/ui-gameplay-stabilization-2026-07-16.md`.
 
-### Q16 — OPEN.
+### Q16 — CLOSED 2026-07-17.
 
 Stabilization Task 6 says Saturn's sphere, rings, label, and icon must share
 one orbit-emphasis blend, but ARCHITECTURE §10.3 deliberately makes the Sun and
@@ -827,8 +827,28 @@ preserve Rev C, keep Saturn text-only, and use Io to prove the shared
 Icons-layer reticle blend. Agents must not add a Saturn reticle without a human
 ruling and corresponding architecture update.
 
+Human ruling on 2026-07-17: preserve ARCHITECTURE §10.3 and Rev C without an
+architecture revision. Saturn's complete render aggregate is its sphere,
+rings, text label, and orbit; the Sun and all planets remain strictly
+text-only, so Saturn MUST NOT gain an icon or reticle. Io is the representative
+icon-bearing fast body used to prove the shared Icons-layer reticle blend.
+Accordingly, stabilization Task 6's aggregate acceptance is satisfied by
+Saturn's complete architecture-valid aggregate plus Io's reticle coverage.
+
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Human explicitly closed Q16 with the recommended
+  architecture-preserving ruling and WP13 returned to **✅ done**. Per
+  ARCHITECTURE §10.3, Saturn remains strictly text-only: its complete aggregate
+  is the sphere, rings, text label, and orbit, with no Saturn icon or reticle;
+  Io supplies the representative Icons-layer reticle coverage for the shared
+  high-rate blend. This resolves the only remaining ambiguity in stabilization
+  Task 6 without an architecture revision or source change. The accepted
+  implementation is recorded by `07cd193` and the composed aggregate/replay
+  verification by `9d936da`; the final branch gate remains green at 331
+  workspace tests and 228 `solar-sim` Steam-feature tests, with both clippy
+  configurations, formatting, and diff checks passing. WP16 remains deferred,
+  and its isolated Steam stash was not applied or modified.
 - **2026-07-17** — Completed stabilization Task 7 and returned WP7 to
   **✅ done** after re-reading the locked plan and closing every retained
   update-efficiency acceptance item. The command boundary now bypasses Bevy
