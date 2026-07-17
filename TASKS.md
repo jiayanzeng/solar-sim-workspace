@@ -699,8 +699,8 @@ Optional post-beta. No brief until un-deferred by the human.
 
 The stabilization and architecture-conformance cycles are complete. The human
 approved `docs/ui-gameplay-bug-audit-2026-07-17.md` and closed Q17. Phase 1 is
-pushed at `bf197b2`; Phase 2 is accepted locally and WP8 has returned to done
-while its phase commit is prepared.
+pushed at `bf197b2`; Phase 2 is pushed at `5178784`; Phase 3 is accepted and
+WP14 has returned to done while its phase commit is prepared.
 
 1. [ ] **Hyperbolic orbital-period omission — justified.** Deferred
    documentation clarification only; no immediate source action. WP10
@@ -721,7 +721,7 @@ while its phase commit is prepared.
 6. [x] **UA-3/UA-4 — non-blocking responsive toasts.** After Phase 1 is
    accepted and submitted, correct toast picking and small/high-scale layout
    as one WP8 phase.
-7. [ ] **UA-5/UA-6 — epoch and native OOM recovery.** After Phase 2 is
+7. [x] **UA-5/UA-6 — epoch and native OOM recovery.** After Phase 2 is
    accepted and submitted, make the saved/displayed fixed JD agree with the
    supported boot clock and implement Q17's synchronous/main-thread native OOM
    surface as one WP14 phase. Preserve `StopRendering`; no new dependency is
@@ -890,6 +890,62 @@ normalization after the WP5 and WP8 phases.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Completed UA Phase 3 and returned WP14 to **✅ done**.
+  One TDB-only normalizer now derives the supported fixed-JD interval from
+  `T_MIN_S`, `T_MAX_S`, and `jd_tdb_from_t`; finite values clamp to the exact
+  endpoints and non-finite values retain the safe default. Apply, startup,
+  persistent repair, Settings draft/label, year-step actions, serialized RON,
+  and `SimClock` converge on that value. Persistent startup repairs survive a
+  second process launch, while capture/golden overrides retain the existing
+  no-write policy. Outward edge steps are true no-ops and inward steps resume.
+
+  OOM now invokes a synchronous native critical-error surface before
+  `StopRendering`: CoreFoundation `CFUserNotificationDisplayAlert` on macOS
+  and User32 `MessageBoxW` with error/task-modal/foreground flags on Windows.
+  The render-error callback verifies the recorded winit application thread;
+  a one-shot recovery-state gate prevents duplicate alerts. The unreachable
+  post-stop Bevy node and the window-title fallback were removed. An injected
+  handler regression proves same-thread, exactly-once, actionable invocation;
+  existing device-loss recovery remains green.
+
+  Evidence: `cargo test` **345 passed** (53 `sim-core` · 241 `solar-sim` ·
+  48 `xtask` library · 2 smoke · 1 active spot-check); `cargo test -p
+  solar-sim --features steam` **242 passed**; both default and Steam-feature
+  clippy runs completed with zero warnings; `cargo fmt --all -- --check` and
+  `git diff --check` passed. The macOS implementation compiled in the native
+  suite, and `CARGO_FEATURE_PURE=1 cargo check -p solar-sim --target
+  x86_64-pc-windows-msvc` type-checked the Windows implementation on the
+  cross-target host. No dependency, manifest, lockfile, generated asset,
+  catalog, truth fixture, architecture document, physics tolerance, or Steam
+  source changed.
+- **2026-07-17** — Began approved UA Phase 3 with WP14 as the sole
+  **in-progress** package after pushing Phase 2 at `5178784`. Re-read
+  ARCHITECTURE §§3.5, 4.2, 7, 8.2, 8.5, and 12; the WP14 brief; Q15
+  reset/persistence rules; closed Q17; the complete Phase 3 plan; Bevy 0.19's
+  render-error pre-extract state machine; and its pinned winit 0.30 platform
+  boundary before source work.
+
+  The reviewed time boundary is TDB-only: finite fixed JDs normalize with
+  `jd_tdb_from_t(T_MIN_S)..=jd_tdb_from_t(T_MAX_S)`, while non-finite values
+  retain `DEFAULT_START_EPOCH_JD_TDB`. Apply, startup loading, reset, year-step,
+  serialized settings, displayed `FIXED JD`, and `SimClock` will share this
+  boundary; no UTC or duplicate calendar literal enters the settings layer.
+  Startup will synchronously persist a canonicalized loaded value only under
+  the existing persistent policy, while golden/capture runtime overrides stay
+  transient.
+
+  The pinned winit API has event-loop and window plumbing but no message-box
+  primitive. Under Q17's approved equivalent-platform route, macOS will call
+  CoreFoundation `CFUserNotificationDisplayAlert` at stop-alert level and
+  Windows will call User32 `MessageBoxW` with error/task-modal/foreground
+  flags. Both calls are synchronous and run directly inside Bevy's
+  `RenderErrorHandler` pre-extract callback on the recorded winit application
+  thread, before `StopRendering` is returned. A one-shot recovery-state gate
+  prevents repeated callbacks from duplicating the surface. The unreachable
+  post-stop Bevy node and OOM title fallback will be removed. Tests will inject
+  the surface boundary to prove same-thread, exactly-once invocation without
+  opening a real dialog. No dependency or `Cargo.toml` edit is authorized or
+  planned.
 - **2026-07-17** — Completed UA Phase 2 and returned WP8 to **✅ done**.
   Toast stacks now preserve the intended 390-logical-pixel desktop maximum
   while resolving to the available theme-inset width on constrained views;

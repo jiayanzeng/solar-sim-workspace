@@ -8,6 +8,7 @@
 use crate::control::{SimCommand, SimCommandQueue};
 use crate::input_intent::{ModalSurfaceSet, UiScrollSurface};
 use crate::layers::{HudSurface, LayerId, LayerState, LayerStateSnapshot, PresentationState};
+use crate::native_error_surface::show_out_of_memory_alert;
 use crate::ui_kit::{
     checkbox_row, chip, section_header, slider, UiTheme, WidgetSpec, WidgetVisualState,
     INTER_FONT_ASSET,
@@ -32,8 +33,14 @@ use bevy::{
     window::{MonitorSelection, PresentMode, PrimaryWindow, WindowCloseRequested, WindowMode},
     winit::{UpdateMode, WinitSettings},
 };
-use sim_core::time::{SimClock, StartMode, DEFAULT_START_EPOCH_JD_TDB};
-use std::time::Duration;
+use sim_core::time::{
+    jd_tdb_from_t, SimClock, StartMode, DEFAULT_START_EPOCH_JD_TDB, T_MAX_S, T_MIN_S,
+};
+use std::{
+    sync::Arc,
+    thread::{self, ThreadId},
+    time::Duration,
+};
 
 pub const SETTINGS_IDENTIFIER: &str = "com.github.jiayanzeng.solar-sim";
 const SETTINGS_SAVE_DELAY: Duration = Duration::from_millis(100);
@@ -229,6 +236,24 @@ impl StartModeSetting {
     }
 }
 
+fn fixed_epoch_bounds_jd_tdb() -> (f64, f64) {
+    (jd_tdb_from_t(T_MIN_S), jd_tdb_from_t(T_MAX_S))
+}
+
+fn normalized_fixed_epoch_jd_tdb(jd_tdb: f64) -> f64 {
+    if !jd_tdb.is_finite() {
+        return DEFAULT_START_EPOCH_JD_TDB;
+    }
+    let (minimum, maximum) = fixed_epoch_bounds_jd_tdb();
+    jd_tdb.clamp(minimum, maximum)
+}
+
+fn fixed_epoch_label(jd_tdb: f64) -> String {
+    // f64's display form is the shortest representation that round-trips,
+    // so the edge shown to the user describes the exact persisted value.
+    format!("FIXED JD {jd_tdb}")
+}
+
 impl From<StartMode> for StartModeSetting {
     fn from(value: StartMode) -> Self {
         match value {
@@ -364,9 +389,7 @@ impl AppSettings {
             1.0
         };
         if let StartModeSetting::FixedEpoch { jd_tdb } = &mut self.start_mode {
-            if !jd_tdb.is_finite() {
-                *jd_tdb = DEFAULT_START_EPOCH_JD_TDB;
-            }
+            *jd_tdb = normalized_fixed_epoch_jd_tdb(*jd_tdb);
         }
         self
     }
@@ -408,6 +431,7 @@ pub enum RecoveryDirective {
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RenderRecoveryStatus {
     phase: RenderRecoveryPhase,
+    native_oom_surface_invoked: bool,
 }
 
 impl RenderRecoveryStatus {
@@ -432,6 +456,16 @@ impl RenderRecoveryStatus {
         }
     }
 
+    fn take_native_oom_surface_request(&mut self) -> bool {
+        if self.phase == RenderRecoveryPhase::StoppedOutOfMemory && !self.native_oom_surface_invoked
+        {
+            self.native_oom_surface_invoked = true;
+            true
+        } else {
+            false
+        }
+    }
+
     fn recovered(&mut self) {
         if self.phase == RenderRecoveryPhase::Recovering {
             self.phase = RenderRecoveryPhase::Rendering;
@@ -439,14 +473,36 @@ impl RenderRecoveryStatus {
     }
 }
 
+type NativeOomSurfaceCallback = dyn Fn(&str, &str) -> Result<(), String> + Send + Sync + 'static;
+
+#[derive(Resource, Clone)]
+struct NativeOomSurface(Arc<NativeOomSurfaceCallback>);
+
+impl NativeOomSurface {
+    #[cfg(test)]
+    fn new(callback: impl Fn(&str, &str) -> Result<(), String> + Send + Sync + 'static) -> Self {
+        Self(Arc::new(callback))
+    }
+
+    fn show(&self, title: &str, message: &str) -> Result<(), String> {
+        (self.0)(title, message)
+    }
+}
+
+impl Default for NativeOomSurface {
+    fn default() -> Self {
+        Self(Arc::new(show_out_of_memory_alert))
+    }
+}
+
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+struct WinitApplicationThread(ThreadId);
+
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct SettingsScreenRoot;
 
 #[derive(Component, Debug, Clone, Copy, Default)]
 struct SettingsScrollArea;
-
-#[derive(Component, Debug, Clone, Copy, Default)]
-pub struct RenderErrorScreen;
 
 #[derive(Resource, Debug, Clone, Default, PartialEq)]
 pub(crate) struct SettingsScreenState {
@@ -573,13 +629,14 @@ impl Plugin for PlatformRuntimePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AppliedRuntimeSettings>()
             .init_resource::<RenderRecoveryStatus>()
+            .init_resource::<NativeOomSurface>()
+            .insert_resource(WinitApplicationThread(thread::current().id()))
             .insert_resource(RenderErrorHandler(product_render_error_policy))
             .add_systems(
                 Update,
                 (
                     apply_settings_to_runtime.after(sync_external_presentation_to_settings),
                     sync_recovery_completion,
-                    sync_render_error_screen,
                 )
                     .chain()
                     .in_set(SimulationSet::Render),
@@ -651,7 +708,15 @@ pub(crate) fn bootstrap_app_settings(
     // production settings file. Capture-only overrides after this point must
     // remain transient.
     world.insert_resource(persistence);
-    world.resource::<AppSettings>().clone().normalized()
+    let loaded = world.resource::<AppSettings>().clone();
+    let normalized = loaded.clone().normalized();
+    if loaded != normalized {
+        *world.resource_mut::<AppSettings>() = normalized.clone();
+        if persistence.allows_disk_writes() {
+            SaveSettingsSync::Always.apply(world);
+        }
+    }
+    normalized
 }
 
 pub(crate) fn sync_settings_screen_state(
@@ -1037,7 +1102,7 @@ fn rebuild_settings_screen(
                 SettingAction::SetStartLive,
             ),
             (
-                format!("FIXED JD {fixed_epoch:.1}"),
+                fixed_epoch_label(fixed_epoch),
                 matches!(draft.start_mode, StartModeSetting::FixedEpoch { .. }),
                 SettingAction::SetStartFixed,
             ),
@@ -1316,7 +1381,9 @@ fn activate_setting_action(
         }
         SettingAction::AdjustStartEpoch(delta_days) => {
             screen.draft.start_mode = StartModeSetting::FixedEpoch {
-                jd_tdb: screen.draft.start_mode.fixed_epoch() + delta_days,
+                jd_tdb: normalized_fixed_epoch_jd_tdb(
+                    screen.draft.start_mode.fixed_epoch() + delta_days,
+                ),
             };
         }
         SettingAction::ToggleInvertHorizontal => {
@@ -1352,22 +1419,37 @@ fn product_render_error_policy(
         ErrorType::OutOfMemory => RenderFailureKind::OutOfMemory,
         _ => RenderFailureKind::Unexpected,
     };
-    let directive = main_world
-        .resource_mut::<RenderRecoveryStatus>()
-        .handle_failure(failure);
-    if directive == RecoveryDirective::StopRendering {
-        let mut windows = main_world.query_filtered::<&mut Window, With<PrimaryWindow>>();
-        for mut window in windows.iter_mut(main_world) {
-            window.title = if failure == RenderFailureKind::OutOfMemory {
-                "Solar Sim — out of graphics memory; rendering stopped".into()
-            } else {
-                "Solar Sim — rendering stopped after an unexpected GPU error".into()
-            };
-        }
+    let (directive, invoke_native_oom_surface) = {
+        let mut recovery = main_world.resource_mut::<RenderRecoveryStatus>();
+        let directive = recovery.handle_failure(failure);
+        let invoke =
+            failure == RenderFailureKind::OutOfMemory && recovery.take_native_oom_surface_request();
+        (directive, invoke)
+    };
+    if invoke_native_oom_surface {
+        invoke_native_oom_surface_on_winit_thread(main_world);
     }
     match directive {
         RecoveryDirective::Recover => RenderErrorPolicy::Recover(RenderCreation::default()),
         RecoveryDirective::StopRendering => RenderErrorPolicy::StopRendering,
+    }
+}
+
+fn invoke_native_oom_surface_on_winit_thread(main_world: &World) {
+    const TITLE: &str = "Solar Sim — Graphics Memory Exhausted";
+    const MESSAGE: &str = "Rendering has stopped safely because Solar Sim ran out of graphics memory. Close Solar Sim, free graphics memory, and relaunch.";
+
+    let expected_thread = main_world.resource::<WinitApplicationThread>().0;
+    let current_thread = thread::current().id();
+    if current_thread != expected_thread {
+        error!(
+            "refusing to invoke the native OOM surface off the winit application thread: expected {expected_thread:?}, got {current_thread:?}"
+        );
+        return;
+    }
+    let surface = main_world.resource::<NativeOomSurface>().clone();
+    if let Err(error) = surface.show(TITLE, MESSAGE) {
+        error!("native OOM surface failed: {error}");
     }
 }
 
@@ -1379,44 +1461,6 @@ fn sync_recovery_completion(
         && device.is_some_and(|device| device.is_changed())
     {
         recovery.recovered();
-    }
-}
-
-fn sync_render_error_screen(
-    mut commands: Commands,
-    recovery: Res<RenderRecoveryStatus>,
-    screens: Query<Entity, With<RenderErrorScreen>>,
-) {
-    let message = match recovery.phase {
-        RenderRecoveryPhase::StoppedOutOfMemory => Some(
-            "SOLAR SIM RAN OUT OF GRAPHICS MEMORY\n\nRendering has stopped safely. Close the app, free graphics memory, and relaunch.",
-        ),
-        RenderRecoveryPhase::StoppedUnexpected => Some(
-            "SOLAR SIM STOPPED RENDERING\n\nAn unexpected graphics error occurred. Close and relaunch the app.",
-        ),
-        _ => None,
-    };
-    if let Some(message) = message {
-        if screens.is_empty() {
-            commands.spawn((
-                Name::new("Render error screen"),
-                RenderErrorScreen,
-                AccessibleLabel::new(message),
-                Text::new(message),
-                Node {
-                    position_type: PositionType::Absolute,
-                    left: percent(15),
-                    right: percent(15),
-                    top: percent(30),
-                    ..default()
-                },
-                GlobalZIndex(SETTINGS_Z_INDEX + 20),
-            ));
-        }
-    } else {
-        for screen in &screens {
-            commands.entity(screen).despawn();
-        }
     }
 }
 
@@ -1490,9 +1534,10 @@ mod tests {
     ) {
         count.0 = usize::from(settings.is_changed());
     }
-    use sim_core::time::T_MAX_S;
+    use sim_core::time::{DAY_S, T_MAX_S};
     use std::{
         process::Command as ProcessCommand,
+        sync::Mutex,
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -1547,6 +1592,56 @@ mod tests {
         let mut app = persistence_test_app(identifier);
         *app.world_mut().resource_mut::<AppSettings>() = nondefault_settings();
         SaveSettingsSync::Always.apply(app.world_mut());
+    }
+
+    fn settings_with_fixed_epoch(jd_tdb: f64) -> AppSettings {
+        AppSettings {
+            start_mode: StartModeSetting::FixedEpoch { jd_tdb },
+            ..default()
+        }
+    }
+
+    fn write_fixed_epoch_settings(identifier: &str, jd_tdb: f64) {
+        let mut app = persistence_test_app(identifier);
+        *app.world_mut().resource_mut::<AppSettings>() = settings_with_fixed_epoch(jd_tdb);
+        SaveSettingsSync::Always.apply(app.world_mut());
+    }
+
+    fn fixed_epoch_value(settings: &AppSettings) -> f64 {
+        match settings.start_mode {
+            StartModeSetting::FixedEpoch { jd_tdb } => jd_tdb,
+            StartModeSetting::Live => panic!("expected a fixed epoch"),
+        }
+    }
+
+    fn assert_fixed_epoch_convergence(settings: &AppSettings, expected_jd_tdb: f64) {
+        assert_eq!(
+            fixed_epoch_value(settings).to_bits(),
+            expected_jd_tdb.to_bits()
+        );
+        let mut presentation = PresentationState::default();
+        presentation.open_settings();
+        let mut screen = SettingsScreenState::default();
+        assert!(sync_settings_screen_state(
+            &presentation,
+            settings,
+            &mut screen
+        ));
+        assert_eq!(
+            fixed_epoch_value(&screen.draft).to_bits(),
+            expected_jd_tdb.to_bits()
+        );
+        let displayed_jd_tdb = fixed_epoch_label(expected_jd_tdb)
+            .strip_prefix("FIXED JD ")
+            .unwrap()
+            .parse::<f64>()
+            .unwrap();
+        assert_eq!(displayed_jd_tdb.to_bits(), expected_jd_tdb.to_bits());
+        let clock_jd_tdb = settings.initial_clock(0.0).jd_tdb();
+        assert!(
+            (clock_jd_tdb - expected_jd_tdb).abs() * DAY_S <= 0.001,
+            "clock {clock_jd_tdb} differs from settings edge {expected_jd_tdb} by more than 1 ms"
+        );
     }
 
     fn restore_defaults_through_in_product_action(identifier: &str) {
@@ -1860,6 +1955,54 @@ mod tests {
                 );
                 return;
             }
+            Ok("write-below-range") => {
+                let (minimum, _) = fixed_epoch_bounds_jd_tdb();
+                write_fixed_epoch_settings(&child_settings_identifier(), minimum - 10_000.0);
+                return;
+            }
+            Ok("normalize-below-range") => {
+                let (minimum, _) = fixed_epoch_bounds_jd_tdb();
+                let mut app = persistence_test_app(&child_settings_identifier());
+                assert!(fixed_epoch_value(app.world().resource::<AppSettings>()) < minimum);
+                let initial = bootstrap_app_settings(
+                    app.world_mut(),
+                    false,
+                    SettingsPersistencePolicy::Persistent,
+                );
+                assert_fixed_epoch_convergence(&initial, minimum);
+                assert_fixed_epoch_convergence(app.world().resource::<AppSettings>(), minimum);
+                return;
+            }
+            Ok("read-after-below-range") => {
+                let (minimum, _) = fixed_epoch_bounds_jd_tdb();
+                let app = persistence_test_app(&child_settings_identifier());
+                assert_fixed_epoch_convergence(app.world().resource::<AppSettings>(), minimum);
+                return;
+            }
+            Ok("write-above-range") => {
+                let (_, maximum) = fixed_epoch_bounds_jd_tdb();
+                write_fixed_epoch_settings(&child_settings_identifier(), maximum + 10_000.0);
+                return;
+            }
+            Ok("normalize-above-range") => {
+                let (_, maximum) = fixed_epoch_bounds_jd_tdb();
+                let mut app = persistence_test_app(&child_settings_identifier());
+                assert!(fixed_epoch_value(app.world().resource::<AppSettings>()) > maximum);
+                let initial = bootstrap_app_settings(
+                    app.world_mut(),
+                    false,
+                    SettingsPersistencePolicy::Persistent,
+                );
+                assert_fixed_epoch_convergence(&initial, maximum);
+                assert_fixed_epoch_convergence(app.world().resource::<AppSettings>(), maximum);
+                return;
+            }
+            Ok("read-after-above-range") => {
+                let (_, maximum) = fixed_epoch_bounds_jd_tdb();
+                let app = persistence_test_app(&child_settings_identifier());
+                assert_fixed_epoch_convergence(app.world().resource::<AppSettings>(), maximum);
+                return;
+            }
             _ => {}
         }
 
@@ -1892,6 +2035,12 @@ mod tests {
             "read-after-capture",
             "reset-capture-transient",
             "read-after-reset-capture",
+            "write-below-range",
+            "normalize-below-range",
+            "read-after-below-range",
+            "write-above-range",
+            "normalize-above-range",
+            "read-after-above-range",
         ] {
             let status = ProcessCommand::new(&executable)
                 .arg("settings::tests::explicit_reset_paths_survive_full_process_relaunch")
@@ -1945,6 +2094,89 @@ mod tests {
     }
 
     #[test]
+    fn fixed_epoch_normalization_is_shared_by_apply_display_and_clock() {
+        let (minimum, maximum) = fixed_epoch_bounds_jd_tdb();
+        for (requested, expected) in [
+            (minimum - 1_000.0, minimum),
+            (maximum + 1_000.0, maximum),
+            (f64::NAN, DEFAULT_START_EPOCH_JD_TDB),
+            (f64::INFINITY, DEFAULT_START_EPOCH_JD_TDB),
+            (f64::NEG_INFINITY, DEFAULT_START_EPOCH_JD_TDB),
+        ] {
+            let requested = settings_with_fixed_epoch(requested);
+            let mut settings = AppSettings::default();
+            let mut screen = SettingsScreenState {
+                draft: requested.clone(),
+                ..default()
+            };
+            let mut save = SettingsSaveRequest::default();
+            consume_settings_command(
+                &SimCommand::ApplySettings(Box::new(requested)),
+                &mut screen,
+                &mut settings,
+                &mut save,
+            );
+
+            assert_fixed_epoch_convergence(&settings, expected);
+            assert_fixed_epoch_convergence(&screen.draft, expected);
+            assert!(save.is_requested());
+            let serialized = ron::to_string(&settings).unwrap();
+            let restored: AppSettings = ron::from_str(&serialized).unwrap();
+            assert_eq!(fixed_epoch_value(&restored).to_bits(), expected.to_bits());
+        }
+    }
+
+    #[test]
+    fn outward_epoch_steps_at_range_edges_are_noops_and_inward_steps_resume() {
+        let (minimum, maximum) = fixed_epoch_bounds_jd_tdb();
+        for (edge, outward_delta, inward_delta) in
+            [(minimum, -365.25, 365.25), (maximum, 365.25, -365.25)]
+        {
+            let edge_settings = settings_with_fixed_epoch(edge);
+            let mut app = App::new();
+            app.insert_resource(edge_settings.clone())
+                .insert_resource(SettingsScreenState {
+                    draft: edge_settings,
+                    ..default()
+                })
+                .init_resource::<SettingsSaveRequest>()
+                .init_resource::<InputFocus>()
+                .init_resource::<SimCommandQueue>();
+            let outward = app
+                .world_mut()
+                .spawn(SettingAction::AdjustStartEpoch(outward_delta))
+                .observe(activate_setting_action)
+                .id();
+            let inward = app
+                .world_mut()
+                .spawn(SettingAction::AdjustStartEpoch(inward_delta))
+                .observe(activate_setting_action)
+                .id();
+
+            app.world_mut().trigger(Activate { entity: outward });
+            let screen = app.world().resource::<SettingsScreenState>();
+            assert_eq!(fixed_epoch_value(&screen.draft).to_bits(), edge.to_bits());
+            assert!(!screen.dirty);
+            assert!(!app.world().resource::<SettingsSaveRequest>().is_requested());
+            assert_eq!(
+                app.world_mut()
+                    .resource_mut::<SimCommandQueue>()
+                    .drain()
+                    .count(),
+                0
+            );
+
+            app.world_mut().trigger(Activate { entity: inward });
+            let screen = app.world().resource::<SettingsScreenState>();
+            assert_eq!(
+                fixed_epoch_value(&screen.draft).to_bits(),
+                (edge + inward_delta).to_bits()
+            );
+            assert!(screen.dirty);
+        }
+    }
+
+    #[test]
     fn recovery_state_machine_recovers_loss_and_stops_on_oom() {
         let mut state = RenderRecoveryStatus::default();
         assert_eq!(
@@ -1960,6 +2192,54 @@ mod tests {
             RecoveryDirective::StopRendering
         );
         assert_eq!(state.phase(), RenderRecoveryPhase::StoppedOutOfMemory);
+    }
+
+    #[test]
+    fn oom_handler_invokes_the_native_surface_once_on_the_winit_thread() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let recorded_calls = calls.clone();
+        let expected_thread = thread::current().id();
+        let mut main_world = World::new();
+        main_world.insert_resource(RenderRecoveryStatus::default());
+        main_world.insert_resource(WinitApplicationThread(expected_thread));
+        main_world.insert_resource(NativeOomSurface::new(move |title, message| {
+            recorded_calls.lock().unwrap().push((
+                thread::current().id(),
+                title.to_string(),
+                message.to_string(),
+            ));
+            Ok(())
+        }));
+        let mut render_world = World::new();
+        let error = RenderError {
+            ty: ErrorType::OutOfMemory,
+            description: "injected OOM".into(),
+            source: None,
+        };
+
+        for _ in 0..2 {
+            assert!(matches!(
+                product_render_error_policy(&error, &mut main_world, &mut render_world),
+                RenderErrorPolicy::StopRendering
+            ));
+        }
+
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, expected_thread);
+        assert!(calls[0].1.contains("Graphics Memory Exhausted"));
+        assert!(calls[0].2.contains("Close Solar Sim"));
+        assert!(calls[0].2.contains("free graphics memory"));
+        assert!(calls[0].2.contains("relaunch"));
+        assert_eq!(
+            main_world.resource::<RenderRecoveryStatus>().phase(),
+            RenderRecoveryPhase::StoppedOutOfMemory
+        );
+        assert!(
+            main_world
+                .resource::<RenderRecoveryStatus>()
+                .native_oom_surface_invoked
+        );
     }
 
     #[test]

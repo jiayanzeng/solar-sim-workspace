@@ -14,6 +14,7 @@ mod input_intent;
 mod labels;
 mod layers;
 mod left_panel;
+mod native_error_surface;
 mod orbit_lines;
 mod platform;
 mod scene_polish;
@@ -71,9 +72,8 @@ pub use search::{
 };
 pub use settings::{
     AppSettings, DisplayModeSetting, DistanceUnit, FrameCap, PersistedLayerState, QualityPreset,
-    RecoveryDirective, RenderErrorScreen, RenderFailureKind, RenderRecoveryPhase,
-    RenderRecoveryStatus, ResolutionSetting, SettingsScreenRoot, SettingsUiPlugin,
-    StartModeSetting, SETTINGS_IDENTIFIER,
+    RecoveryDirective, RenderFailureKind, RenderRecoveryPhase, RenderRecoveryStatus,
+    ResolutionSetting, SettingsScreenRoot, SettingsUiPlugin, StartModeSetting, SETTINGS_IDENTIFIER,
 };
 pub use starfield::{
     decode_starfield, load_starfield, StarfieldAssetError, StarfieldPlugin, StarfieldPoint,

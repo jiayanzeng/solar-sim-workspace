@@ -360,6 +360,21 @@ pinned Bevy/winit recovery APIs; and this report. Record the exact TDB/JD
 boundary and native main-thread invocation mechanism in `TASKS.md`, then reopen
 only WP14. The ruling does not authorize a new dependency or `Cargo.toml` edit.
 
+**Reviewed implementation boundary (2026-07-17).** The fixed-epoch interval is
+derived without duplicated literals as
+`jd_tdb_from_t(T_MIN_S)..=jd_tdb_from_t(T_MAX_S)`. All normalization remains JD
+TDB; UTC is not involved. The pinned winit 0.30 re-export provides event-loop
+and window integration but no native dialog primitive. Q17's approved
+equivalent-platform route therefore uses the shipping OS interfaces already
+under that platform stack: synchronous CoreFoundation
+`CFUserNotificationDisplayAlert` with stop-alert severity on macOS and
+synchronous User32 `MessageBoxW` with error/task-modal/foreground flags on
+Windows. The call occurs inside Bevy's render-error pre-extract callback on a
+thread verified against the winit application-thread marker, and returns only
+after the user dismisses it; only then does the callback return
+`StopRendering`. An injectable boundary supplies non-interactive exactly-once
+and same-thread tests. No Rust dependency or Cargo manifest change is needed.
+
 **Implementation steps.**
 
 1. Derive the legal fixed-JD interval from the existing public
@@ -407,6 +422,30 @@ only WP14. The ruling does not authorize a new dependency or `Cargo.toml` edit.
 **Submission standard.** Once all criteria are confirmed, record the WP14 and
 Q17 implementation evidence, inspect and stage only the phase diff, commit,
 and push automatically.
+
+**Execution result (2026-07-17).** Complete. A single TDB-only normalizer
+derives the legal fixed-JD interval from `T_MIN_S`, `T_MAX_S`, and
+`jd_tdb_from_t`; finite inputs clamp to exact endpoints and non-finite inputs
+retain `DEFAULT_START_EPOCH_JD_TDB`. Apply, startup loading, persistent repair,
+Settings draft/label, edge-aware year steps, serialized RON, and `SimClock`
+now converge on the canonical value. Isolated full-process tests prove both
+edge repairs persist into a second launch, while the existing capture/golden
+policy remains transient. Outward edge steps do not dirty or save, and inward
+steps work immediately.
+
+OOM handling now synchronously invokes CoreFoundation
+`CFUserNotificationDisplayAlert` on macOS or User32 `MessageBoxW` with
+error/task-modal/foreground flags on Windows, from the render-error callback
+after verifying the recorded winit application thread and before returning
+`StopRendering`. Recovery state admits the alert exactly once. The
+unreachable post-stop Bevy UI path and window-title fallback are gone. The
+injected boundary regression proves same-thread, exactly-once, actionable
+invocation without opening a dialog; existing device-loss recovery remains
+green. The native macOS build and a Windows MSVC cross-target type-check both
+pass. All phase gates pass with 345 workspace tests and 242 Steam-feature
+tests, zero clippy warnings, and clean formatting/diff checks. No dependency,
+manifest, lockfile, Steam source, generated asset, architecture document, or
+physics tolerance changed.
 
 ### Phase 4 — Integrated closeout
 
