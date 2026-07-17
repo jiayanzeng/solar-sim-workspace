@@ -402,7 +402,7 @@ and same-thread tests. No Rust dependency or Cargo manifest change is needed.
 - Finite fixed JDs below/above the supported range canonicalize to the exact
   core minimum/maximum; NaN and infinities retain the documented safe default.
 - After Apply and after process relaunch, the draft, committed setting,
-  serialized TOML, displayed `FIXED JD`, and `SimClock::jd_tdb()` agree at both
+  serialized RON, displayed `FIXED JD`, and `SimClock::jd_tdb()` agree at both
   edges.
 - Repeated outward year steps at an edge do not move beyond it or produce
   unnecessary save traffic; an inward step works immediately.
