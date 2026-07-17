@@ -116,8 +116,8 @@ pub fn top_bar(theme: UiTheme, breadcrumb: String) -> impl Scene {
                     ),
                 ]
             ),
-            menu_button(theme),
             search_placeholder(theme),
+            menu_button(theme),
         ]
     }
 }
@@ -136,7 +136,7 @@ fn menu_button(theme: UiTheme) -> impl Scene {
         bevy::ui_widgets::Button
         MenuBrowseButton
         AccessibleLabel("Open body browse menu")
-        TabIndex(100)
+        TabIndex(101)
         BackgroundColor({theme.colors.panel.color()})
         BorderColor::all(theme.colors.separator.color())
         Children [(
@@ -209,7 +209,7 @@ fn search_placeholder(theme: UiTheme) -> impl Scene {
                 template_value(EditableText::new(""))
                 SearchInput
                 AccessibleLabel("Search bodies")
-                TabIndex(101)
+                TabIndex(100)
                 Node { width: percent(100) }
                 TextFont {
                     font: FontSourceTemplate::Handle(INTER_FONT_ASSET),
@@ -563,6 +563,75 @@ mod tests {
     }
 
     #[test]
+    fn top_bar_child_and_tab_order_match_logo_breadcrumb_search_menu() {
+        let mut app = test_layout::app(960, 600, 1.0);
+        app.insert_resource(UiTheme::default())
+            .insert_resource(NavigationStack::root())
+            .add_systems(Startup, spawn_top_bar)
+            .add_systems(Update, rebuild_actionable_breadcrumb);
+        test_layout::settle(&mut app);
+
+        let world = app.world_mut();
+        let root = world
+            .query_filtered::<Entity, With<TopBarRoot>>()
+            .single(world)
+            .unwrap();
+        let children = world.get::<Children>(root).unwrap();
+        let logo = children
+            .iter()
+            .find(|entity| {
+                world
+                    .get::<AccessibleLabel>(*entity)
+                    .is_some_and(|label| label.0 == "Solar Sim orbital logo")
+            })
+            .unwrap();
+        let product_name = children
+            .iter()
+            .find(|entity| {
+                world
+                    .get::<Text>(*entity)
+                    .is_some_and(|text| text.as_str() == "SOLAR SIM")
+            })
+            .unwrap();
+        let breadcrumb = children
+            .iter()
+            .find(|entity| world.get::<BreadcrumbHost>(*entity).is_some())
+            .unwrap();
+        let search = children
+            .iter()
+            .find(|entity| world.get::<SearchPlaceholder>(*entity).is_some())
+            .unwrap();
+        let menu = children
+            .iter()
+            .find(|entity| world.get::<MenuBrowseButton>(*entity).is_some())
+            .unwrap();
+        let child_index = |entity| {
+            children
+                .iter()
+                .position(|candidate| candidate == entity)
+                .unwrap()
+        };
+        let ordered = [logo, product_name, breadcrumb, search, menu].map(child_index);
+        assert!(ordered.windows(2).all(|pair| pair[0] < pair[1]));
+
+        let search_input = world
+            .query_filtered::<Entity, With<SearchInput>>()
+            .single(world)
+            .unwrap();
+        assert_eq!(world.get::<TabIndex>(search_input), Some(&TabIndex(100)));
+        assert_eq!(world.get::<TabIndex>(menu), Some(&TabIndex(101)));
+        let search_label = world.get::<AccessibleLabel>(search_input).unwrap();
+        let menu_label = world.get::<AccessibleLabel>(menu).unwrap();
+        assert_eq!(search_label.0, "Search bodies");
+        assert_eq!(menu_label.0, "Open body browse menu");
+        assert_ne!(search_label.0, menu_label.0);
+
+        let search_rect = node_rect(world, search);
+        let menu_rect = node_rect(world, menu);
+        assert!(search_rect.max.x <= menu_rect.min.x + 1.0);
+    }
+
+    #[test]
     fn top_bar_controls_fit_every_required_viewport_and_scale() {
         for (width, height, scale) in test_layout::required_viewports() {
             let mut navigation = NavigationStack::root();
@@ -610,12 +679,12 @@ mod tests {
                 world.get::<ComputedNode>(host).unwrap().size().x > 0.0,
                 "{width}×{height} scale {scale}: breadcrumb has no reachable viewport"
             );
-            assert_eq!(world.get::<TabIndex>(menu), Some(&TabIndex(100)));
+            assert_eq!(world.get::<TabIndex>(menu), Some(&TabIndex(101)));
             let search_input = world
                 .query_filtered::<Entity, With<SearchInput>>()
                 .single(world)
                 .unwrap();
-            assert_eq!(world.get::<TabIndex>(search_input), Some(&TabIndex(101)));
+            assert_eq!(world.get::<TabIndex>(search_input), Some(&TabIndex(100)));
         }
     }
 

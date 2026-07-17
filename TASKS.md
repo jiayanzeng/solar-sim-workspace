@@ -712,7 +712,7 @@ currently reopened by this queue.
 3. [x] **AC-2 — plugin-graph non-compliance.** Restore the architecture-facing
    §8.2 plugin names, responsibilities, and frame ownership without duplicating
    existing internal systems. Coordinate under WP4.
-4. [ ] **AC-3 — top-bar order non-compliance.** Restore Search-before-Menu
+4. [x] **AC-3 — top-bar order non-compliance.** Restore Search-before-Menu
    visual and keyboard order with responsive/accessibility regressions.
    Coordinate under WP7.
 5. After the conformance phases are accepted and submitted in order, continue
@@ -855,6 +855,53 @@ Saturn's complete architecture-valid aggregate plus Io's reticle coverage.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Completed architecture-conformance Phase 3 and returned
+  WP7 to **✅ done**. The retained BSN top bar now composes logo/product name,
+  divider, scrollable navigation breadcrumb, Search, then Menu exactly as
+  ARCHITECTURE §9.1 requires. Semantic keyboard order matches the visual order:
+  Search is `TabIndex(100)` and Menu is `TabIndex(101)`. No component identity,
+  layout dimension, flex behavior, observer, command reducer, dropdown model,
+  or Browse focus-return path changed.
+
+  One new resolved-layout regression pins direct-child order and geometry,
+  tab order, and the distinct `Search bodies`/`Open body browse menu`
+  accessibility labels. All 6 HUD tests and 21 Search/Browse tests independently
+  preserve fuzzy/case-insensitive/alias-aware ranking, Enter-to-travel through
+  `SimCommand`, keyboard Menu activation, dropdown ownership, Browse
+  close/selection focus return, breadcrumb behavior, and required viewport/UI
+  scale reachability. The portable replay hash remains bit-identical at
+  `8282160698094571922`.
+
+  `cargo test` passes **337 tests** (53 `sim-core` · 233 `solar-sim` · 48
+  `xtask` lib · 2 xtask smoke · 1 active spot-check), and `cargo test -p
+  solar-sim --features steam` passes **234 tests**. `cargo fmt --all --
+  --check`, both zero-warning clippy configurations,
+  `scripts/check-texture-metadata.sh` (16 assets), and `git diff --check` pass.
+  No plugin/replay/simulation source, dependency, deferred WP16 implementation,
+  catalog/generated/truth asset, architecture/agent file, numerical tolerance,
+  or Q15/Q16 behavior changed.
+- **2026-07-17** — Reopened WP7 for authorized architecture-conformance
+  Phase 3 after Phase 2 commit `da483a1` passed its complete gate and was
+  pushed. The mandatory pre-code review re-read ARCHITECTURE §3.4, §8.4, the
+  §9 visual contract and §9.1 top-bar order, the WP7 brief, `TASKS.md`, and the
+  complete corrective plan. The retained BSN top bar currently composes logo,
+  product name, divider, scrollable breadcrumb, Menu, then Search; its semantic
+  order likewise assigns Menu `TabIndex(100)` before Search `TabIndex(101)`.
+  `SearchMenuPlugin` attaches both controls' observers: Search maintains its
+  edit/dropdown model and queues travel, while Menu queues explicit Browse-open
+  state and Browse close/selection restores semantic Menu focus.
+
+  The correction will move the Search surface before Menu in the BSN child
+  order and assign Search 100/Menu 101, without changing component identities,
+  dimensions, flex behavior, command observers, dropdown ownership, or focus
+  restoration. A structural regression will pin logo/name → breadcrumb →
+  Search → Menu, direct-child geometry, semantic tab order, and distinct
+  accessibility labels. Existing fuzzy/alias ranking, Enter-to-travel,
+  keyboard Menu activation, Browse close/selection focus return, breadcrumb
+  scrolling, and all required 800×600/960×600 UI-scale reachability tests will
+  remain the behavioral cross-check. No simulation/replay behavior, plugin
+  ownership, Q15/Q16 ruling, deferred WP16 implementation, dependency,
+  generated/truth asset, numerical tolerance, or architecture file may change.
 - **2026-07-17** — Completed architecture-conformance Phase 2 and returned
   WP4 to **✅ done**. Application assembly now exposes the exact
   architecture-facing owners `TimePlugin`, `PropagationPlugin`,
