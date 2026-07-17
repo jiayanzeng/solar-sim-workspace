@@ -8,7 +8,7 @@
 use super::theme::{UiColorToken, UiTheme};
 use bevy::{
     prelude::*,
-    text::{FontSourceTemplate, LetterSpacing},
+    text::{FontSourceTemplate, LetterSpacing, LineBreak, TextLayout},
 };
 
 pub const INTER_FONT_ASSET: &str = "fonts/InterVariable.ttf";
@@ -399,15 +399,20 @@ pub fn toast(theme: UiTheme, spec: WidgetSpec) -> impl Scene {
         }
         WidgetRoot { kind: WidgetKind::Toast, state }
         AccessibleLabel(accessible_label)
+        Pickable::IGNORE
         BackgroundColor({colors.background})
         BorderColor::all(colors.border)
         Children [(
             Text(text)
+            TextLayout {
+                linebreak: LineBreak::WordBoundary
+            }
             TextFont {
                 font: FontSourceTemplate::Handle(INTER_FONT_ASSET),
                 font_size: px(theme.type_scale.body_px),
             }
             TextColor({colors.text})
+            Pickable::IGNORE
         )]
     }
 }

@@ -332,6 +332,20 @@ pointer and geometry contracts in `TASKS.md`, then reopen only WP8.
 **Submission standard.** Once all criteria are confirmed, update WP8 and its
 evidence, inspect and stage only the phase diff, commit, and push automatically.
 
+**Execution result (2026-07-17).** Complete. The toast stack retains a
+390-logical-pixel maximum but now resolves from theme-sized left/right insets
+to the available width, and the shared toast widget wraps text at word
+boundaries. `Pickable::IGNORE` covers the stack, toast root, and text node.
+The resolved-layout regression instantiates a long active notice across all
+eight required 800/960×600 and 0.75/1.0/1.5/2.0 combinations and proves the
+bounded width, viewport containment, wrapped content, and separation above the
+time bar. A separate regression runs Bevy 0.19's actual UI picking backend and
+hover-map generation over the real toast subtree; the lower gameplay target
+remains hovered and no toast entity becomes a hit. Existing transition-only
+creation, bottom-left stacking, accessibility, expiry, command, replay, and
+Steam-feature tests remain green. All phase gates pass with 342 workspace
+tests and 239 Steam-feature tests; no dependency or Steam source changed.
+
 ### Phase 3 — Normalize the epoch and implement native OOM recovery under WP14
 
 **Objectives.** Make the Settings value, serialized value, and boot clock agree

@@ -698,9 +698,9 @@ Optional post-beta. No brief until un-deferred by the human.
 ## Next up (dependency order)
 
 The stabilization and architecture-conformance cycles are complete. The human
-approved `docs/ui-gameplay-bug-audit-2026-07-17.md` and closed Q17. The
-documentation baseline is pushed at `e0aa1d7`; corrective Phase 1 is accepted
-and WP5 has returned to done. Phase 2/WP8 is next after Phase 1 submission.
+approved `docs/ui-gameplay-bug-audit-2026-07-17.md` and closed Q17. Phase 1 is
+pushed at `bf197b2`; Phase 2 is accepted locally and WP8 has returned to done
+while its phase commit is prepared.
 
 1. [ ] **Hyperbolic orbital-period omission — justified.** Deferred
    documentation clarification only; no immediate source action. WP10
@@ -718,7 +718,7 @@ and WP5 has returned to done. Phase 2/WP8 is next after Phase 1 submission.
 5. [x] **UA-1/UA-2 — camera and pointer ownership.** After plan approval,
    correct in-flight dolly continuity and ordinary-HUD raw-input capture as one
    integrated WP5 phase.
-6. [ ] **UA-3/UA-4 — non-blocking responsive toasts.** After Phase 1 is
+6. [x] **UA-3/UA-4 — non-blocking responsive toasts.** After Phase 1 is
    accepted and submitted, correct toast picking and small/high-scale layout
    as one WP8 phase.
 7. [ ] **UA-5/UA-6 — epoch and native OOM recovery.** After Phase 2 is
@@ -890,6 +890,42 @@ normalization after the WP5 and WP8 phases.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Completed UA Phase 2 and returned WP8 to **✅ done**.
+  Toast stacks now preserve the intended 390-logical-pixel desktop maximum
+  while resolving to the available theme-inset width on constrained views;
+  notice text uses word-boundary wrapping. The stack, toast root, and text
+  node all carry `Pickable::IGNORE`, so an active notice remains visible and
+  accessible without owning pointer input.
+
+  New regressions instantiate a long active toast at every required
+  800/960×600 × {0.75, 1.0, 1.5, 2.0} case and prove exact bounded-width
+  resolution, viewport containment, wrapped text, and time-bar separation. A
+  second regression runs the pinned Bevy UI picking backend and its hover-map
+  generation over the actual toast subtree, proving the lower gameplay target
+  remains hovered while stack/root/text remain absent. Existing transition,
+  stacking, accessibility, expiry, input, replay, and Steam-feature coverage
+  remains green. Evidence: `cargo test` **342 passed** (53 `sim-core` · 238
+  `solar-sim` · 48 `xtask` library · 2 smoke · 1 active spot-check);
+  `cargo test -p solar-sim --features steam` **239 passed**; both default and
+  Steam-feature clippy runs completed with zero warnings; `cargo fmt --all
+  -- --check` and `git diff --check` passed. No dependency, generated asset,
+  catalog, truth fixture, architecture document, or Steam source was changed.
+- **2026-07-17** — Began approved UA Phase 2 with WP8 as the sole
+  **in-progress** package after pushing Phase 1 at `bf197b2`. Re-read
+  ARCHITECTURE §§4.2, 7, 8.2, 8.4, 9.5–9.6, and 12; the WP8 brief; the prior
+  responsive-reachability rules; the pinned Bevy 0.19 UI picking backend; and
+  `docs/ui-gameplay-bug-audit-2026-07-17.md` Phase 2 before source work.
+
+  The reviewed layout contract uses theme-sized left/right insets, auto width,
+  and a 390-logical-pixel maximum, so resolved physical width is
+  `min(390×scale, viewport−2×inset×scale)` rather than overflowing the
+  800×600/2.0 case. Text will wrap within that surface. Stack, toast root, and
+  text descendants will all use `Pickable::IGNORE`; an actual Bevy UI backend
+  regression must prove a lower target remains hovered through an active
+  toast. The full 800/960 × 600 × {0.75, 1.0, 1.5, 2.0} matrix will include a
+  long active notice and prove viewport containment plus time-bar separation.
+  Transition-only creation, accessibility, stacking, delayed expiry, existing
+  HUD visibility, and the command/replay paths remain unchanged.
 - **2026-07-17** — Completed UA Phase 1 and returned WP5 to **✅ done**.
   Active-travel Dolly now clamps the visible f64 distance and assigns that
   exact value to both distance endpoints, so the next camera update cannot

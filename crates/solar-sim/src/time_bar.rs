@@ -492,14 +492,17 @@ fn toast_stack(theme: UiTheme) -> impl Scene {
         Node {
             position_type: PositionType::Absolute,
             left: px(theme.spacing.lg_px),
+            right: px(theme.spacing.lg_px),
             bottom: px(TIME_BAR_HEIGHT_PX + theme.spacing.lg_px),
-            width: px(390),
+            width: auto(),
+            max_width: px(390),
             flex_direction: FlexDirection::Column,
             row_gap: px(theme.spacing.sm_px),
         }
         TimeToastStack
         HudSurface
         AccessibleLabel("Simulation notices")
+        Pickable::IGNORE
         GlobalZIndex(105)
     }
 }
@@ -863,9 +866,17 @@ mod tests {
     use bevy::{
         app::TaskPoolPlugin,
         asset::{AssetApp, AssetPlugin},
+        camera::{NormalizedRenderTarget, RenderTarget},
         input::{keyboard::Key, InputPlugin},
         input_focus::{FocusCause, InputDispatchPlugin, InputFocusPlugin},
-        scene::ScenePlugin,
+        picking::{
+            hover::HoverMap,
+            pointer::{Location, PointerId, PointerLocation},
+            InteractionPlugin, PickingPlugin,
+        },
+        scene::{ScenePlugin, WorldSceneExt},
+        text::TextLayoutInfo,
+        ui::UiStack,
         window::PrimaryWindow,
     };
     use sim_core::time::{t_from_jd_tdb, StartMode};
@@ -1220,6 +1231,40 @@ mod tests {
     }
 
     #[test]
+    fn toast_expiry_despawns_each_notice_once_at_its_own_deadline() {
+        let mut app = App::new();
+        app.insert_resource(Time::<()>::default())
+            .add_systems(Update, expire_time_toasts);
+        let first = app.world_mut().spawn(TimeToast { remaining_s: 0.5 }).id();
+        let second = app.world_mut().spawn(TimeToast { remaining_s: 1.5 }).id();
+
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_secs(1));
+        app.world_mut().run_schedule(Update);
+        assert!(app.world().get_entity(first).is_err());
+        assert!(app.world().get_entity(second).is_ok());
+
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_secs(1));
+        app.world_mut().run_schedule(Update);
+        assert!(app.world().get_entity(second).is_err());
+
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_secs(1));
+        app.world_mut().run_schedule(Update);
+        assert_eq!(
+            app.world_mut()
+                .query_filtered::<Entity, With<TimeToast>>()
+                .iter(app.world())
+                .count(),
+            0
+        );
+    }
+
+    #[test]
     fn orbit_emphasis_messages_create_one_same_frame_toast_per_global_onset() {
         const FRAME_S: f64 = 1.0 / 60.0;
 
@@ -1301,6 +1346,220 @@ mod tests {
             indices.sort_unstable();
             assert_eq!(indices, vec![0, 1, 2, 3, 4]);
         }
+    }
+
+    #[test]
+    fn active_toasts_stay_bounded_wrapped_and_separate_at_required_viewports() {
+        const LONG_NOTICE: &str = "Orbit paths are simplified outside the supported interval; return to the supported interval for full orbital precision.";
+
+        for (width, height, scale) in test_layout::required_viewports() {
+            let theme = UiTheme::default();
+            let mut app = test_layout::app(width, height, scale);
+            app.insert_resource(theme)
+                .insert_resource(SimulationClock(SimClock::new(StartMode::default(), 0.0)))
+                .add_systems(Startup, spawn_time_bar);
+            test_layout::settle(&mut app);
+
+            let stack = app
+                .world_mut()
+                .query_filtered::<Entity, With<TimeToastStack>>()
+                .single(app.world())
+                .unwrap();
+            let toast_entity = app
+                .world_mut()
+                .spawn_scene(toast(
+                    theme,
+                    WidgetSpec::new(
+                        LONG_NOTICE,
+                        format!("Simulation notice: {LONG_NOTICE}"),
+                        WidgetVisualState::Default,
+                    ),
+                ))
+                .unwrap()
+                .insert((
+                    ChildOf(stack),
+                    TimeToast {
+                        remaining_s: TOAST_LIFETIME_S,
+                    },
+                ))
+                .id();
+            let second_toast = app
+                .world_mut()
+                .spawn_scene(toast(
+                    theme,
+                    WidgetSpec::new(
+                        "Simulation returned to the supported interval.",
+                        "Simulation notice: returned to the supported interval",
+                        WidgetVisualState::Default,
+                    ),
+                ))
+                .unwrap()
+                .insert((
+                    ChildOf(stack),
+                    TimeToast {
+                        remaining_s: TOAST_LIFETIME_S,
+                    },
+                ))
+                .id();
+            test_layout::settle(&mut app);
+
+            let world = app.world_mut();
+            let time_bar = world
+                .query_filtered::<Entity, With<TimeBarRoot>>()
+                .single(world)
+                .unwrap();
+            let text_entity = world
+                .get::<Children>(toast_entity)
+                .unwrap()
+                .iter()
+                .find(|entity| world.get::<Text>(*entity).is_some())
+                .unwrap();
+            let stack_rect = node_rect(world, stack);
+            let toast_rect = node_rect(world, toast_entity);
+            let second_toast_rect = node_rect(world, second_toast);
+            let text_rect = node_rect(world, text_entity);
+            let time_bar_rect = node_rect(world, time_bar);
+            let inset_px = theme.spacing.lg_px * scale;
+            let expected_stack_width = (390.0 * scale).min(width as f32 - 2.0 * inset_px);
+
+            assert!(
+                (stack_rect.width() - expected_stack_width).abs() <= 1.0,
+                "{width}×{height} scale {scale}: stack {stack_rect:?} did not resolve to {expected_stack_width}px"
+            );
+            assert!(
+                stack_rect.min.x >= inset_px - 1.0
+                    && stack_rect.max.x <= width as f32 - inset_px + 1.0,
+                "{width}×{height} scale {scale}: stack {stack_rect:?} escaped the viewport inset"
+            );
+            assert!(
+                toast_rect.min.x >= stack_rect.min.x - 1.0
+                    && toast_rect.max.x <= stack_rect.max.x + 1.0
+                    && text_rect.min.x >= toast_rect.min.x - 1.0
+                    && text_rect.max.x <= toast_rect.max.x + 1.0,
+                "{width}×{height} scale {scale}: toast/text {toast_rect:?}/{text_rect:?} escaped {stack_rect:?}"
+            );
+            assert!(
+                second_toast_rect.max.y <= time_bar_rect.min.y + 1.0,
+                "{width}×{height} scale {scale}: toast {second_toast_rect:?} overlapped time bar {time_bar_rect:?}"
+            );
+            assert!(
+                (second_toast_rect.min.y
+                    - toast_rect.max.y
+                    - theme.spacing.sm_px * scale)
+                    .abs()
+                    <= 1.0,
+                "{width}×{height} scale {scale}: toasts {toast_rect:?}/{second_toast_rect:?} lost their theme spacing"
+            );
+            let text_layout = world.get::<TextLayoutInfo>(text_entity).unwrap();
+            assert!(
+                text_layout.size.x * scale <= toast_rect.width() + 1.0
+                    && text_layout.size.y > theme.type_scale.body_px,
+                "{width}×{height} scale {scale}: toast text layout {:?} did not wrap within {toast_rect:?}",
+                text_layout.size
+            );
+            assert_eq!(world.get::<Pickable>(stack), Some(&Pickable::IGNORE));
+            assert_eq!(world.get::<Pickable>(toast_entity), Some(&Pickable::IGNORE));
+            assert_eq!(world.get::<Pickable>(text_entity), Some(&Pickable::IGNORE));
+        }
+    }
+
+    #[test]
+    fn ui_picking_reaches_the_underlying_target_through_an_active_toast() {
+        let theme = UiTheme::default();
+        let mut app = test_layout::app(800, 600, 1.0);
+        app.add_plugins((PickingPlugin, InteractionPlugin));
+        let target = app
+            .world_mut()
+            .spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: percent(100),
+                    height: percent(100),
+                    ..default()
+                },
+                Pickable::default(),
+                GlobalZIndex(100),
+            ))
+            .id();
+        let stack = app
+            .world_mut()
+            .spawn_scene(toast_stack(theme))
+            .unwrap()
+            .id();
+        let toast_entity = app
+            .world_mut()
+            .spawn_scene(toast(
+                theme,
+                WidgetSpec::new(
+                    "Simulation notice",
+                    "Simulation notice: test",
+                    WidgetVisualState::Default,
+                ),
+            ))
+            .unwrap()
+            .insert((
+                ChildOf(stack),
+                TimeToast {
+                    remaining_s: TOAST_LIFETIME_S,
+                },
+            ))
+            .id();
+        test_layout::settle(&mut app);
+
+        let toast_center = node_rect(app.world(), toast_entity).center();
+        let camera = app
+            .world_mut()
+            .query_filtered::<Entity, With<Camera2d>>()
+            .single(app.world())
+            .unwrap();
+        app.world_mut()
+            .entity_mut(camera)
+            .insert(RenderTarget::None {
+                size: UVec2::new(800, 600),
+            });
+        let node_entities: Vec<_> = app
+            .world_mut()
+            .query_filtered::<Entity, With<Node>>()
+            .iter(app.world())
+            .collect();
+        for entity in node_entities {
+            app.world_mut()
+                .entity_mut(entity)
+                .insert(InheritedVisibility::VISIBLE);
+        }
+        app.world_mut().spawn((
+            PointerId::Mouse,
+            PointerLocation::new(Location {
+                target: NormalizedRenderTarget::None {
+                    width: 800,
+                    height: 600,
+                },
+                position: toast_center,
+            }),
+        ));
+        let text_entity = app
+            .world()
+            .get::<Children>(toast_entity)
+            .unwrap()
+            .iter()
+            .find(|entity| app.world().get::<Text>(*entity).is_some())
+            .unwrap();
+        app.world_mut().insert_resource(UiStack {
+            partition: std::iter::once(0..4).collect(),
+            uinodes: vec![target, stack, toast_entity, text_entity],
+        });
+        app.world_mut().run_schedule(First);
+        app.world_mut().run_schedule(PreUpdate);
+
+        let hovered = app
+            .world()
+            .resource::<HoverMap>()
+            .get(&PointerId::Mouse)
+            .unwrap();
+        assert!(hovered.contains_key(&target));
+        assert!(!hovered.contains_key(&stack));
+        assert!(!hovered.contains_key(&toast_entity));
+        assert!(!hovered.contains_key(&text_entity));
     }
 
     fn node_rect(world: &World, entity: Entity) -> Rect {
