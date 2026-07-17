@@ -533,10 +533,12 @@ pub(crate) fn consume_search_command(command: &SimCommand, state: &mut BrowseUiS
     }
 }
 
-pub struct SearchPlugin;
+/// Architecture-facing owner of top-bar Search and full-screen Menu/Browse.
+pub struct SearchMenuPlugin;
 
-impl Plugin for SearchPlugin {
+impl Plugin for SearchMenuPlugin {
     fn build(&self, app: &mut App) {
+        crate::record_architecture_plugin(app, "SearchMenuPlugin");
         app.init_resource::<SearchUiState>()
             .init_resource::<BrowseUiState>()
             .add_systems(

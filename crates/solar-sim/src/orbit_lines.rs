@@ -318,6 +318,7 @@ pub struct OrbitLinesPlugin;
 
 impl Plugin for OrbitLinesPlugin {
     fn build(&self, app: &mut App) {
+        crate::record_architecture_plugin(app, "OrbitLinesPlugin");
         app.init_resource::<OrbitLineBrightness>()
             .add_systems(Startup, spawn_orbit_lines)
             .add_systems(

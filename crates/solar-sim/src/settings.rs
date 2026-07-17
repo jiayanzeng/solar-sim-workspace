@@ -540,31 +540,50 @@ enum SettingAction {
     ToggleLayer(LayerId),
 }
 
-pub struct ProductSettingsPlugin;
+/// Architecture-facing owner of settings schema convergence, persistence, and
+/// the modal settings surface.
+pub struct SettingsUiPlugin;
 
-impl Plugin for ProductSettingsPlugin {
+impl Plugin for SettingsUiPlugin {
     fn build(&self, app: &mut App) {
+        crate::record_architecture_plugin(app, "SettingsUiPlugin");
         app.init_resource::<SettingsScreenState>()
             .init_resource::<SettingsSaveRequest>()
-            .init_resource::<AppliedRuntimeSettings>()
             .init_resource::<SettingsPersistencePolicy>()
-            .init_resource::<RenderRecoveryStatus>()
-            .insert_resource(RenderErrorHandler(product_render_error_policy))
             .add_systems(
                 Update,
                 (
                     sync_settings_screen,
-                    apply_settings_to_runtime,
                     sync_external_presentation_to_settings,
                     persist_requested_settings,
                     rebuild_settings_screen.in_set(ModalSurfaceSet::Rebuild),
-                    sync_recovery_completion,
-                    sync_render_error_screen,
                 )
                     .chain()
                     .in_set(SimulationSet::Render),
             )
             .add_systems(Update, save_settings_on_window_close);
+    }
+}
+
+/// Internal implementation composed only by the architecture-facing
+/// `PlatformPlugin`: window/runtime settings and renderer recovery.
+pub(crate) struct PlatformRuntimePlugin;
+
+impl Plugin for PlatformRuntimePlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<AppliedRuntimeSettings>()
+            .init_resource::<RenderRecoveryStatus>()
+            .insert_resource(RenderErrorHandler(product_render_error_policy))
+            .add_systems(
+                Update,
+                (
+                    apply_settings_to_runtime.after(sync_external_presentation_to_settings),
+                    sync_recovery_completion,
+                    sync_render_error_screen,
+                )
+                    .chain()
+                    .in_set(SimulationSet::Render),
+            );
 
         #[cfg(debug_assertions)]
         install_debug_device_loss(app);

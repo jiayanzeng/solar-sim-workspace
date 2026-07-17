@@ -7,6 +7,10 @@
 
 #[cfg(feature = "steam")]
 use crate::steam_app_id::STEAM_APP_ID;
+use crate::{
+    advance_simulation_frame, record_architecture_plugin, settings::PlatformRuntimePlugin,
+    smoke_exit, SimulationSet,
+};
 use bevy::app::AppExit;
 use bevy::prelude::*;
 use std::sync::Mutex;
@@ -150,6 +154,22 @@ impl Plugin for PlatformServicesPlugin {
     }
 }
 
+/// Architecture-facing owner of window/runtime policy, renderer recovery,
+/// and application frame/exit lifecycle.
+pub struct PlatformPlugin;
+
+impl Plugin for PlatformPlugin {
+    fn build(&self, app: &mut App) {
+        record_architecture_plugin(app, "PlatformPlugin");
+        app.add_plugins(PlatformRuntimePlugin).add_systems(
+            Update,
+            (advance_simulation_frame, smoke_exit)
+                .chain()
+                .in_set(SimulationSet::Render),
+        );
+    }
+}
+
 /// Initializes Steamworks for the committed App ID and owns its lifecycle.
 ///
 /// A missing Steam client disables platform services but never prevents the
@@ -160,6 +180,7 @@ pub struct SteamPlugin;
 #[cfg(feature = "steam")]
 impl Plugin for SteamPlugin {
     fn build(&self, app: &mut App) {
+        record_architecture_plugin(app, "SteamPlugin");
         match SteamPlatformServices::initialize() {
             Ok(services) => {
                 let overlay_available = services.overlay_available();

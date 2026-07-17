@@ -13,6 +13,8 @@ use crate::ui_kit::{
     checkbox_row, UiTheme, WidgetSpec, WidgetVisualState, INTER_FONT_ASSET, TOP_BAR_HEIGHT_PX,
 };
 use crate::{SimulationSet, TIME_BAR_HEIGHT_PX};
+#[cfg(test)]
+use bevy::window::{MonitorSelection, PrimaryWindow, WindowMode};
 use bevy::{
     ecs::system::SystemParam,
     input::mouse::MouseScrollUnit,
@@ -24,7 +26,6 @@ use bevy::{
     text::LetterSpacing,
     ui::UiSystems,
     ui_widgets::Activate,
-    window::{MonitorSelection, PrimaryWindow, WindowMode},
 };
 use sim_core::catalog::Category;
 
@@ -376,11 +377,7 @@ impl Plugin for LayersPlugin {
             .add_systems(Startup, spawn_restore_affordance)
             .add_systems(
                 Update,
-                (
-                    sync_visual_cue_recovery,
-                    rebuild_right_rail,
-                    sync_window_mode,
-                )
+                (sync_visual_cue_recovery, rebuild_right_rail)
                     .chain()
                     .after(ModalSurfaceSet::Rebuild)
                     .before(ModalSurfaceSet::Focus)
@@ -1203,6 +1200,7 @@ fn is_descendant_of(mut entity: Entity, ancestor: Entity, parents: &Query<&Child
     false
 }
 
+#[cfg(test)]
 fn sync_window_mode(
     presentation: Res<PresentationState>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,

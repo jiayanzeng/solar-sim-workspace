@@ -709,7 +709,7 @@ currently reopened by this queue.
 2. [x] **AC-1 — command-path non-compliance.** Route Layers-panel open/close
    through explicit desired-state `SimCommand` traffic and shared
    desktop/headless reducers. Coordinate under WP11.
-3. [ ] **AC-2 — plugin-graph non-compliance.** Restore the architecture-facing
+3. [x] **AC-2 — plugin-graph non-compliance.** Restore the architecture-facing
    §8.2 plugin names, responsibilities, and frame ownership without duplicating
    existing internal systems. Coordinate under WP4.
 4. [ ] **AC-3 — top-bar order non-compliance.** Restore Search-before-Menu
@@ -855,6 +855,75 @@ Saturn's complete architecture-valid aggregate plus Io's reticle coverage.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Completed architecture-conformance Phase 2 and returned
+  WP4 to **✅ done**. Application assembly now exposes the exact
+  architecture-facing owners `TimePlugin`, `PropagationPlugin`,
+  `OriginPlugin`, `CameraPlugin`, `LabelsPlugin`, `ScenePlugin`,
+  `OrbitLinesPlugin`, `SelectionPlugin`, `UiKit`, `HudPlugin`,
+  `SearchMenuPlugin`, `SettingsUiPlugin`, and `PlatformPlugin`; feature-gated
+  `SteamPlugin` retains its required pre-graphics initialization. Focused
+  helpers are composed once beneath those owners: Camera owns raw-input
+  translation and camera startup, Scene owns bodies/polish/starfield, HUD owns
+  layers/time/left-panel surfaces, Settings UI owns schema/modal/persistence,
+  and Platform owns window/runtime settings, renderer recovery, and frame/exit
+  lifecycle. The chained input → commands → clock → propagation → origin →
+  camera → render sets, f64 propagation, sole rebase boundary, settings
+  bootstrap, golden capture, and no-op/Steam service boundary are unchanged.
+
+  One new assembly regression pins all 13 owners in §8.2 order, rejects
+  duplicate owners, proves each internal helper has exactly one composition
+  owner, and checks required resources. Existing independent tests continue to
+  prove one 66-body scene, one camera, 66 labels with the architecture-correct
+  57 reticles, 65 orbits, retained HUD/settings surfaces, and exact frame flow.
+  The portable replay hash remains bit-identical at
+  `8282160698094571922`; Q15 recovery, Q16's text-only Saturn plus Io reticle,
+  golden definitions, and responsive UI behavior remain unchanged.
+
+  `cargo test` passes **336 tests** (53 `sim-core` · 232 `solar-sim` · 48
+  `xtask` lib · 2 xtask smoke · 1 active spot-check), and `cargo test -p
+  solar-sim --features steam` passes **233 tests**. `cargo fmt --all --
+  --check`, both zero-warning clippy configurations,
+  `scripts/check-texture-metadata.sh` (16 assets), and `git diff --check` pass;
+  `cargo tree -p solar-sim --no-default-features --edges normal --prefix none`
+  contains no Steamworks package. No dependency, deferred WP16 implementation,
+  catalog/generated/truth asset, architecture/agent file, numerical tolerance,
+  or AC-3 top-bar source changed.
+- **2026-07-17** — Reopened WP4 for authorized architecture-conformance
+  Phase 2 after Phase 1 commit `21352b9` passed its complete gate and was
+  pushed. The mandatory pre-code review re-read ARCHITECTURE invariants 4 and
+  6–8 and §§8.2–8.5 and 12, the WP4 brief, `TASKS.md`, and the complete
+  corrective plan. The current responsibility map is: root
+  `apply_sim_commands`/`tick_clock` own command-to-time flow;
+  `PropagationPlugin` owns f64 body truth; `OriginPlugin` owns focus advance
+  and the sole f64→f32 rebase; `CameraRigPlugin` plus the internal
+  `InputIntentPlugin` and root camera startup own input/camera work;
+  `LabelsPlugin` owns projection/declutter while `SelectionPlugin` owns the
+  viewport pick surface; root sphere startup plus `ScenePolishPlugin` and
+  `StarfieldPlugin` own bodies, Sun light/bloom, emphasis, and starfield;
+  `OrbitLinesPlugin` owns retained parent-relative paths; `UiKitPlugin`
+  currently mixes theme/gallery with top-bar/breadcrumb HUD work;
+  `LayersPlugin`, `TimeBarPlugin`, and `LeftPanelPlugin` own the remaining HUD;
+  `SearchPlugin` owns Search/Browse; `ProductSettingsPlugin` currently mixes
+  settings UI/persistence with window/runtime settings and renderer recovery;
+  `PlatformServicesPlugin` owns the no-op/Steam service lifecycle while root
+  systems own smoke/frame lifecycle; feature-gated `SteamPlugin` correctly
+  initializes before `DefaultPlugins`.
+
+  The architecture-preserving correction will expose exactly the §8.2 owners:
+  `TimePlugin`, `PropagationPlugin`, `OriginPlugin`, `CameraPlugin`,
+  `LabelsPlugin`, `ScenePlugin`, `OrbitLinesPlugin`, `SelectionPlugin`,
+  `UiKit`, `HudPlugin`, `SearchMenuPlugin`, `SettingsUiPlugin`,
+  `PlatformPlugin`, and feature-gated `SteamPlugin`. Focused implementations
+  remain private subplugins, each system will have one composition owner, and
+  the existing frame-set chain remains unchanged. `SteamPlugin`/the no-op
+  service boundary stays before graphics creation; settings bootstrap stays
+  before clock/layer derivation; Platform takes window/runtime and render
+  recovery while Settings UI retains schema, modal, and persistence ownership.
+  Assembly regressions will pin exact owner order, one instance of every
+  application-facing plugin, required resources, and the existing independent
+  66-body/camera/label/orbit/HUD startup invariants. No behavior, replay hash,
+  golden definition, dependency, deferred WP16 implementation, generated/truth
+  asset, numerical tolerance, or Q15/Q16 ruling may change.
 - **2026-07-17** — Completed architecture-conformance Phase 1 and returned
   WP11 to **✅ done**. Layers-panel visibility is now canonical
   `PresentationState` reduced from explicit desired-state

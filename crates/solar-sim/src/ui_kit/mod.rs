@@ -43,12 +43,32 @@ impl Default for WidgetGalleryEnabled {
     }
 }
 
-pub struct UiKitPlugin;
+/// Architecture-facing owner of the stable BSN/widget façade and theme.
+pub struct UiKit;
 
-impl Plugin for UiKitPlugin {
+impl Plugin for UiKit {
     fn build(&self, app: &mut App) {
-        app.init_resource::<UiTheme>()
-            .init_resource::<NavigationStack>()
+        crate::record_architecture_plugin(app, "UiKit");
+        app.init_resource::<UiTheme>();
+
+        #[cfg(debug_assertions)]
+        app.init_resource::<WidgetGalleryEnabled>()
+            .add_systems(Startup, gallery::spawn_widget_gallery);
+    }
+}
+
+/// Architecture-facing owner of the complete persistent HUD surface.
+pub struct HudPlugin;
+
+impl Plugin for HudPlugin {
+    fn build(&self, app: &mut App) {
+        crate::record_architecture_plugin(app, "HudPlugin");
+        app.init_resource::<NavigationStack>()
+            .add_plugins((
+                crate::layers::LayersPlugin,
+                crate::time_bar::TimeBarPlugin,
+                crate::left_panel::LeftPanelPlugin,
+            ))
             .add_systems(Startup, hud::spawn_top_bar)
             .add_systems(
                 Update,
@@ -57,9 +77,5 @@ impl Plugin for UiKitPlugin {
                     .after(crate::left_panel::NavigationSyncSet)
                     .in_set(SimulationSet::Render),
             );
-
-        #[cfg(debug_assertions)]
-        app.init_resource::<WidgetGalleryEnabled>()
-            .add_systems(Startup, gallery::spawn_widget_gallery);
     }
 }

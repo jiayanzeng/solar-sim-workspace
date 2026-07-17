@@ -55,7 +55,7 @@ pub use orbit_lines::{
     HYPERBOLIC_HALF_SPAN_S, MAX_ORBIT_VERTICES, MIN_ORBIT_VERTICES,
 };
 pub use platform::{
-    NoopPlatformServices, PlatformServices, PlatformServicesPlugin, PlatformStatus,
+    NoopPlatformServices, PlatformPlugin, PlatformServices, PlatformServicesPlugin, PlatformStatus,
 };
 #[cfg(feature = "steam")]
 pub use platform::{SteamPlatformServices, SteamPlugin};
@@ -67,12 +67,12 @@ pub use scene_polish::{
 };
 pub use search::{
     search_catalog, BrowseColumn, BrowseColumnKind, BrowseCounts, BrowseEntry, BrowseMenuRoot,
-    BrowseModel, SearchDropdownRoot, SearchHit, SearchMatchKind, SearchPlugin,
+    BrowseModel, SearchDropdownRoot, SearchHit, SearchMatchKind, SearchMenuPlugin,
 };
 pub use settings::{
-    AppSettings, DisplayModeSetting, DistanceUnit, FrameCap, PersistedLayerState,
-    ProductSettingsPlugin, QualityPreset, RecoveryDirective, RenderErrorScreen, RenderFailureKind,
-    RenderRecoveryPhase, RenderRecoveryStatus, ResolutionSetting, SettingsScreenRoot,
+    AppSettings, DisplayModeSetting, DistanceUnit, FrameCap, PersistedLayerState, QualityPreset,
+    RecoveryDirective, RenderErrorScreen, RenderFailureKind, RenderRecoveryPhase,
+    RenderRecoveryStatus, ResolutionSetting, SettingsScreenRoot, SettingsUiPlugin,
     StartModeSetting, SETTINGS_IDENTIFIER,
 };
 pub use starfield::{
@@ -87,9 +87,9 @@ pub use time_bar::{
 };
 pub use ui_kit::{
     checkbox_row, chip, panel, section_header, slider, tab_bar, toast, top_bar, BreadcrumbText,
-    MenuBrowseButton, NavigationDestination, NavigationItem, NavigationStack, SearchHint,
-    SearchInput, SearchPlaceholder, TopBarRoot, UiColorToken, UiColors, UiKitPlugin, UiSpacing,
-    UiTheme, UiTypeScale, WidgetKind, WidgetRoot, WidgetSpec, WidgetVisualState,
+    HudPlugin, MenuBrowseButton, NavigationDestination, NavigationItem, NavigationStack,
+    SearchHint, SearchInput, SearchPlaceholder, TopBarRoot, UiColorToken, UiColors, UiKit,
+    UiSpacing, UiTheme, UiTypeScale, WidgetKind, WidgetRoot, WidgetSpec, WidgetVisualState,
     BREADCRUMB_SEPARATOR, INTER_FONT_ASSET, ROOT_NAVIGATION_ID, TOP_BAR_HEIGHT_PX,
 };
 #[cfg(debug_assertions)]
@@ -620,6 +620,37 @@ pub enum SimulationSet {
     Render,
 }
 
+#[cfg(test)]
+const REV_C_PLUGIN_ORDER: [&str; 13] = [
+    "TimePlugin",
+    "PropagationPlugin",
+    "OriginPlugin",
+    "CameraPlugin",
+    "LabelsPlugin",
+    "ScenePlugin",
+    "OrbitLinesPlugin",
+    "SelectionPlugin",
+    "UiKit",
+    "HudPlugin",
+    "SearchMenuPlugin",
+    "SettingsUiPlugin",
+    "PlatformPlugin",
+];
+
+/// Runtime audit trail for the architecture-facing composition boundary. It
+/// deliberately records only Rev C §8.2 owners, never their private helper
+/// plugins, so assembly regressions can detect reordered or duplicated owners.
+#[derive(Resource, Debug, Default)]
+struct ArchitecturePluginGraph(Vec<&'static str>);
+
+pub(crate) fn record_architecture_plugin(app: &mut App, name: &'static str) {
+    app.init_resource::<ArchitecturePluginGraph>();
+    app.world_mut()
+        .resource_mut::<ArchitecturePluginGraph>()
+        .0
+        .push(name);
+}
+
 fn configure_frame_flow(app: &mut App) {
     app.configure_sets(
         Update,
@@ -636,10 +667,21 @@ fn configure_frame_flow(app: &mut App) {
     );
 }
 
+pub struct TimePlugin;
+
+impl Plugin for TimePlugin {
+    fn build(&self, app: &mut App) {
+        record_architecture_plugin(app, "TimePlugin");
+        app.add_systems(Update, apply_sim_commands.in_set(SimulationSet::Commands))
+            .add_systems(Update, tick_clock.in_set(SimulationSet::Clock));
+    }
+}
+
 pub struct PropagationPlugin;
 
 impl Plugin for PropagationPlugin {
     fn build(&self, app: &mut App) {
+        record_architecture_plugin(app, "PropagationPlugin");
         app.init_resource::<PropagationStamp>()
             .add_systems(Update, propagate_bodies.in_set(SimulationSet::Propagation));
     }
@@ -649,6 +691,7 @@ pub struct OriginPlugin;
 
 impl Plugin for OriginPlugin {
     fn build(&self, app: &mut App) {
+        record_architecture_plugin(app, "OriginPlugin");
         app.add_systems(
             Update,
             (advance_camera_focus, update_focus_and_rebase)
@@ -658,12 +701,43 @@ impl Plugin for OriginPlugin {
     }
 }
 
-pub struct CameraRigPlugin;
+pub struct CameraPlugin;
 
-impl Plugin for CameraRigPlugin {
+impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, update_camera.in_set(SimulationSet::Camera));
+        record_architecture_plugin(app, "CameraPlugin");
+        app.add_plugins(InputIntentPlugin)
+            .add_systems(Startup, spawn_camera)
+            .add_systems(Update, update_camera.in_set(SimulationSet::Camera));
     }
+}
+
+pub struct ScenePlugin;
+
+impl Plugin for ScenePlugin {
+    fn build(&self, app: &mut App) {
+        record_architecture_plugin(app, "ScenePlugin");
+        app.add_plugins((ScenePolishPlugin, StarfieldPlugin))
+            .add_systems(Startup, (spawn_body_spheres, spawn_catalog_error));
+    }
+}
+
+fn add_architecture_plugins(app: &mut App) {
+    app.add_plugins((
+        TimePlugin,
+        PropagationPlugin,
+        OriginPlugin,
+        CameraPlugin,
+        LabelsPlugin,
+        ScenePlugin,
+        OrbitLinesPlugin,
+        SelectionPlugin,
+        UiKit,
+        HudPlugin,
+        SearchMenuPlugin,
+        SettingsUiPlugin,
+        PlatformPlugin,
+    ));
 }
 
 pub fn run_from_env() {
@@ -860,35 +934,7 @@ fn build_app_with_platform<P: Plugin>(
         }
     }
 
-    app.add_plugins((
-        InputIntentPlugin,
-        PropagationPlugin,
-        OriginPlugin,
-        CameraRigPlugin,
-        ScenePolishPlugin,
-        StarfieldPlugin,
-        OrbitLinesPlugin,
-        UiKitPlugin,
-        SearchPlugin,
-        LayersPlugin,
-        TimeBarPlugin,
-        LabelsPlugin,
-        SelectionPlugin,
-        LeftPanelPlugin,
-        ProductSettingsPlugin,
-    ))
-    .add_systems(
-        Startup,
-        (spawn_body_spheres, spawn_camera, spawn_catalog_error),
-    )
-    .add_systems(Update, apply_sim_commands.in_set(SimulationSet::Commands))
-    .add_systems(Update, tick_clock.in_set(SimulationSet::Clock))
-    .add_systems(
-        Update,
-        (advance_simulation_frame, smoke_exit)
-            .chain()
-            .in_set(SimulationSet::Render),
-    );
+    add_architecture_plugins(&mut app);
 
     if let Some(capture) = golden_capture {
         golden::configure_golden_capture(&mut app, capture);
@@ -1528,6 +1574,71 @@ mod tests {
         assert!(!RunOptions::default().reset_settings);
         let args = ["solar-sim", "--reset-settings"].map(str::to_owned);
         assert!(RunOptions::from_args(&args).unwrap().reset_settings);
+    }
+
+    #[test]
+    fn architecture_plugin_assembly_matches_rev_c_and_owns_helpers_once() {
+        let mut app = App::new();
+        add_architecture_plugins(&mut app);
+
+        assert_eq!(
+            app.world().resource::<ArchitecturePluginGraph>().0,
+            REV_C_PLUGIN_ORDER
+        );
+        let unique: std::collections::HashSet<_> = app
+            .world()
+            .resource::<ArchitecturePluginGraph>()
+            .0
+            .iter()
+            .copied()
+            .collect();
+        assert_eq!(unique.len(), REV_C_PLUGIN_ORDER.len());
+
+        macro_rules! assert_added_once {
+            ($($plugin:ty),+ $(,)?) => {
+                $(assert_eq!(
+                    app.get_added_plugins::<$plugin>().len(),
+                    1,
+                    "{} must have exactly one composition owner",
+                    stringify!($plugin),
+                );)+
+            };
+        }
+
+        assert_added_once!(
+            TimePlugin,
+            PropagationPlugin,
+            OriginPlugin,
+            CameraPlugin,
+            LabelsPlugin,
+            ScenePlugin,
+            OrbitLinesPlugin,
+            SelectionPlugin,
+            UiKit,
+            HudPlugin,
+            SearchMenuPlugin,
+            SettingsUiPlugin,
+            PlatformPlugin,
+        );
+        assert_added_once!(
+            input_intent::InputIntentPlugin,
+            ScenePolishPlugin,
+            StarfieldPlugin,
+            LayersPlugin,
+            TimeBarPlugin,
+            LeftPanelPlugin,
+            settings::PlatformRuntimePlugin,
+        );
+
+        assert!(app.world().contains_resource::<PropagationStamp>());
+        assert!(app.world().contains_resource::<OrbitLineBrightness>());
+        assert!(app.world().contains_resource::<UiTheme>());
+        assert!(app.world().contains_resource::<NavigationStack>());
+        assert!(app.world().contains_resource::<LayerState>());
+        assert!(app.world().contains_resource::<PresentationState>());
+        assert!(app.world().contains_resource::<ViewOptionsState>());
+        assert!(app.world().contains_resource::<search::BrowseUiState>());
+        assert!(app.world().contains_resource::<RenderRecoveryStatus>());
     }
 
     #[test]

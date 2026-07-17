@@ -222,6 +222,7 @@ pub struct LabelsPlugin;
 
 impl Plugin for LabelsPlugin {
     fn build(&self, app: &mut App) {
+        crate::record_architecture_plugin(app, "LabelsPlugin");
         app.add_systems(Startup, spawn_labels).add_systems(
             PostUpdate,
             (
@@ -241,6 +242,7 @@ pub struct SelectionPlugin;
 
 impl Plugin for SelectionPlugin {
     fn build(&self, app: &mut App) {
+        crate::record_architecture_plugin(app, "SelectionPlugin");
         app.add_systems(Startup, spawn_viewport_pick_surface);
     }
 }
