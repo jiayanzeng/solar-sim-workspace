@@ -47,6 +47,7 @@ pub enum SimCommand {
         layer: LayerId,
         visible: bool,
     },
+    SetLayersPanelOpen(bool),
     SetBodySize(BodySizeScale),
     SetMoonVisibility {
         system_id: String,
@@ -319,6 +320,7 @@ pub(crate) fn consume_sim_command(
             });
         }
         SimCommand::SetLayerVisibility { .. }
+        | SimCommand::SetLayersPanelOpen(_)
         | SimCommand::SetBodySize(_)
         | SimCommand::SetMoonVisibility { .. }
         | SimCommand::SetLocalOrbitVisibility { .. }
@@ -347,6 +349,7 @@ pub(crate) fn consume_presentation_command(
         SimCommand::SetLayerVisibility { layer, visible } => {
             layers.set_visible(*layer, *visible);
         }
+        SimCommand::SetLayersPanelOpen(open) => presentation.set_layers_panel_open(*open),
         SimCommand::ApplySettings(settings) => {
             *layers = settings.initial_layer_state();
             presentation.set_fullscreen(settings.display_mode.is_fullscreen());
@@ -885,6 +888,11 @@ impl HeadlessSimulation {
         self.settings_save.is_requested()
     }
 
+    #[cfg(test)]
+    pub(crate) fn presentation_state(&self) -> PresentationState {
+        self.presentation
+    }
+
     pub fn layer_state_hash(&self) -> u64 {
         self.layers.stable_hash()
     }
@@ -988,6 +996,7 @@ impl HeadlessSimulation {
         hash.u64(self.layers.stable_hash());
         hash.u8(u8::from(self.presentation.is_fullscreen()));
         hash.u8(u8::from(self.presentation.is_settings_open()));
+        hash.u8(u8::from(self.presentation.is_layers_panel_open()));
         hash_view_options(&mut hash, &self.view_options);
         hash_app_settings(&mut hash, &self.app_settings);
         let (selected_body_index, left_panel_tab) =
@@ -1237,6 +1246,9 @@ fn serialize_entry(entry: &StampedCommand) -> String {
             layer.replay_slug(),
             u8::from(*visible)
         ),
+        SimCommand::SetLayersPanelOpen(open) => {
+            format!("{prefix}|layers-panel-open|{}", u8::from(*open))
+        }
         SimCommand::SetBodySize(scale) => {
             let value = match scale {
                 BodySizeScale::X1 => "1",
@@ -1476,6 +1488,9 @@ fn parse_entry(line: &str) -> Result<StampedCommand, String> {
             };
             SimCommand::SetLayerVisibility { layer, visible }
         }
+        "layers-panel-open" if fields.len() == 4 => {
+            SimCommand::SetLayersPanelOpen(parse_bool(fields[3], "Layers-panel visibility")?)
+        }
         "body-size" if fields.len() == 4 => SimCommand::SetBodySize(match fields[3] {
             "1" => BodySizeScale::X1,
             "10" => BodySizeScale::X10,
@@ -1622,9 +1637,9 @@ mod tests {
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
     const FRAME_DT_S: f64 = 1.0 / 60.0;
-    // Task 4 makes the semantic Root/Body/Collection destination part of the
-    // deterministic navigation identity instead of hashing route text alone.
-    const PORTABLE_REPLAY_HASH: u64 = 1_535_747_298_578_131_566;
+    // Architecture-conformance Phase 1 adds canonical Layers-panel visibility
+    // to the deterministic presentation identity.
+    const PORTABLE_REPLAY_HASH: u64 = 8_282_160_698_094_571_922;
 
     fn catalog() -> Catalog {
         load_catalog_text(REAL_CATALOG).expect("committed catalog must load")
@@ -1897,6 +1912,40 @@ mod tests {
     }
 
     #[test]
+    fn layers_panel_desired_state_round_trips_and_rejects_corrupt_replay_rows() {
+        let catalog = catalog();
+        let mut original = HeadlessSimulation::new(&catalog).unwrap();
+        let mut recording = CommandRecording::default();
+        let frames = [
+            SimCommand::SetLayersPanelOpen(true),
+            SimCommand::SetLayersPanelOpen(true),
+            SimCommand::SetLayersPanelOpen(false),
+            SimCommand::SetLayersPanelOpen(true),
+        ];
+        for (frame, command) in frames.into_iter().enumerate() {
+            original
+                .step_with_wall_time(0.0, frame as f64, &[command], Some(&mut recording))
+                .unwrap();
+        }
+        assert!(original.presentation.is_layers_panel_open());
+
+        let encoded = recording.stream().to_text();
+        assert_eq!(encoded.matches("|layers-panel-open|").count(), 4);
+        let decoded = ReplayStream::from_text(&encoded).unwrap();
+        assert_eq!(&decoded, recording.stream());
+        let replayed = replay_headless(&catalog, &decoded, 4, FRAME_DT_S).unwrap();
+        assert!(replayed.presentation.is_layers_panel_open());
+        assert_eq!(replayed.state_hash(), original.state_hash());
+
+        for corrupt in [
+            "solar-sim-replay-v2\n0|0000000000000000|layers-panel-open|2\n",
+            "solar-sim-replay-v2\n0|0000000000000000|layers-panel-open|1|extra\n",
+        ] {
+            assert!(ReplayStream::from_text(corrupt).is_err());
+        }
+    }
+
+    #[test]
     fn replay_versions_round_trip_without_upgrade_or_downgrade() {
         let v1 = ReplayStream::from_text(concat!(
             "solar-sim-replay-v1\n",
@@ -2075,6 +2124,7 @@ mod tests {
                 layer: LayerId::Labels,
                 visible: false,
             },
+            SimCommand::SetLayersPanelOpen(true),
             SimCommand::ToggleFullscreen,
             SimCommand::SetBodySize(BodySizeScale::X10),
             SimCommand::SetBrowseOpen(true),

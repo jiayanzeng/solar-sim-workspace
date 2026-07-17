@@ -1,8 +1,9 @@
 //! WP11 global layers, right rail, and presentation mode — Rev C §§9.3–9.4.
 //!
-//! Every persistent visibility choice reduces from `SimCommand` into one
-//! bit-stable resource. Render packages read that resource without owning
-//! duplicate switches; transient panel-open state remains local UI state.
+//! Every application-visible layer and panel choice reduces from `SimCommand`
+//! into shared deterministic state. Render packages read those resources
+//! without owning duplicate switches; only scroll and focus mechanics remain
+//! local to the retained UI surface.
 
 use crate::control::{SimCommand, SimCommandQueue};
 use crate::input_intent::{dolly_command, ModalSurfaceSet, UiScrollSurface};
@@ -221,6 +222,7 @@ impl LayerState {
 pub struct PresentationState {
     fullscreen: bool,
     settings_open: bool,
+    layers_panel_open: bool,
 }
 
 impl PresentationState {
@@ -228,6 +230,7 @@ impl PresentationState {
         Self {
             fullscreen,
             settings_open: false,
+            layers_panel_open: false,
         }
     }
 
@@ -237,6 +240,10 @@ impl PresentationState {
 
     pub const fn is_settings_open(self) -> bool {
         self.settings_open
+    }
+
+    pub const fn is_layers_panel_open(self) -> bool {
+        self.layers_panel_open
     }
 
     pub(crate) fn toggle_fullscreen(&mut self) {
@@ -253,6 +260,10 @@ impl PresentationState {
 
     pub(crate) fn close_settings(&mut self) {
         self.settings_open = false;
+    }
+
+    pub(crate) fn set_layers_panel_open(&mut self, open: bool) {
+        self.layers_panel_open = open;
     }
 }
 
@@ -290,13 +301,12 @@ enum RailAction {
 
 #[derive(Resource, Debug, Clone, Copy)]
 struct RailUiState {
-    layers_panel_open: bool,
-    dirty: bool,
     rail_scroll_y: f32,
     layers_scroll_y: f32,
     restore_focus: Option<RailFocusTarget>,
     rendered_layers: Option<LayerState>,
     rendered_fullscreen: Option<bool>,
+    rendered_layers_panel_open: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -346,13 +356,12 @@ struct CueRecoveryParams<'w, 's> {
 impl Default for RailUiState {
     fn default() -> Self {
         Self {
-            layers_panel_open: false,
-            dirty: true,
             rail_scroll_y: 0.0,
             layers_scroll_y: 0.0,
             restore_focus: None,
             rendered_layers: None,
             rendered_fullscreen: None,
+            rendered_layers_panel_open: None,
         }
     }
 }
@@ -592,8 +601,9 @@ fn rebuild_right_rail(mut commands: Commands, params: RailRenderParams) {
         layer_toggles,
     } = params;
     let render_inputs_changed = ui_state.rendered_layers != Some(*layers)
-        || ui_state.rendered_fullscreen != Some(presentation.is_fullscreen());
-    if !ui_state.dirty && !render_inputs_changed {
+        || ui_state.rendered_fullscreen != Some(presentation.is_fullscreen())
+        || ui_state.rendered_layers_panel_open != Some(presentation.is_layers_panel_open());
+    if !render_inputs_changed {
         if layers.is_visible(LayerId::UserInterface)
             && presentation.is_changed()
             && !presentation.is_settings_open()
@@ -606,6 +616,7 @@ fn rebuild_right_rail(mut commands: Commands, params: RailRenderParams) {
     }
     ui_state.rendered_layers = Some(*layers);
     ui_state.rendered_fullscreen = Some(presentation.is_fullscreen());
+    ui_state.rendered_layers_panel_open = Some(presentation.is_layers_panel_open());
     if let Some(focused) = focus.get() {
         if let Ok(action) = rail_actions.get(focused) {
             ui_state.restore_focus = Some(RailFocusTarget::Action(*action));
@@ -716,7 +727,7 @@ fn rebuild_right_rail(mut commands: Commands, params: RailRenderParams) {
         },
     );
 
-    if ui_state.layers_panel_open {
+    if presentation.is_layers_panel_open() {
         spawn_layers_panel(
             &mut commands,
             *theme,
@@ -730,7 +741,6 @@ fn rebuild_right_rail(mut commands: Commands, params: RailRenderParams) {
             queue_rail_focus_restore(&mut commands, target);
         }
     }
-    ui_state.dirty = false;
 }
 
 fn queue_rail_focus_restore(commands: &mut Commands, target: RailFocusTarget) {
@@ -962,6 +972,7 @@ fn activate_rail_action(
     activate: On<Activate>,
     actions: Query<&RailAction>,
     focus: Res<InputFocus>,
+    presentation: Res<PresentationState>,
     mut ui_state: ResMut<RailUiState>,
     mut commands: ResMut<SimCommandQueue>,
 ) {
@@ -978,10 +989,9 @@ fn activate_rail_action(
     }
     match *action {
         RailAction::Zoom(delta) => commands.push(dolly_command(delta)),
-        RailAction::ToggleLayersPanel => {
-            ui_state.layers_panel_open = !ui_state.layers_panel_open;
-            ui_state.dirty = true;
-        }
+        RailAction::ToggleLayersPanel => commands.push(SimCommand::SetLayersPanelOpen(
+            !presentation.is_layers_panel_open(),
+        )),
         RailAction::ToggleFullscreen => commands.push(SimCommand::ToggleFullscreen),
         RailAction::OpenSettings => commands.push(SimCommand::OpenSettings),
     }
@@ -1415,13 +1425,13 @@ mod tests {
         let mut layers = LayerState::default();
         layers.set_visible(LayerId::Orbits, false);
         let expected_after_restore = layers;
+        let mut presentation = PresentationState::default();
+        presentation.set_layers_panel_open(true);
         app.insert_resource(layers)
             .init_resource::<SimCommandQueue>()
-            .init_resource::<PresentationState>()
+            .insert_resource(presentation)
             .init_resource::<InputFocus>()
             .insert_resource(RailUiState {
-                layers_panel_open: true,
-                dirty: false,
                 rail_scroll_y: 0.0,
                 layers_scroll_y: 0.0,
                 restore_focus: None,
@@ -1453,7 +1463,10 @@ mod tests {
             .world()
             .resource::<LayerState>()
             .is_visible(LayerId::Orbits));
-        assert!(app.world().resource::<RailUiState>().layers_panel_open);
+        assert!(app
+            .world()
+            .resource::<PresentationState>()
+            .is_layers_panel_open());
         assert_eq!(
             app.world().entity(first).get::<Visibility>(),
             Some(&Visibility::Hidden)
@@ -1473,7 +1486,10 @@ mod tests {
             *app.world().resource::<LayerState>(),
             expected_after_restore
         );
-        assert!(app.world().resource::<RailUiState>().layers_panel_open);
+        assert!(app
+            .world()
+            .resource::<PresentationState>()
+            .is_layers_panel_open());
         assert_eq!(
             app.world().entity(first).get::<Visibility>(),
             Some(&Visibility::Visible)
@@ -1780,6 +1796,8 @@ mod tests {
 
     fn rendered_rail_app(layers_panel_open: bool) -> App {
         let mut app = App::new();
+        let mut presentation = PresentationState::default();
+        presentation.set_layers_panel_open(layers_panel_open);
         app.add_plugins((
             TaskPoolPlugin::default(),
             AssetPlugin::default(),
@@ -1788,12 +1806,10 @@ mod tests {
         .init_asset::<Font>()
         .insert_resource(UiTheme::default())
         .init_resource::<LayerState>()
-        .init_resource::<PresentationState>()
+        .insert_resource(presentation)
         .init_resource::<InputFocus>()
         .init_resource::<SimCommandQueue>()
         .insert_resource(RailUiState {
-            layers_panel_open,
-            dirty: true,
             rail_scroll_y: 13.0,
             layers_scroll_y: 29.0,
             restore_focus: None,
@@ -1978,6 +1994,91 @@ mod tests {
     }
 
     #[test]
+    fn command_driven_panel_rebuilds_preserve_semantic_focus_and_scroll() {
+        let mut app = rendered_rail_app(false);
+        let toggle = toggle_layers_rail_action(app.world_mut());
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(toggle, FocusCause::Navigated);
+        app.world_mut()
+            .query_filtered::<&mut ScrollPosition, With<RightRailRoot>>()
+            .single_mut(app.world_mut())
+            .unwrap()
+            .y = 17.0;
+        app.world_mut().trigger(Activate { entity: toggle });
+        app.update();
+
+        assert!(app
+            .world()
+            .resource::<PresentationState>()
+            .is_layers_panel_open());
+        let opened_toggle = toggle_layers_rail_action(app.world_mut());
+        assert_eq!(
+            app.world().resource::<InputFocus>().get(),
+            Some(opened_toggle)
+        );
+        assert_eq!(
+            app.world_mut()
+                .query_filtered::<&ScrollPosition, With<RightRailRoot>>()
+                .single(app.world())
+                .unwrap()
+                .y,
+            17.0
+        );
+        let panel = app
+            .world_mut()
+            .query_filtered::<Entity, With<LayersPanelRoot>>()
+            .single(app.world())
+            .unwrap();
+        assert_eq!(
+            app.world().entity(panel).get::<ScrollPosition>().unwrap().y,
+            29.0
+        );
+
+        app.world_mut()
+            .entity_mut(panel)
+            .get_mut::<ScrollPosition>()
+            .unwrap()
+            .y = 41.0;
+        app.world_mut().trigger(Activate {
+            entity: opened_toggle,
+        });
+        app.update();
+        assert!(!app
+            .world()
+            .resource::<PresentationState>()
+            .is_layers_panel_open());
+        assert!(app
+            .world_mut()
+            .query_filtered::<Entity, With<LayersPanelRoot>>()
+            .single(app.world())
+            .is_err());
+
+        let closed_toggle = toggle_layers_rail_action(app.world_mut());
+        assert_eq!(
+            app.world().resource::<InputFocus>().get(),
+            Some(closed_toggle)
+        );
+        app.world_mut().trigger(Activate {
+            entity: closed_toggle,
+        });
+        app.update();
+        let reopened_panel = app
+            .world_mut()
+            .query_filtered::<Entity, With<LayersPanelRoot>>()
+            .single(app.world())
+            .unwrap();
+        assert_eq!(
+            app.world()
+                .entity(reopened_panel)
+                .get::<ScrollPosition>()
+                .unwrap()
+                .y,
+            41.0
+        );
+    }
+
+    #[test]
     fn stable_hud_visibility_does_not_rewrite_components() {
         let mut app = App::new();
         app.init_resource::<LayerState>()
@@ -2010,13 +2111,13 @@ mod tests {
     fn rail_and_layers_reach_last_actions_for_required_viewports() {
         for (width, height, scale) in test_layout::required_viewports() {
             let mut app = test_layout::app(width, height, scale);
+            let mut presentation = PresentationState::default();
+            presentation.set_layers_panel_open(true);
             app.insert_resource(UiTheme::default())
                 .init_resource::<LayerState>()
-                .init_resource::<PresentationState>()
+                .insert_resource(presentation)
                 .init_resource::<InputFocus>()
                 .insert_resource(RailUiState {
-                    layers_panel_open: true,
-                    dirty: true,
                     rail_scroll_y: 0.0,
                     layers_scroll_y: 0.0,
                     restore_focus: None,
@@ -2436,10 +2537,11 @@ mod tests {
     }
 
     #[test]
-    fn rail_actions_enqueue_commands_and_preserve_transient_panel_layout() {
+    fn rail_actions_enqueue_commands_without_mutating_canonical_panel_state() {
         let mut app = App::new();
         app.init_resource::<SimCommandQueue>()
             .init_resource::<LayerState>()
+            .init_resource::<PresentationState>()
             .init_resource::<InputFocus>()
             .init_resource::<RailUiState>();
         let zoom = app
@@ -2478,15 +2580,57 @@ mod tests {
                 dolly_command(ZOOM_IN_DOLLY_DELTA),
                 SimCommand::ToggleFullscreen,
                 SimCommand::OpenSettings,
+                SimCommand::SetLayersPanelOpen(true),
             ]
         );
-        assert!(app.world().resource::<RailUiState>().layers_panel_open);
+        assert!(!app
+            .world()
+            .resource::<PresentationState>()
+            .is_layers_panel_open());
+    }
+
+    #[test]
+    fn rail_observer_statically_preserves_the_command_only_boundary() {
+        let source = include_str!("layers.rs");
+        let observer = source
+            .split_once("fn activate_rail_action(")
+            .expect("rail observer exists")
+            .1
+            .split_once("\nfn activate_layer_toggle(")
+            .expect("layer observer follows rail observer")
+            .0;
+        assert!(observer.contains("commands.push(SimCommand::SetLayersPanelOpen("));
+        assert!(!observer.contains("set_layers_panel_open"));
+        assert!(!observer.contains("layers_panel_open ="));
     }
 
     #[test]
     fn presentation_reducer_exposes_fullscreen_and_wp14_settings_hooks() {
         let mut layers = LayerState::default();
         let mut presentation = PresentationState::default();
+        consume_presentation_command(
+            &SimCommand::SetLayersPanelOpen(true),
+            &mut layers,
+            &mut presentation,
+        );
+        assert!(presentation.is_layers_panel_open());
+        consume_presentation_command(
+            &SimCommand::SetLayersPanelOpen(true),
+            &mut layers,
+            &mut presentation,
+        );
+        assert!(presentation.is_layers_panel_open());
+        consume_presentation_command(
+            &SimCommand::SetLayersPanelOpen(false),
+            &mut layers,
+            &mut presentation,
+        );
+        consume_presentation_command(
+            &SimCommand::SetLayersPanelOpen(false),
+            &mut layers,
+            &mut presentation,
+        );
+        assert!(!presentation.is_layers_panel_open());
         consume_presentation_command(
             &SimCommand::ToggleFullscreen,
             &mut layers,

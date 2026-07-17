@@ -706,7 +706,7 @@ currently reopened by this queue.
    documentation clarification only; no immediate source action. WP10
    explicitly derives period from `Orbit::period_s` and permits hyperbolic
    bodies to show no period.
-2. [ ] **AC-1 — command-path non-compliance.** Route Layers-panel open/close
+2. [x] **AC-1 — command-path non-compliance.** Route Layers-panel open/close
    through explicit desired-state `SimCommand` traffic and shared
    desktop/headless reducers. Coordinate under WP11.
 3. [ ] **AC-2 — plugin-graph non-compliance.** Restore the architecture-facing
@@ -855,6 +855,51 @@ Saturn's complete architecture-valid aggregate plus Io's reticle coverage.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Completed architecture-conformance Phase 1 and returned
+  WP11 to **✅ done**. Layers-panel visibility is now canonical
+  `PresentationState` reduced from explicit desired-state
+  `SimCommand::SetLayersPanelOpen(bool)` traffic shared by desktop and
+  headless execution. The rail observer reads canonical state only to enqueue
+  one command; it no longer mutates panel state or a desktop-only dirty flag.
+  Replay-v2 serializes/parses the new command, rejects invalid booleans and
+  field counts, and hashes panel visibility as part of complete presentation
+  identity; replay-v1 remains parseable. The portable replay hash intentionally
+  changes from `1535747298578131566` to `8282160698094571922` solely because
+  this previously omitted canonical state is now covered. Duplicate desired
+  states advertise no false Bevy change, ordered open/close sequences converge
+  identically across the real desktop gate and headless runner, and a static
+  regression pins the observer's command-only boundary. Composed UI coverage
+  proves necessary panel rebuilds retain rail/panel scroll and semantic focus;
+  existing UI-off, Browse/Settings modal priority, stable entity identity, and
+  responsive reachability regressions remain green.
+
+  Four new app regressions raise `cargo test` to **335 tests** (53 `sim-core`
+  · 231 `solar-sim` · 48 `xtask` lib · 2 xtask smoke · 1 active spot-check);
+  `cargo test -p solar-sim --features steam` passes **232 tests**. `cargo fmt
+  --all -- --check`, both zero-warning clippy configurations,
+  `scripts/check-texture-metadata.sh` (16 assets), and `git diff --check` pass.
+  No WP4/WP7 source, deferred WP16 implementation, dependency,
+  catalog/generated/truth asset, architecture/agent file, numerical tolerance,
+  or Q16 Saturn/Io behavior changed.
+- **2026-07-17** — Reopened WP11 for authorized architecture-conformance
+  Phase 1 after the documentation baseline was committed as `cf7aab1` and
+  pushed to `codex/ui-gameplay-remediation`. The mandatory pre-code review
+  re-read ARCHITECTURE invariants 4 and 7 and §§8.2, 9.3–9.4, and 12,
+  `TASKS.md`, the completed stabilization record, and the complete corrective
+  plan. It confirms that `RailAction::ToggleLayersPanel` directly mutates the
+  desktop-only `RailUiState.layers_panel_open`, so the user-visible transition
+  is absent from replay, combined state hashing, and headless convergence.
+  The correction will add an explicit desired-state command, reduce it through
+  the shared canonical presentation state, and make the rail observer enqueue
+  exactly one command without mutating that state. Replay-v2 serialization,
+  strict parsing, corrupt-input rejection, portable hashing, duplicate-command
+  idempotence, and ordered desktop/headless parity will be extended together;
+  replay v1 remains accepted. Retained panel identity, scroll/focus recovery,
+  UI-off's sole `SHOW UI` affordance, and Browse/Settings modal precedence must
+  remain unchanged. Targeted static and composed regressions will precede the
+  full normal/Steam submission matrix. No WP4/WP7 source, deferred WP16 work,
+  dependency, catalog/generated/truth asset, architecture file, numerical
+  tolerance, or Q16 Saturn/Io behavior is in scope.
 - **2026-07-17** — Recorded the human-requested, architecture-governed
   conformance queue without changing source code or work-package status.
   `docs/ui-gameplay-architecture-conformance-2026-07-17.md` classifies WP10's

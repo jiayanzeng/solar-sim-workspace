@@ -2230,6 +2230,59 @@ mod tests {
     }
 
     #[test]
+    fn desktop_and_headless_layers_panel_commands_converge_in_recorded_order() {
+        let catalog = catalog();
+        let mut headless = HeadlessSimulation::new(&catalog).unwrap();
+        let mut app = command_gate_change_test_app();
+        app.update();
+
+        let ordered = [
+            SimCommand::SetLayersPanelOpen(true),
+            SimCommand::SetLayersPanelOpen(true),
+            SimCommand::SetLayersPanelOpen(false),
+            SimCommand::SetLayersPanelOpen(true),
+        ];
+        for command in &ordered {
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .push(command.clone());
+        }
+        app.update();
+        headless
+            .step_with_wall_time(0.0, 0.0, &ordered, None)
+            .unwrap();
+
+        assert_eq!(
+            *app.world().resource::<PresentationState>(),
+            headless.presentation_state()
+        );
+        assert!(headless.presentation_state().is_layers_panel_open());
+        assert_eq!(
+            *app.world().resource::<SemanticChangeProbe>(),
+            SemanticChangeProbe {
+                presentation: true,
+                ..default()
+            }
+        );
+
+        app.world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .push(SimCommand::SetLayersPanelOpen(true));
+        app.update();
+        headless
+            .step_with_wall_time(0.0, 0.0, &[SimCommand::SetLayersPanelOpen(true)], None)
+            .unwrap();
+        assert_eq!(
+            *app.world().resource::<PresentationState>(),
+            headless.presentation_state()
+        );
+        assert_eq!(
+            *app.world().resource::<SemanticChangeProbe>(),
+            SemanticChangeProbe::default()
+        );
+    }
+
+    #[test]
     fn command_gate_reduces_application_state_before_catalog_loads() {
         let mut queue = SimCommandQueue::default();
         for command in [
