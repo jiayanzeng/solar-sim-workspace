@@ -697,9 +697,27 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Next up (dependency order)
 
-1. **WP5 → WP6**, then **WP7/WP8** (ui_kit, then the time bar
-   binding WP1's API), then WP9–WP15 per briefs, WP16–17 release
-   engineering.
+The completed stabilization cycle has a human-requested architecture-
+conformance follow-up. Execution is awaiting review and authorization of
+`docs/ui-gameplay-architecture-conformance-2026-07-17.md`; no work package is
+currently reopened by this queue.
+
+1. [ ] **Hyperbolic orbital-period omission — justified.** Deferred
+   documentation clarification only; no immediate source action. WP10
+   explicitly derives period from `Orbit::period_s` and permits hyperbolic
+   bodies to show no period.
+2. [ ] **AC-1 — command-path non-compliance.** Route Layers-panel open/close
+   through explicit desired-state `SimCommand` traffic and shared
+   desktop/headless reducers. Coordinate under WP11.
+3. [ ] **AC-2 — plugin-graph non-compliance.** Restore the architecture-facing
+   §8.2 plugin names, responsibilities, and frame ownership without duplicating
+   existing internal systems. Coordinate under WP4.
+4. [ ] **AC-3 — top-bar order non-compliance.** Restore Search-before-Menu
+   visual and keyboard order with responsive/accessibility regressions.
+   Coordinate under WP7.
+5. After the conformance phases are accepted and submitted in order, continue
+   with the still-deferred WP16 and dependent WP17 only under their existing
+   human authorization and hardware gates.
 
 ## Open questions (humans close these)
 
@@ -837,6 +855,33 @@ Saturn's complete architecture-valid aggregate plus Io's reticle coverage.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-17** — Recorded the human-requested, architecture-governed
+  conformance queue without changing source code or work-package status.
+  `docs/ui-gameplay-architecture-conformance-2026-07-17.md` classifies WP10's
+  hyperbolic no-period behavior as a justified deferred clarification and
+  records three unwaived violations: Layers-panel visibility bypassing
+  `SimCommand`, the missing ARCHITECTURE §8.2 application-facing plugin graph,
+  and Menu preceding Search in the top bar. The plan orders remediation under
+  WP11 → WP4 → WP7, one work package at a time, with targeted acceptance,
+  complete normal/Steam verification, and automatic commit/push only after the
+  human authorizes the plan and each phase's evidence confirms completion.
+  This documentation-only planning step does not resume deferred WP16, alter
+  Q16's Saturn/Io ruling, or edit acceptance criteria, generated/truth assets,
+  dependencies, `ARCHITECTURE.md`, or any `AGENTS.md`.
+- **2026-07-17** — Synchronized the UI/gameplay stabilization completion
+  record after the human-requested documentation audit; no source code or
+  work-package status changed. `docs/ui-gameplay-stabilization-2026-07-16.md`
+  now records the architecture-preserving Q16 result (Saturn's
+  sphere/rings/text/orbit aggregate with no Saturn icon or reticle, plus Io
+  reticle coverage), the complete Task 7 retained-update and composed-lifecycle
+  outcome, the final portable replay hash `1535747298578131566`, and the final
+  verification totals instead of the earlier intermediate checkpoint. Fresh
+  post-update evidence is green: `cargo test` passes **331 tests** (53
+  `sim-core` · 227 `solar-sim` · 48 `xtask` lib · 2 xtask smoke · 1 active
+  spot-check); `cargo test -p solar-sim --features steam` passes **228 tests**;
+  formatting, both zero-warning clippy configurations, and `git diff --check`
+  pass. The locked Task 6 acceptance text and append-only historical entries
+  remain unchanged.
 - **2026-07-17** — Human explicitly closed Q16 with the recommended
   architecture-preserving ruling and WP13 returned to **✅ done**. Per
   ARCHITECTURE §10.3, Saturn remains strictly text-only: its complete aggregate

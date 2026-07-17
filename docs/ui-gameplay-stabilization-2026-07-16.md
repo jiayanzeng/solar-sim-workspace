@@ -249,27 +249,49 @@ before each task:
 5. Settings exposes `RESTORE DEFAULTS`; `--reset-settings` persists defaults
    before normal startup; cue-less visible-UI states expose one transient
    recovery notice without changing persistence by appearance.
-6. Saturn's ring material uses Saturn's emphasis alpha, matching the sphere,
-   label/icon visibility threshold, and orbit-brightness transition.
-7. Unchanged clocks no longer trigger body propagation or secular
-   orbit-path comparison, and unchanged emphasis blends do not rewrite body or
-   ring materials.
+6. Under the human Q16 ruling and ARCHITECTURE §10.3, Saturn remains
+   text-only: its sphere, rings, text label, and orbit share the emphasis
+   transition, with no Saturn icon or reticle. Io supplies the representative
+   Icons-layer reticle coverage and uses the same shared emphasis blend.
+7. Unchanged clocks no longer trigger body propagation or secular orbit-path
+   comparison, and exact orbit-cache keys preserve zero-error geometry reuse.
+   Stable emphasis, presentation, settings, Layers, Browse, left-panel,
+   search, time-control, and breadcrumb values avoid redundant component,
+   material, asset, or UI-tree writes while preserving semantic focus and
+   scroll across necessary rebuilds. A composed real-catalog lifecycle covers
+   the interaction, recovery, navigation, high-rate aggregate, and LIVE-replay
+   boundaries together.
 
 Verification evidence:
 
 ```text
 cargo test
-  223 passed: 53 sim-core + 119 solar-sim + 48 xtask lib
+  331 passed: 53 sim-core + 227 solar-sim + 48 xtask lib
               + 2 xtask smoke + 1 active spot-check
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test -p solar-sim --features steam
-  120 passed
+  228 passed
 cargo clippy -p solar-sim --all-targets --features steam -- -D warnings
 git diff --check
 ```
 
-The replay portable state hash changed from `11614332433107791956` to
-`11341847874983838712` because the hash now covers the newly replayed View
-Options, application settings, navigation, and modal state. No tolerance or
-physics assertion was loosened.
+The final replay portable state hash is `1535747298578131566`. Its intentional
+changes during this cycle reflect newly replayed View Options, application
+settings, navigation and modal state, followed by the canonical semantic
+navigation identity. No tolerance or physics assertion was loosened.
+
+## Post-completion architecture-conformance addendum — 2026-07-17
+
+A subsequent architecture-to-source audit limits the completion record above
+to the seven stabilization tasks and their stated acceptance evidence. It does
+not waive three implementation conflicts discovered after that closeout:
+Layers-panel open/close bypasses `SimCommand`, the application does not expose
+the prescribed ARCHITECTURE §8.2 plugin ownership graph, and the top bar places
+Menu before Search. WP10's hyperbolic no-period behavior is separately tracked
+as justified and requires no immediate source action.
+
+The binding issue descriptions, ordered remediation phases, acceptance
+criteria, and automatic post-verification submission policy are recorded in
+`docs/ui-gameplay-architecture-conformance-2026-07-17.md`. No corrective source
+work is authorized until the human reviews and approves that plan.
