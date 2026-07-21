@@ -9,6 +9,8 @@ use crate::control::{CameraController, SimCommand, SimCommandQueue};
 use crate::input_intent::InteractionOwnership;
 use crate::layers::{LayerId, LayerState};
 use crate::left_panel::{body_passes_moon_visibility, ViewOptionsState};
+use crate::orbit_lines::OrbitLine;
+use crate::selection::install_selection_accent;
 use crate::ui_kit::{UiTheme, INTER_FONT_ASSET, TOP_BAR_HEIGHT_PX};
 use crate::{
     rebase_position, BodyStates, LoadedCatalog, OrbitEmphasisState, KM_PER_RENDER_UNIT,
@@ -31,6 +33,7 @@ const RETICLE_GAP_PX: f32 = 6.0;
 const LABEL_ANCHOR_GAP_PX: f32 = 8.0;
 const VIEWPORT_MARGIN_PX: f32 = 4.0;
 const MIN_PICK_RADIUS_PX: f64 = 10.0;
+const ORBIT_PICK_RADIUS_PX: f32 = 8.0;
 const LABEL_EMPHASIS_HIDE_ALPHA: f32 = 0.01;
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
@@ -264,6 +267,7 @@ pub struct SelectionPlugin;
 impl Plugin for SelectionPlugin {
     fn build(&self, app: &mut App) {
         crate::record_architecture_plugin(app, "SelectionPlugin");
+        install_selection_accent(app);
         app.add_systems(Startup, spawn_viewport_pick_surface);
     }
 }
@@ -878,6 +882,7 @@ fn pick_inflated_body_sphere(
     click: On<Pointer<Click>>,
     cameras: Query<(&Camera, &GlobalTransform, &Projection), With<Camera3d>>,
     bodies: Query<(&crate::BodyVisual, &GlobalTransform, &Visibility)>,
+    orbits: Query<(&OrbitLine, &GlobalTransform)>,
     loaded: Res<LoadedCatalog>,
     ownership: InteractionOwnership,
     mut commands: ResMut<SimCommandQueue>,
@@ -932,7 +937,90 @@ fn pick_inflated_body_sphere(
 
     if let Some((_distance, body_index)) = nearest {
         enqueue_travel(body_index, &loaded, &mut commands);
+        return;
     }
+
+    if let Some(body_index) = nearest_visible_orbit_path(
+        click.pointer_location.position,
+        camera,
+        camera_transform,
+        &orbits,
+    ) {
+        enqueue_travel(body_index, &loaded, &mut commands);
+    }
+}
+
+fn nearest_visible_orbit_path(
+    pointer: Vec2,
+    camera: &Camera,
+    camera_transform: &GlobalTransform,
+    orbits: &Query<(&OrbitLine, &GlobalTransform)>,
+) -> Option<usize> {
+    let mut nearest = None;
+    for (line, line_transform) in orbits {
+        if !line.is_pick_visible() {
+            continue;
+        }
+        let mut previous = None;
+        for local_position in line.render_vertices() {
+            let world_position = line_transform.affine().transform_point3(local_position);
+            let projected = camera
+                .world_to_viewport(camera_transform, world_position)
+                .ok();
+            if let (Some(start), Some(end)) = (previous, projected) {
+                consider_orbit_segment(
+                    &mut nearest,
+                    pointer,
+                    line.body_index(),
+                    start,
+                    end,
+                    ORBIT_PICK_RADIUS_PX,
+                );
+            }
+            previous = projected;
+        }
+    }
+    nearest.map(|(_distance_squared, body_index)| body_index)
+}
+
+fn consider_orbit_segment(
+    nearest: &mut Option<(f32, usize)>,
+    pointer: Vec2,
+    body_index: usize,
+    start: Vec2,
+    end: Vec2,
+    radius_px: f32,
+) {
+    if !pointer.is_finite()
+        || !start.is_finite()
+        || !end.is_finite()
+        || !radius_px.is_finite()
+        || radius_px < 0.0
+    {
+        return;
+    }
+    let distance_squared = point_segment_distance_squared(pointer, start, end);
+    if distance_squared > radius_px * radius_px {
+        return;
+    }
+    let replace = nearest.is_none_or(|(best_distance_squared, best_body_index)| {
+        distance_squared < best_distance_squared
+            || (distance_squared.to_bits() == best_distance_squared.to_bits()
+                && body_index < best_body_index)
+    });
+    if replace {
+        *nearest = Some((distance_squared, body_index));
+    }
+}
+
+fn point_segment_distance_squared(point: Vec2, start: Vec2, end: Vec2) -> f32 {
+    let segment = end - start;
+    let length_squared = segment.length_squared();
+    if length_squared == 0.0 {
+        return point.distance_squared(start);
+    }
+    let fraction = ((point - start).dot(segment) / length_squared).clamp(0.0, 1.0);
+    point.distance_squared(start + segment * fraction)
 }
 
 pub(crate) fn inflated_pick_radius(
@@ -1175,6 +1263,69 @@ mod tests {
             ray_sphere_hit_distance(origin, [0.0; 3], [0.0, 0.0, -10.0], 1.0),
             None
         );
+    }
+
+    #[test]
+    fn orbit_segment_hits_cover_seams_endpoints_overlaps_and_exact_ties() {
+        let pointer = Vec2::new(10.0, 10.0);
+        let mut nearest = None;
+
+        // A miss outside the reviewed eight-logical-pixel radius contributes
+        // no candidate.
+        consider_orbit_segment(
+            &mut nearest,
+            pointer,
+            9,
+            Vec2::new(0.0, 30.0),
+            Vec2::new(20.0, 30.0),
+            ORBIT_PICK_RADIUS_PX,
+        );
+        assert_eq!(nearest, None);
+
+        // These represent the duplicated closing ellipse segment and the
+        // first segment leaving a hyperbolic endpoint.
+        consider_orbit_segment(
+            &mut nearest,
+            pointer,
+            9,
+            Vec2::new(0.0, 14.0),
+            Vec2::new(20.0, 14.0),
+            ORBIT_PICK_RADIUS_PX,
+        );
+        assert_eq!(nearest, Some((16.0, 9)));
+        consider_orbit_segment(
+            &mut nearest,
+            pointer,
+            7,
+            Vec2::new(6.0, 0.0),
+            Vec2::new(6.0, 20.0),
+            ORBIT_PICK_RADIUS_PX,
+        );
+        assert_eq!(
+            nearest,
+            Some((16.0, 7)),
+            "catalog index is the final tie breaker"
+        );
+
+        consider_orbit_segment(
+            &mut nearest,
+            pointer,
+            12,
+            Vec2::new(8.0, 8.0),
+            Vec2::new(8.0, 8.0),
+            ORBIT_PICK_RADIUS_PX,
+        );
+        assert_eq!(nearest, Some((8.0, 12)));
+
+        consider_orbit_segment(
+            &mut nearest,
+            Vec2::splat(f32::NAN),
+            0,
+            Vec2::ZERO,
+            Vec2::ONE,
+            ORBIT_PICK_RADIUS_PX,
+        );
+        assert_eq!(nearest, Some((8.0, 12)));
     }
 
     #[test]
@@ -2025,6 +2176,90 @@ mod tests {
             .drain()
             .collect();
         assert_eq!(queued, vec![SimCommand::TravelToBody("jupiter".into())]);
+    }
+
+    #[test]
+    fn visible_orbit_click_queues_one_body_travel_and_ignores_zero_alpha_overlap() {
+        const WIDTH: u32 = 960;
+        const HEIGHT: u32 = 600;
+
+        let loaded = catalog();
+        let sun = loaded.index_of("sun").unwrap();
+        let earth = loaded.index_of("earth").unwrap();
+        let mercury = loaded.index_of("mercury").unwrap();
+        let earth_orbit = loaded.catalog.bodies[earth].orbit.as_ref().unwrap();
+        let sun_mu = loaded.catalog.bodies[sun].gm_km3_s2.unwrap();
+        let path = crate::orbit_lines::sample_orbit(earth_orbit, sun_mu, 0.0).unwrap();
+        let hidden_path = path.clone();
+        let controller = CameraController::new(sun, [0.0; 3], 1.0e6);
+        let (camera, camera_transform) = perspective_camera(WIDTH, HEIGHT, &controller);
+        let projected: Vec<_> = path
+            .vertices_parent_km()
+            .iter()
+            .take(2)
+            .map(|position| {
+                camera
+                    .world_to_viewport(&camera_transform, rebase_position(*position, [0.0; 3]))
+                    .unwrap()
+            })
+            .collect();
+        let pointer_position = (projected[0] + projected[1]) * 0.5;
+
+        let mut app = App::new();
+        app.insert_resource(loaded)
+            .init_resource::<InputFocus>()
+            .init_resource::<BrowseUiState>()
+            .init_resource::<PresentationState>()
+            .insert_resource(SimCommandQueue::default());
+        app.world_mut().spawn((
+            Camera3d::default(),
+            camera,
+            camera_transform,
+            Projection::Perspective(PerspectiveProjection::default()),
+        ));
+        app.world_mut().spawn((
+            OrbitLine::for_pick_test(earth, sun, path, 1.0),
+            GlobalTransform::IDENTITY,
+        ));
+        app.world_mut().spawn((
+            OrbitLine::for_pick_test(mercury, sun, hidden_path, 0.0),
+            GlobalTransform::IDENTITY,
+        ));
+        let surface = app
+            .world_mut()
+            .spawn_empty()
+            .observe(pick_inflated_body_sphere)
+            .id();
+        let window = app.world_mut().spawn_empty().id();
+        let location = Location {
+            target: NormalizedRenderTarget::Window(
+                WindowRef::Entity(window).normalize(None).unwrap(),
+            ),
+            position: pointer_position,
+        };
+        let click = Click {
+            button: PointerButton::Primary,
+            hit: HitData {
+                camera: Entity::PLACEHOLDER,
+                depth: 0.0,
+                position: None,
+                normal: None,
+                extra: None,
+            },
+            duration: Duration::ZERO,
+            count: 1,
+        };
+
+        app.world_mut()
+            .trigger(Pointer::new(PointerId::Mouse, location, click, surface));
+
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .collect::<Vec<_>>(),
+            vec![SimCommand::TravelToBody("earth".into())]
+        );
     }
 
     #[test]

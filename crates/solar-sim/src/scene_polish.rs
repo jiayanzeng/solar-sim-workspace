@@ -4,9 +4,10 @@
 //! Runtime state is presentation-only: it cross-fades body materials, label
 //! colors, and orbit brightness without changing propagation or picking truth.
 
+use crate::selection::{blend_selection_rgb, SelectionAccent, SelectionAccentSet};
 use crate::surface_textures::SaturnRing;
 use crate::{BodyVisual, LoadedCatalog, SimulationSet, SimulationTickAdvance};
-use bevy::{color::Alpha, prelude::*};
+use bevy::prelude::*;
 use sim_core::catalog::Category;
 
 pub const EMPHASIS_ENGAGE_PHASE_RAD: f64 = 0.15;
@@ -139,7 +140,8 @@ impl Plugin for ScenePolishPlugin {
             (update_orbit_emphasis, apply_body_emphasis_alpha)
                 .chain()
                 .in_set(SimulationSet::Render)
-                .in_set(OrbitEmphasisSet),
+                .in_set(OrbitEmphasisSet)
+                .after(SelectionAccentSet),
         );
     }
 }
@@ -248,11 +250,12 @@ fn update_orbit_emphasis(
 fn apply_body_emphasis_alpha(
     loaded: Option<Res<LoadedCatalog>>,
     emphasis: Res<OrbitEmphasisState>,
+    selection: Option<Res<SelectionAccent>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     bodies: Query<(&BodyVisual, &MeshMaterial3d<StandardMaterial>)>,
     rings: Query<(&SaturnRing, &MeshMaterial3d<StandardMaterial>)>,
 ) {
-    if !emphasis.is_changed() {
+    if !emphasis.is_changed() && selection.as_ref().is_none_or(|state| !state.is_changed()) {
         return;
     }
     let Some(loaded) = loaded else {
@@ -266,12 +269,21 @@ fn apply_body_emphasis_alpha(
         let Some(material) = materials.get(&material_handle.0) else {
             continue;
         };
-        let base_color = if body.texture.is_some() && material.base_color_texture.is_some() {
-            Color::WHITE.with_alpha(alpha)
+        let base_rgb = if body.texture.is_some() && material.base_color_texture.is_some() {
+            [1.0; 3]
         } else {
             let (red, green, blue) = body.color_srgb;
-            Color::srgb_u8(red, green, blue).with_alpha(alpha)
+            [
+                f32::from(red) / 255.0,
+                f32::from(green) / 255.0,
+                f32::from(blue) / 255.0,
+            ]
         };
+        let selected = selection
+            .as_ref()
+            .is_some_and(|state| state.accents_body(visual.index));
+        let [red, green, blue] = blend_selection_rgb(base_rgb, selected);
+        let base_color = Color::srgba(red, green, blue, alpha);
         let alpha_mode = if body.category != Category::Star && alpha < 0.999 {
             AlphaMode::Blend
         } else {
@@ -287,7 +299,11 @@ fn apply_body_emphasis_alpha(
         material.alpha_mode = alpha_mode;
     }
     for (ring, material_handle) in &rings {
-        let base_color = Color::srgba(0.92, 0.86, 0.72, 0.9 * emphasis.body_alpha(ring.body_index));
+        let selected = selection
+            .as_ref()
+            .is_some_and(|state| state.accents_body(ring.body_index));
+        let [red, green, blue] = blend_selection_rgb([0.92, 0.86, 0.72], selected);
+        let base_color = Color::srgba(red, green, blue, 0.9 * emphasis.body_alpha(ring.body_index));
         let Some(material) = materials.get(&material_handle.0) else {
             continue;
         };
@@ -308,6 +324,7 @@ mod tests {
     use bevy::{
         app::TaskPoolPlugin,
         asset::{AssetApp, AssetEvent, AssetEventSystems, AssetPlugin},
+        color::Alpha,
     };
     use sim_core::time::{RateIndex, JULIAN_YEAR_S};
     use std::{collections::BTreeMap, time::Duration};
@@ -533,7 +550,91 @@ mod tests {
     }
 
     #[test]
-    fn emphasis_mutates_only_affected_material_assets_and_stable_frames_write_none() {
+    fn selection_tints_the_selected_sphere_and_ring_and_restores_exact_bases() {
+        let (loaded, mut emphasis) = emphasis_for_real_catalog();
+        let saturn = loaded.index_of("saturn").unwrap();
+        let uranus = loaded.index_of("uranus").unwrap();
+        let saturn_color = loaded.catalog.bodies[saturn].color_srgb;
+        let saturn_emphasis = emphasis.bodies[saturn].as_mut().unwrap();
+        saturn_emphasis.engaged = true;
+        saturn_emphasis.blend = 0.4;
+        emphasis.any_engaged = true;
+        let alpha = emphasis.body_alpha(saturn);
+
+        let mut app = App::new();
+        app.insert_resource(loaded)
+            .insert_resource(emphasis)
+            .insert_resource(SelectionAccent::for_selected(saturn))
+            .init_resource::<Assets<StandardMaterial>>()
+            .add_systems(Update, apply_body_emphasis_alpha);
+        let (sphere_material, ring_material) = {
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+            (
+                materials.add(StandardMaterial {
+                    base_color: Color::srgb_u8(saturn_color.0, saturn_color.1, saturn_color.2),
+                    ..default()
+                }),
+                materials.add(StandardMaterial {
+                    base_color: Color::srgba(0.92, 0.86, 0.72, 0.9),
+                    alpha_mode: AlphaMode::Blend,
+                    ..default()
+                }),
+            )
+        };
+        app.world_mut().spawn((
+            BodyVisual { index: saturn },
+            MeshMaterial3d(sphere_material.clone()),
+        ));
+        app.world_mut().spawn((
+            SaturnRing { body_index: saturn },
+            MeshMaterial3d(ring_material.clone()),
+        ));
+
+        app.update();
+        let selected_sphere_rgb = blend_selection_rgb(
+            [
+                f32::from(saturn_color.0) / 255.0,
+                f32::from(saturn_color.1) / 255.0,
+                f32::from(saturn_color.2) / 255.0,
+            ],
+            true,
+        );
+        let selected_ring_rgb = blend_selection_rgb([0.92, 0.86, 0.72], true);
+        let materials = app.world().resource::<Assets<StandardMaterial>>();
+        assert_eq!(
+            materials.get(&sphere_material).unwrap().base_color,
+            Color::srgba(
+                selected_sphere_rgb[0],
+                selected_sphere_rgb[1],
+                selected_sphere_rgb[2],
+                alpha,
+            )
+        );
+        assert_eq!(
+            materials.get(&ring_material).unwrap().base_color,
+            Color::srgba(
+                selected_ring_rgb[0],
+                selected_ring_rgb[1],
+                selected_ring_rgb[2],
+                0.9 * alpha,
+            )
+        );
+
+        app.insert_resource(SelectionAccent::for_selected(uranus));
+        app.update();
+        let materials = app.world().resource::<Assets<StandardMaterial>>();
+        assert_eq!(
+            materials.get(&sphere_material).unwrap().base_color,
+            Color::srgb_u8(saturn_color.0, saturn_color.1, saturn_color.2).with_alpha(alpha)
+        );
+        assert_eq!(
+            materials.get(&ring_material).unwrap().base_color,
+            Color::srgba(0.92, 0.86, 0.72, 0.9 * alpha)
+        );
+    }
+
+    #[test]
+    fn emphasis_and_selection_mutate_only_affected_assets_and_stable_frames_write_none() {
         let (loaded, mut emphasis) = emphasis_for_real_catalog();
         let saturn = loaded.index_of("saturn").unwrap();
         let uranus = loaded.index_of("uranus").unwrap();
@@ -547,6 +648,7 @@ mod tests {
             .init_asset::<StandardMaterial>()
             .insert_resource(loaded)
             .insert_resource(emphasis)
+            .insert_resource(SelectionAccent::for_selected(saturn))
             .init_resource::<ModifiedMaterialIds>()
             .add_systems(Update, apply_body_emphasis_alpha)
             .add_systems(
