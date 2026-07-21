@@ -891,6 +891,21 @@ normalization after the WP5 and WP8 phases.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-21** — Refined the WP14 Windows relaunch correction after hosted
+  run `29794874441` showed that an absolute test application identifier alone
+  still failed at the original `read-before` assertion. The remaining issue was
+  the child-process environment: nonexistent `USERPROFILE`, `LOCALAPPDATA`,
+  and related overrides can make Windows `SHGetKnownFolderPath` return no
+  preferences directory before Bevy has an opportunity to join the absolute
+  identifier, turning both save and load into silent no-ops. The relaunch test
+  now leaves the real platform profile environment intact while its absolute,
+  nonce-scoped Bevy application identifier redirects the store into the
+  temporary test directory; production still uses the unchanged reverse-domain
+  identifier. The complete 20-phase relaunch sequence, all 345 workspace tests,
+  all 242 Steam-feature tests, both zero-warning clippy configurations,
+  formatting, and diff checks pass locally. Hosted Windows confirmation remains
+  required before WP14 returns to done.
+
 - **2026-07-21** — Reopened WP14 as the sole in-progress package after the
   human authorized correction of PR #5's reproducible hosted-Windows failure.
   Both the original job and failed-job rerun at commit `18abfd0` fail only

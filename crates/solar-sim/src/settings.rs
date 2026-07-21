@@ -2016,11 +2016,11 @@ mod tests {
         ));
         std::fs::create_dir(&temporary_home).expect("create isolated settings HOME");
         // Bevy's Windows settings store resolves LocalAppData through the Known
-        // Folders API, which deliberately ignores HOME/XDG-style test overrides.
-        // An absolute test-only application name makes PathBuf::join retain this
-        // nonce-scoped directory on every desktop platform. Do not reintroduce a
-        // relative identifier here: it silently writes outside temporary_home on
-        // Windows and makes separate child processes observe platform state.
+        // Folders API. An absolute test-only application name makes PathBuf::join
+        // retain this nonce-scoped directory on every desktop platform. Do not
+        // reintroduce a relative identifier or override HOME/APPDATA/USERPROFILE
+        // on the children: nonexistent profile overrides can make the Windows
+        // Known Folders lookup fail before it ever joins this absolute path.
         let settings_directory = temporary_home.join("bevy-settings");
         let identifier = settings_directory
             .to_str()
@@ -2056,11 +2056,6 @@ mod tests {
                 .arg("settings::tests::explicit_reset_paths_survive_full_process_relaunch")
                 .arg("--exact")
                 .arg("--nocapture")
-                .env("HOME", &temporary_home)
-                .env("XDG_CONFIG_HOME", temporary_home.join("xdg"))
-                .env("APPDATA", temporary_home.join("appdata"))
-                .env("LOCALAPPDATA", temporary_home.join("localappdata"))
-                .env("USERPROFILE", temporary_home.join("userprofile"))
                 .env(SETTINGS_TEST_IDENTIFIER_ENV, &identifier)
                 .env(SETTINGS_TEST_PHASE_ENV, phase)
                 .status()
