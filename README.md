@@ -19,7 +19,7 @@ crates/solar-sim/     the Bevy 0.19 app                               [WP4–WP1
   src/{labels,orbit_lines,left_panel,layers,search,time_bar}.rs   Eyes UI
   src/{settings,scene_polish,starfield,surface_textures}.rs
   src/golden.rs       six canonical views, offscreen capture
-  src/platform.rs     PlatformServices boundary (WP16, Steam adapter pending)
+  src/platform.rs     PlatformServices boundary + feature-gated Steam adapter
 xtask/                offline dev tooling, never shipped
   src/manifest.rs     curated 66-body manifest (human-approved values + provenance)
   src/{horizons,sbdb,normalize,fetch,emit,lookup}.rs   catalog pipeline
@@ -61,7 +61,21 @@ Keyboard (see `crates/solar-sim/src/input_intent.rs` for the source of truth):
 | `[` / `]` | step time rate down / up the ladder |
 | `1` | real-time rate |
 | `R` / `P` / `Space` | play / pause / toggle |
+| `Escape` | revert the active text edit, otherwise close Browse or Settings |
 | `F9` | simulate device loss (debug builds only; exercises render recovery) |
+
+Open Settings from the right rail. Its 39 controls accept pointer input, the
+content area scrolls independently of the camera, `REVERT` restores the current
+persisted values, `RESTORE DEFAULTS` explicitly resets the reviewed product and
+presentation defaults, and both `APPLY` and `CLOSE` dismiss the modal. Gameplay
+input is suppressed while Settings or Browse is open and while a text field is
+being edited.
+
+Persisted layer choices still round-trip exactly. If UI is visible but Orbits,
+Labels, and Icons are all disabled, a transient `RESTORE DEFAULT VIEW` notice
+provides a one-action recovery path without silently changing the settings
+file. If UI itself is disabled, the existing `SHOW UI` control remains the
+recovery surface.
 
 ### App CLI flags
 
@@ -74,6 +88,7 @@ cargo run -p solar-sim --release -- [flags]
   --reject-software-adapter      with --smoke or golden capture: fail on WARP/llvmpipe
   --assert-nonblack              with --smoke: fail if the frame is entirely black
   --golden-view V --golden-backend B --golden-capture DIR   capture one canonical view
+  --reset-settings               persist reviewed defaults before normal startup
   --simulate-device-loss         debug builds only
 ```
 
@@ -86,7 +101,7 @@ cargo run -p solar-sim --release -- --smoke 60 --expect-backend metal --reject-s
 ## Testing & verification
 
 ```
-cargo test                                       # 201 tests, fully offline
+cargo test                                       # 223 tests, fully offline
 cargo fmt --all -- --check                       # rustfmt defaults
 cargo clippy --workspace --all-targets -- -D warnings
 scripts/check-texture-metadata.sh                # texture license/hash audit
@@ -96,8 +111,8 @@ cargo run -p xtask -- gen-catalog \
     --out assets/catalog.sample.ron              # offline end-to-end (6 bodies; 60 skipped is expected)
 ```
 
-The authoritative test baseline lives in `TASKS.md` (currently **201
-passing**: 53 `sim-core` · 102 `solar-sim` · 43 `xtask` lib · 2 xtask smoke ·
+The authoritative test baseline lives in `TASKS.md` (currently **223
+passing**: 53 `sim-core` · 119 `solar-sim` · 48 `xtask` lib · 2 xtask smoke ·
 1 position spot-check gate, **active**). If this README and `TASKS.md`
 disagree, `TASKS.md` wins.
 
@@ -122,7 +137,13 @@ cargo run -p xtask -- convert-texture --source PATH.ppm --out PATH.ktx2 [--alpha
 cargo run -p xtask -- check-texture-metadata [--dir assets/textures]
 cargo run -p xtask -- capture-goldens --app PATH --out DIR --backend TAG
 cargo run -p xtask -- compare-goldens --baseline DIR --candidate DIR [--max-mean F] [--max-p99 F]
+cargo run -p xtask -- prepare-steam-dev --app target/release/solar-sim
+cargo run -p xtask -- steam-release-preflight --action package|depot
 ```
+
+The Mac-first real-client overlay procedure is in
+`docs/wp16-steam-overlay-spike.md`. App ID 480 is development-only; packaging
+and depot preflights reject it.
 
 ## CI
 
@@ -148,19 +169,18 @@ captures are non-blocking.
 | WP | State |
 |---|---|
 | 0–15 | ✅ done — see `TASKS.md → Done (evidence)` and the change log |
-| 16 | **in progress** — dependency-free `PlatformServices` boundary, mock lifecycle test, and the CI Steamworks guard landed. Blocked on Q14 (approve `steamworks = "0.13.1"` + App ID) before the feature-gated adapter, and on Q13 (real Windows hardware) for the Windows overlay spike and dev-branch install checks. |
+| 16 | **in progress** — `PlatformServices`, the optional `steamworks` adapter, interim App ID 480 guardrails, and the default-build Steamworks CI guard are implemented. The macOS overlay observation is pending; Q13 remains open for real Windows/reference hardware. |
 | 17 | todo — replay suite, perf gates, demo script, licensing audit |
 | 18 | deferred (Compare Size mode) |
 
 Open questions awaiting the human: **Q4** (constellation line-set licensing,
-fast-follow), **Q12** (CI-1…CI-6 brief scope), **Q13** (Windows/reference
-hardware), **Q14** (Steamworks dependency + App ID). Details in
-`TASKS.md → Open questions`.
+fast-follow), **Q12** (CI-1…CI-6 brief scope), and **Q13**
+(Windows/reference hardware). Details in `TASKS.md → Open questions`.
 
 ## Known limitations
 
-- No `steam` cargo feature exists yet; default builds have no Steamworks in
-  the dependency tree (CI-enforced) and this stays true after WP16.
+- The `steam` cargo feature is opt-in; default builds have no Steamworks in
+  the dependency tree (CI-enforced). App ID 480 cannot pass release preflight.
 - Real-hardware Windows validation (launch, overlay, DX12 goldens, GTX 1650
   perf) is deferred to WP16/WP17 per Q10/Q13.
 - ~45 catalog `description` fields are still empty (generator lints them on

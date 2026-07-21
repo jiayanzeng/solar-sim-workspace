@@ -8,6 +8,8 @@
 mod gallery;
 mod hud;
 mod navigation;
+#[cfg(test)]
+pub(crate) mod test_layout;
 mod theme;
 mod widgets;
 
@@ -17,13 +19,17 @@ pub use hud::{
     top_bar, BreadcrumbText, MenuBrowseButton, SearchHint, SearchInput, SearchPlaceholder,
     TopBarRoot, TOP_BAR_HEIGHT_PX,
 };
-pub use navigation::{NavigationItem, NavigationStack, BREADCRUMB_SEPARATOR};
+pub use navigation::{
+    NavigationDestination, NavigationItem, NavigationStack, BREADCRUMB_SEPARATOR,
+    ROOT_NAVIGATION_ID,
+};
 pub use theme::{UiColorToken, UiColors, UiSpacing, UiTheme, UiTypeScale};
 pub use widgets::{
     checkbox_row, chip, panel, section_header, slider, tab_bar, toast, WidgetKind, WidgetRoot,
     WidgetSpec, WidgetVisualState, INTER_FONT_ASSET,
 };
 
+use crate::SimulationSet;
 use bevy::prelude::*;
 
 #[cfg(debug_assertions)]
@@ -37,17 +43,39 @@ impl Default for WidgetGalleryEnabled {
     }
 }
 
-pub struct UiKitPlugin;
+/// Architecture-facing owner of the stable BSN/widget façade and theme.
+pub struct UiKit;
 
-impl Plugin for UiKitPlugin {
+impl Plugin for UiKit {
     fn build(&self, app: &mut App) {
-        app.init_resource::<UiTheme>()
-            .init_resource::<NavigationStack>()
-            .add_systems(Startup, hud::spawn_top_bar)
-            .add_systems(Update, hud::update_breadcrumb);
+        crate::record_architecture_plugin(app, "UiKit");
+        app.init_resource::<UiTheme>();
 
         #[cfg(debug_assertions)]
         app.init_resource::<WidgetGalleryEnabled>()
             .add_systems(Startup, gallery::spawn_widget_gallery);
+    }
+}
+
+/// Architecture-facing owner of the complete persistent HUD surface.
+pub struct HudPlugin;
+
+impl Plugin for HudPlugin {
+    fn build(&self, app: &mut App) {
+        crate::record_architecture_plugin(app, "HudPlugin");
+        app.init_resource::<NavigationStack>()
+            .add_plugins((
+                crate::layers::LayersPlugin,
+                crate::time_bar::TimeBarPlugin,
+                crate::left_panel::LeftPanelPlugin,
+            ))
+            .add_systems(Startup, hud::spawn_top_bar)
+            .add_systems(
+                Update,
+                (hud::update_breadcrumb, hud::rebuild_actionable_breadcrumb)
+                    .chain()
+                    .after(crate::left_panel::NavigationSyncSet)
+                    .in_set(SimulationSet::Render),
+            );
     }
 }

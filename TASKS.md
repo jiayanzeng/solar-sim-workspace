@@ -47,11 +47,11 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | **✅ done** |
 | 14 | Settings screen + render-recovery policies | **✅ done** |
 | 15 | Texture pass (2K KTX2) + visual polish + golden screenshots | **✅ done** |
-| 16 | Steam: Steamworks init, overlay spike, packaging/signing/depots | in-progress |
+| 16 | Steam: Steamworks init, overlay spike, packaging/signing/depots | deferred |
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 201 passing** (53 `sim-core` · 102 `solar-sim` · 43 `xtask`
+**Test baseline: 223 passing** (53 `sim-core` · 119 `solar-sim` · 48 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -641,7 +641,7 @@ Steamworks App ID from the human.
   `dev → beta → default` branches.
 
 **Acceptance.**
-- [ ] Default (non-`steam`) build has no Steamworks in its dependency
+- [x] Default (non-`steam`) build has no Steamworks in its dependency
   tree (CI-checked like core purity).
 - [ ] Overlay spike results documented in `docs/` for both OSes; app runs
   correctly with overlay unavailable.
@@ -697,9 +697,38 @@ Optional post-beta. No brief until un-deferred by the human.
 
 ## Next up (dependency order)
 
-1. **WP5 → WP6**, then **WP7/WP8** (ui_kit, then the time bar
-   binding WP1's API), then WP9–WP15 per briefs, WP16–17 release
-   engineering.
+The stabilization, architecture-conformance, and UI/gameplay corrective cycles
+are complete. The human approved `docs/ui-gameplay-bug-audit-2026-07-17.md`
+and closed Q17. The documentation baseline and three source phases are pushed
+at `e0aa1d7`, `bf197b2`, `5178784`, and `90f30a8`; integrated closeout is
+accepted while its documentation-only commit is prepared.
+
+1. [ ] **Hyperbolic orbital-period omission — justified.** Deferred
+   documentation clarification only; no immediate source action. WP10
+   explicitly derives period from `Orbit::period_s` and permits hyperbolic
+   bodies to show no period.
+2. [x] **AC-1 — command-path non-compliance.** Route Layers-panel open/close
+   through explicit desired-state `SimCommand` traffic and shared
+   desktop/headless reducers. Coordinate under WP11.
+3. [x] **AC-2 — plugin-graph non-compliance.** Restore the architecture-facing
+   §8.2 plugin names, responsibilities, and frame ownership without duplicating
+   existing internal systems. Coordinate under WP4.
+4. [x] **AC-3 — top-bar order non-compliance.** Restore Search-before-Menu
+   visual and keyboard order with responsive/accessibility regressions.
+   Coordinate under WP7.
+5. [x] **UA-1/UA-2 — camera and pointer ownership.** After plan approval,
+   correct in-flight dolly continuity and ordinary-HUD raw-input capture as one
+   integrated WP5 phase.
+6. [x] **UA-3/UA-4 — non-blocking responsive toasts.** After Phase 1 is
+   accepted and submitted, correct toast picking and small/high-scale layout
+   as one WP8 phase.
+7. [x] **UA-5/UA-6 — epoch and native OOM recovery.** After Phase 2 is
+   accepted and submitted, make the saved/displayed fixed JD agree with the
+   supported boot clock and implement Q17's synchronous/main-thread native OOM
+   surface as one WP14 phase. Preserve `StopRendering`; no new dependency is
+   authorized.
+8. WP16 Steam work remains deferred and untouched. Continue WP16 and dependent
+   WP17 only under their existing human authorization and hardware gates.
 
 ## Open questions (humans close these)
 
@@ -764,22 +793,1197 @@ WP16 will need Apple Developer ID and Steam credentials as repository secrets.
 On a public repo, those MUST live in a protected environment that no
 fork-triggered workflow can reach.
 
-### Q14 — OPEN.
+Human partial ruling (2026-07-16): proceed Mac-first with the M2 Pro real-client
+overlay check against interim App ID 480. The Windows overlay spike,
+both-platform dev-branch install evidence, and WP17 reference hardware remain
+deferred to the existing "before packaging begins" decision deadline. This
+narrows Q13 but leaves its hardware-purchase half open; no affected acceptance
+criterion is closed by the ruling.
 
-WP16 requires a new `steamworks` dependency, while the root `AGENTS.md` requires
-an Open question before any dependency is added. The current stable release is
-`steamworks` 0.13.1, whose documented `Client::init_app` API takes the numeric
-App ID required by ARCHITECTURE §11
-([crate documentation](https://docs.rs/steamworks/0.13.1/steamworks/struct.Client.html#method.init_app)).
-Decision required: approve `steamworks = "0.13.1"` as an optional dependency
-behind the `steam` feature, provide Solar Sim's numeric Steamworks App ID, and
-choose whether that ID is committed as build metadata or supplied through a
-named runtime input. Recommendation: commit the approved App ID and use no
-fallback ID, so local, CI, and SteamPipe builds cannot silently target different
-applications.
+### Q14 — CLOSED (human, 2026-07-16).
+
+Approved `steamworks = "0.13.1"` as an optional `crates/solar-sim` dependency
+behind the `steam` feature. App ID 480 (Valve's public Spacewar SDK test app) is
+the committed INTERIM development ID, with one provenance-commented constant,
+no fallback, a pinning unit test, generated-and-gitignored `steam_appid.txt`, and
+hard package/depot refusal while the value remains 480. The real App ID requires
+a new Open question after the Steamworks partner account exists; the approved
+swap is the constant, its pinning test, and regeneration of `steam_appid.txt`.
+Full rationale and human sign-off:
+`docs/wp16-steam-bringup-decisions-2026-07-15.md`.
+
+### Q15 — CLOSED (human, 2026-07-16).
+
+The 2026-07-16 M2 Pro overlay attempt exposed a WP14 recovery ambiguity outside
+WP16. The persisted `settings.toml` has `orbits`, `labels`, and `icons` set to
+false; combined with the non-persisted default ×1 body scale and full-system
+camera, the human reports that no bodies or orbits are discoverable. The human
+also reports that opening Settings hangs the application, while the exact
+60-frame Metal smoke with `--assert-nonblack` exits 0 at 202.7 fps. Decision
+required: add an explicit reset-settings recovery path, impose a minimum
+startup visual-cue floor, or preserve exact persistence and document a manual
+reset.
+
+Human validation on 2026-07-16 narrows this question: at commit
+`60a19a6718edbc3b239606325f1b663c723d5a12`, the real macOS release build's
+Settings modal accepted pointer adjustments and scrolling, and `REVERT`,
+`APPLY`, `CLOSE`, and Escape all worked. Hosted
+[run 29488349896](https://github.com/jiayanzeng/solar-sim-workspace/actions/runs/29488349896)
+passed all five jobs for that commit. The modal defect is resolved.
+
+Human ruling on 2026-07-16: lock in both compatibility measures. Provide an
+explicit Settings `RESTORE DEFAULTS` action plus a `--reset-settings` startup
+path, and impose a minimum discoverability floor without silently overriding
+persisted values. The implemented floor is a transient recovery notice shown
+only when User Interface is on while Orbits, Labels, and Icons are all off; it
+queues `RestorePresentationDefaults`, does not write settings merely by
+appearing, and yields to the existing `SHOW UI` affordance when User Interface
+is off. Exact WP14 layer persistence remains intact. The integrated design,
+task order, and acceptance evidence are recorded in
+`docs/ui-gameplay-stabilization-2026-07-16.md`.
+
+### Q16 — CLOSED 2026-07-17.
+
+Stabilization Task 6 says Saturn's sphere, rings, label, and icon must share
+one orbit-emphasis blend, but ARCHITECTURE §10.3 deliberately makes the Sun and
+all planets text-only and reserves circular Icons-layer reticles for
+"everything else." The implementation and its 57-reticle invariant enforce
+that design, so no Saturn icon exists to fade. Should Task 6 be read
+architecture-preservingly as Saturn's complete actual aggregate
+(sphere/rings/text label) plus a representative icon-bearing fast body such as
+Io, or is a planet icon an intended architecture revision? Recommendation:
+preserve Rev C, keep Saturn text-only, and use Io to prove the shared
+Icons-layer reticle blend. Agents must not add a Saturn reticle without a human
+ruling and corresponding architecture update.
+
+Human ruling on 2026-07-17: preserve ARCHITECTURE §10.3 and Rev C without an
+architecture revision. Saturn's complete render aggregate is its sphere,
+rings, text label, and orbit; the Sun and all planets remain strictly
+text-only, so Saturn MUST NOT gain an icon or reticle. Io is the representative
+icon-bearing fast body used to prove the shared Icons-layer reticle blend.
+Accordingly, stabilization Task 6's aggregate acceptance is satisfied by
+Saturn's complete architecture-valid aggregate plus Io's reticle coverage.
+
+### Q17 — CLOSED (human, 2026-07-17).
+
+ARCHITECTURE §8.5 requires `OutOfMemory → StopRendering` with a user-facing
+error screen. The current handler returns Bevy 0.19
+`RenderErrorPolicy::StopRendering`, then an Update system spawns the Bevy UI
+error node. Bevy documents that policy as stopping all further rendering, so
+the post-stop node cannot reach a displayed frame; changing the native window
+title is visible but is not the specified error screen. Which approved surface
+must implement the contract: a native/platform error surface compatible with
+stopped rendering (and, if necessary, an explicitly approved dependency), an
+architecture ruling that the native window-title fallback is sufficient, or a
+different human-specified mechanism? Agents must preserve `StopRendering` and
+must not add a dependency or reinterpret "error screen" before this question
+is closed. Full evidence and phase gates:
+`docs/ui-gameplay-bug-audit-2026-07-17.md` §UA-6 and Phase 3.
+
+Human ruling on 2026-07-17: use a native platform error surface exposed by
+`winit` or an equivalent platform abstraction already present in the
+dependency tree. The invocation must be synchronous or correctly marshalled to
+the main thread so the surface gains focus before shutdown or a stopped-render
+state. The Bevy UI node and window-title fallback are insufficient. Preserve
+`OutOfMemory → StopRendering`; this ruling does not authorize a new dependency
+or a `Cargo.toml` edit. Integrate the accepted correction with WP14 epoch
+normalization after the WP5 and WP8 phases.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-21** — Completed the WP14 Windows relaunch correction and returned
+  WP14 to **✅ done**. Hosted run `29796611174` passed all five required checks;
+  Windows job `88529124172` passed the complete workspace test suite (including
+  the full-process settings relaunch proof), the Steam-feature release build,
+  the default release build, and the software-adapter smoke in 53m51s. The
+  regression test now uses an absolute nonce-scoped application identifier for
+  isolated storage while preserving the child's real platform profile
+  environment, so Windows Known Folder discovery succeeds without touching
+  production persistence behavior. Local evidence remains all 345 workspace
+  tests, all 242 Steam-feature tests, both zero-warning clippy configurations,
+  formatting, catalog dry-run, texture metadata, and diff checks green. No
+  production code, dependency, generated catalog, or architecture contract was
+  changed.
+
+- **2026-07-21** — Refined the WP14 Windows relaunch correction after hosted
+  run `29794874441` showed that an absolute test application identifier alone
+  still failed at the original `read-before` assertion. The remaining issue was
+  the child-process environment: nonexistent `USERPROFILE`, `LOCALAPPDATA`,
+  and related overrides can make Windows `SHGetKnownFolderPath` return no
+  preferences directory before Bevy has an opportunity to join the absolute
+  identifier, turning both save and load into silent no-ops. The relaunch test
+  now leaves the real platform profile environment intact while its absolute,
+  nonce-scoped Bevy application identifier redirects the store into the
+  temporary test directory; production still uses the unchanged reverse-domain
+  identifier. The complete 20-phase relaunch sequence, all 345 workspace tests,
+  all 242 Steam-feature tests, both zero-warning clippy configurations,
+  formatting, and diff checks pass locally. Hosted Windows confirmation remains
+  required before WP14 returns to done.
+
+- **2026-07-21** — Reopened WP14 as the sole in-progress package after the
+  human authorized correction of PR #5's reproducible hosted-Windows failure.
+  Both the original job and failed-job rerun at commit `18abfd0` fail only
+  `settings::tests::explicit_reset_paths_survive_full_process_relaunch`: the
+  synchronous `write` child passes, then `read-before` loads defaults. Linux,
+  macOS, lint, and invariant checks pass. Re-read ARCHITECTURE §8.5 and §4.2,
+  the WP14 brief, Q15/Q17 rulings, the Phase 3 persistence acceptance, and the
+  pinned Bevy 0.19 settings/platform source. The test's HOME/XDG/APPDATA
+  overrides do not isolate Bevy's Windows settings path because that path is
+  obtained from `SHGetKnownFolderPath(FOLDERID_LocalAppData)`. Scope is limited
+  to making the full process-relaunch persistence proof deterministic and
+  isolated on every supported desktop OS without weakening any assertion or
+  changing production persistence, settings behavior, dependencies, or
+  architecture. The exact PR head already passed all 345 workspace tests
+  locally before this correction.
+
+- **2026-07-18** — Completed a documentation-only review of the twelve newly
+  reported UI/gameplay requests and a separate repository-wide status audit.
+  `docs/ui-gameplay-request-architecture-review-2026-07-18.md` maps every
+  request to Rev C and current source, records correction outlines and
+  acceptance criteria, and identifies the items that need human rulings before
+  implementation: initial-body visual proxy/non-Sun scaling and comet tails,
+  +1 day/s default startup, removal of the architecture-required Moons layer,
+  and deterministic region-preset semantics. It recommends an integrated
+  projection integrity → camera/help aliases → selection/orbit picking → HUD
+  polish → description-content order; no source phase is authorized by the
+  report.
+
+  `docs/project-status-audit-2026-07-18.md` records WPs 0–15 complete, WP16
+  deferred, WP17 todo, and WP18 deferred; inventories the 66-body data/assets
+  and release gaps; and distinguishes current local evidence from hosted
+  delivery evidence. Fresh gates pass **345 workspace tests** (53 `sim-core` ·
+  241 `solar-sim` · 48 `xtask` library · 2 smoke · 1 active spot-check) and
+  **242 Steam-feature tests**, both zero-warning clippy configurations,
+  `cargo fmt --all -- --check`, the 16-asset texture metadata audit, the
+  66-body catalog dry-run plan, and `git diff --check`. Public GitHub inspection
+  found branch head `2b145af0` synced before this documentation change and 32
+  commits ahead of `main` with no PR, branch-head check runs, or branch-scoped
+  Actions run; latest `main` CI remains successful at `374f6905`. The audit
+  also records stale README/TASKS headline test counts, conflicting README
+  WP16 status, and the README's overbroad CI-trigger claim for later dedicated
+  maintenance.
+
+  No dashboard status, acceptance criterion, Open-question ruling, source,
+  dependency/lockfile, generated catalog, spot-check truth, physics tolerance,
+  architecture/agent file, or held WP16 Steam stash changed.
+- **2026-07-17** — Completed the integrated UI/gameplay corrective closeout.
+  Re-read the complete approved audit, every phase record, and the cumulative
+  source diff. UA-1 through UA-6 now close as a composed set: camera travel and
+  HUD ownership, responsive pass-through toasts, fixed-epoch convergence, and
+  synchronous native OOM notification all retain the shared command, layout,
+  persistence, recovery, and deterministic-state boundaries.
+
+  Targeted closeout evidence passed for in-flight dolly, HUD-versus-viewport
+  input, all 12 toast tests, all 23 Settings/recovery tests, all 4 Q15 cue
+  recovery tests, Saturn-text/Io-reticle emphasis, hyperbolic period omission,
+  the real-catalog stabilization lifecycle, and the portable replay hash. The
+  final `cargo test` remains **345 passed** (53 `sim-core` · 241 `solar-sim`
+  · 48 `xtask` library · 2 smoke · 1 active spot-check), up from the
+  337-test baseline; the Steam-feature suite remains **242 passed**. Default
+  and Steam-feature clippy are warning-free, and formatting/diff checks pass.
+
+  The cumulative deletion review removes no regression test or architecture
+  invariant; the one changed replay hash is the Phase 1 documented consequence
+  of eliminating the stale-start camera jump. Scope checks confirm no edit to
+  `ARCHITECTURE.md`, any `AGENTS.md`, dependency/lockfile, generated catalog,
+  spot-check truth, physics tolerance, Steam/WP16 source, or WP17 hardware
+  scope. Saturn stays text-only, Io supplies reticle coverage, hyperbolic
+  period omission remains justified/deferred, Q15 recovery stays explicit and
+  transient, and WP16 remains deferred.
+- **2026-07-17** — Completed UA Phase 3 and returned WP14 to **✅ done**.
+  One TDB-only normalizer now derives the supported fixed-JD interval from
+  `T_MIN_S`, `T_MAX_S`, and `jd_tdb_from_t`; finite values clamp to the exact
+  endpoints and non-finite values retain the safe default. Apply, startup,
+  persistent repair, Settings draft/label, year-step actions, serialized RON,
+  and `SimClock` converge on that value. Persistent startup repairs survive a
+  second process launch, while capture/golden overrides retain the existing
+  no-write policy. Outward edge steps are true no-ops and inward steps resume.
+
+  OOM now invokes a synchronous native critical-error surface before
+  `StopRendering`: CoreFoundation `CFUserNotificationDisplayAlert` on macOS
+  and User32 `MessageBoxW` with error/task-modal/foreground flags on Windows.
+  The render-error callback verifies the recorded winit application thread;
+  a one-shot recovery-state gate prevents duplicate alerts. The unreachable
+  post-stop Bevy node and the window-title fallback were removed. An injected
+  handler regression proves same-thread, exactly-once, actionable invocation;
+  existing device-loss recovery remains green.
+
+  Evidence: `cargo test` **345 passed** (53 `sim-core` · 241 `solar-sim` ·
+  48 `xtask` library · 2 smoke · 1 active spot-check); `cargo test -p
+  solar-sim --features steam` **242 passed**; both default and Steam-feature
+  clippy runs completed with zero warnings; `cargo fmt --all -- --check` and
+  `git diff --check` passed. The macOS implementation compiled in the native
+  suite, and `CARGO_FEATURE_PURE=1 cargo check -p solar-sim --target
+  x86_64-pc-windows-msvc` type-checked the Windows implementation on the
+  cross-target host. No dependency, manifest, lockfile, generated asset,
+  catalog, truth fixture, architecture document, physics tolerance, or Steam
+  source changed.
+- **2026-07-17** — Began approved UA Phase 3 with WP14 as the sole
+  **in-progress** package after pushing Phase 2 at `5178784`. Re-read
+  ARCHITECTURE §§3.5, 4.2, 7, 8.2, 8.5, and 12; the WP14 brief; Q15
+  reset/persistence rules; closed Q17; the complete Phase 3 plan; Bevy 0.19's
+  render-error pre-extract state machine; and its pinned winit 0.30 platform
+  boundary before source work.
+
+  The reviewed time boundary is TDB-only: finite fixed JDs normalize with
+  `jd_tdb_from_t(T_MIN_S)..=jd_tdb_from_t(T_MAX_S)`, while non-finite values
+  retain `DEFAULT_START_EPOCH_JD_TDB`. Apply, startup loading, reset, year-step,
+  serialized settings, displayed `FIXED JD`, and `SimClock` will share this
+  boundary; no UTC or duplicate calendar literal enters the settings layer.
+  Startup will synchronously persist a canonicalized loaded value only under
+  the existing persistent policy, while golden/capture runtime overrides stay
+  transient.
+
+  The pinned winit API has event-loop and window plumbing but no message-box
+  primitive. Under Q17's approved equivalent-platform route, macOS will call
+  CoreFoundation `CFUserNotificationDisplayAlert` at stop-alert level and
+  Windows will call User32 `MessageBoxW` with error/task-modal/foreground
+  flags. Both calls are synchronous and run directly inside Bevy's
+  `RenderErrorHandler` pre-extract callback on the recorded winit application
+  thread, before `StopRendering` is returned. A one-shot recovery-state gate
+  prevents repeated callbacks from duplicating the surface. The unreachable
+  post-stop Bevy node and OOM title fallback will be removed. Tests will inject
+  the surface boundary to prove same-thread, exactly-once invocation without
+  opening a real dialog. No dependency or `Cargo.toml` edit is authorized or
+  planned.
+- **2026-07-17** — Completed UA Phase 2 and returned WP8 to **✅ done**.
+  Toast stacks now preserve the intended 390-logical-pixel desktop maximum
+  while resolving to the available theme-inset width on constrained views;
+  notice text uses word-boundary wrapping. The stack, toast root, and text
+  node all carry `Pickable::IGNORE`, so an active notice remains visible and
+  accessible without owning pointer input.
+
+  New regressions instantiate a long active toast at every required
+  800/960×600 × {0.75, 1.0, 1.5, 2.0} case and prove exact bounded-width
+  resolution, viewport containment, wrapped text, and time-bar separation. A
+  second regression runs the pinned Bevy UI picking backend and its hover-map
+  generation over the actual toast subtree, proving the lower gameplay target
+  remains hovered while stack/root/text remain absent. Existing transition,
+  stacking, accessibility, expiry, input, replay, and Steam-feature coverage
+  remains green. Evidence: `cargo test` **342 passed** (53 `sim-core` · 238
+  `solar-sim` · 48 `xtask` library · 2 smoke · 1 active spot-check);
+  `cargo test -p solar-sim --features steam` **239 passed**; both default and
+  Steam-feature clippy runs completed with zero warnings; `cargo fmt --all
+  -- --check` and `git diff --check` passed. No dependency, generated asset,
+  catalog, truth fixture, architecture document, or Steam source was changed.
+- **2026-07-17** — Began approved UA Phase 2 with WP8 as the sole
+  **in-progress** package after pushing Phase 1 at `bf197b2`. Re-read
+  ARCHITECTURE §§4.2, 7, 8.2, 8.4, 9.5–9.6, and 12; the WP8 brief; the prior
+  responsive-reachability rules; the pinned Bevy 0.19 UI picking backend; and
+  `docs/ui-gameplay-bug-audit-2026-07-17.md` Phase 2 before source work.
+
+  The reviewed layout contract uses theme-sized left/right insets, auto width,
+  and a 390-logical-pixel maximum, so resolved physical width is
+  `min(390×scale, viewport−2×inset×scale)` rather than overflowing the
+  800×600/2.0 case. Text will wrap within that surface. Stack, toast root, and
+  text descendants will all use `Pickable::IGNORE`; an actual Bevy UI backend
+  regression must prove a lower target remains hovered through an active
+  toast. The full 800/960 × 600 × {0.75, 1.0, 1.5, 2.0} matrix will include a
+  long active notice and prove viewport containment plus time-bar separation.
+  Transition-only creation, accessibility, stacking, delayed expiry, existing
+  HUD visibility, and the command/replay paths remain unchanged.
+- **2026-07-17** — Completed UA Phase 1 and returned WP5 to **✅ done**.
+  Active-travel Dolly now clamps the visible f64 distance and assigns that
+  exact value to both distance endpoints, so the next camera update cannot
+  re-evaluate from the stale pre-dolly start; focus elapsed/duration, moving
+  target, interruption, zoom limits, and final Follow remain unchanged.
+  Pointer capture now walks hovered ancestry to the existing `HudSurface`
+  ownership boundary: top bar, left panel, right rail, Layers panel, Settings,
+  and the UI-off restore action suppress background right-drag Orbit and wheel
+  Dolly, while the unmarked viewport and registered scroll path retain their
+  prior commands.
+
+  Two new regressions exercise both dolly directions at 0%, 25%, 50%, 75%, and
+  99% travel, plus all five required HUD classes against viewport routing. The
+  600-frame mixed replay still round-trips to identical state; its reviewed
+  portable hash changes from `8282160698094571922` to
+  `10452357387508502282` solely because its repeated in-flight Dolly commands
+  now preserve the corrected visible distance instead of jumping. `cargo test`
+  passes **339 tests** (53 `sim-core` · 235 `solar-sim` · 48 `xtask` lib · 2
+  xtask smoke · 1 active spot-check); `cargo test -p solar-sim --features
+  steam` passes **236 tests**. `cargo fmt --all -- --check`, zero-warning
+  default and Steam-feature clippy, and `git diff --check` pass. No dependency,
+  replay schema, generated/truth asset, catalog, physics, tolerance, Steam/WP16,
+  architecture, or agent-rule change is included.
+- **2026-07-17** — Began approved UA Phase 1 with WP5 as the sole
+  **in-progress** package after pushing documentation baseline `e0aa1d7`.
+  Re-read ARCHITECTURE invariants 4 and 7, §§8.2–8.3, 9, 10.3, and 12; the WP5
+  brief; the complete stabilization input-ownership contract; and
+  `docs/ui-gameplay-bug-audit-2026-07-17.md` Phase 1 before source work.
+
+  The reviewed camera transition will clamp the user-requested visible dolly
+  distance, then make that exact value both the distance segment's start and
+  final follow distance while a travel is active. The focus tween keeps its
+  original elapsed/duration and moving-target path, so dolly cannot reset or
+  jump focus. Pointer ownership will derive from hovered ancestry under the
+  existing `HudSurface` marker; registered scroll remains UI-owned, while the
+  unmarked full-window viewport remains gameplay-owned. The retained UI-off
+  restore action will join the same HUD marker contract. Raw events still have
+  one owner and emit only `InputIntent → SimCommand`; no replay schema,
+  dependency, Steam, catalog, physics, or unrelated UI change is in scope.
+- **2026-07-17** — Human approved the complete UA corrective order and
+  authorized Phase 1 under WP5. Q17 is closed with a native-platform-surface
+  ruling: OOM must synchronously display, or main-thread marshal, a native
+  error surface through `winit` or an equivalent abstraction already present
+  in the dependency tree before returning/remaining in `StopRendering`;
+  neither a later Bevy UI node nor the window title is sufficient. No new
+  dependency or `Cargo.toml` edit is authorized. WP14 will integrate this
+  correction with epoch normalization after the accepted WP5 and WP8 phases.
+- **2026-07-17** — Completed a documentation-only UI/gameplay source audit
+  against ARCHITECTURE §§3, 7–10, 12, the current work-package briefs, both
+  prior stabilization/conformance records, and the pinned Bevy 0.19 input,
+  picking, and render-error behavior. The audit identifies six uncorrected
+  issues: in-flight dolly rebases from a stale travel start; ordinary HUD hover
+  does not own raw orbit/dolly input; toast nodes violate the non-blocking
+  picking contract; fixed toast width overflows the 800×600/2.0-scale case;
+  persisted fixed epochs can disagree with the clamped boot clock; and the
+  post-`StopRendering` Bevy OOM screen cannot be displayed. The last item is
+  recorded as Q17 because a compatible user-facing surface requires a human
+  architecture/dependency ruling rather than an agent invention.
+
+  `docs/ui-gameplay-bug-audit-2026-07-17.md` records source evidence,
+  non-findings, ordered WP5 → WP8 → WP14 correction phases, per-phase
+  objectives and acceptance criteria, and automatic submission gates. No WP
+  was reopened and no source, dependency, generated/truth asset, Steam/WP16,
+  architecture, or agent-rule file changed. The clean baseline passes **337
+  tests** (53 `sim-core` · 233 `solar-sim` · 48 `xtask` lib · 2 xtask smoke ·
+  1 active spot-check), `cargo fmt --all -- --check`, and zero-warning
+  `cargo clippy --workspace --all-targets -- -D warnings`.
+- **2026-07-17** — Completed the documentation-only integrated
+  architecture-conformance closeout. Re-reading ARCHITECTURE §§3, 7–10, and
+  12 against current source confirms AC-1 through AC-3 have no remaining
+  exception: Layers-panel visibility is explicit desired-state command traffic
+  with replay and desktop/headless convergence; the §8.2 application graph and
+  focused helper ownership are pinned once in exact order; and top-bar child,
+  geometry, tab, and accessibility order is logo/name → breadcrumb → Search →
+  Menu. Source phases `21352b9`, `da483a1`, and `d35c531` followed baseline
+  `cf7aab1` and were pushed in order to `codex/ui-gameplay-remediation`.
+
+  Final verification from pushed source commit `d35c531` passes **337 tests**
+  (53 `sim-core` · 233 `solar-sim` · 48 `xtask` lib · 2 xtask smoke · 1 active
+  spot-check) and **234 Steam-feature tests**, plus `cargo fmt --all --
+  --check`, both zero-warning clippy configurations,
+  `scripts/check-texture-metadata.sh` (16 assets), and `git diff --check`.
+  Portable replay remains `8282160698094571922`; no test count decreased and
+  no dependency, generated catalog, truth fixture, catalog composition,
+  numerical tolerance, architecture/agent file, Q15 recovery, or Q16 Saturn/Io
+  behavior changed. The conformance plan and stabilization addendum now carry
+  the same evidence. Hyperbolic orbital-period wording stays justified and
+  deferred; WP16/WP17 statuses and their human/hardware gates remain unchanged.
+- **2026-07-17** — Completed architecture-conformance Phase 3 and returned
+  WP7 to **✅ done**. The retained BSN top bar now composes logo/product name,
+  divider, scrollable navigation breadcrumb, Search, then Menu exactly as
+  ARCHITECTURE §9.1 requires. Semantic keyboard order matches the visual order:
+  Search is `TabIndex(100)` and Menu is `TabIndex(101)`. No component identity,
+  layout dimension, flex behavior, observer, command reducer, dropdown model,
+  or Browse focus-return path changed.
+
+  One new resolved-layout regression pins direct-child order and geometry,
+  tab order, and the distinct `Search bodies`/`Open body browse menu`
+  accessibility labels. All 6 HUD tests and 21 Search/Browse tests independently
+  preserve fuzzy/case-insensitive/alias-aware ranking, Enter-to-travel through
+  `SimCommand`, keyboard Menu activation, dropdown ownership, Browse
+  close/selection focus return, breadcrumb behavior, and required viewport/UI
+  scale reachability. The portable replay hash remains bit-identical at
+  `8282160698094571922`.
+
+  `cargo test` passes **337 tests** (53 `sim-core` · 233 `solar-sim` · 48
+  `xtask` lib · 2 xtask smoke · 1 active spot-check), and `cargo test -p
+  solar-sim --features steam` passes **234 tests**. `cargo fmt --all --
+  --check`, both zero-warning clippy configurations,
+  `scripts/check-texture-metadata.sh` (16 assets), and `git diff --check` pass.
+  No plugin/replay/simulation source, dependency, deferred WP16 implementation,
+  catalog/generated/truth asset, architecture/agent file, numerical tolerance,
+  or Q15/Q16 behavior changed.
+- **2026-07-17** — Reopened WP7 for authorized architecture-conformance
+  Phase 3 after Phase 2 commit `da483a1` passed its complete gate and was
+  pushed. The mandatory pre-code review re-read ARCHITECTURE §3.4, §8.4, the
+  §9 visual contract and §9.1 top-bar order, the WP7 brief, `TASKS.md`, and the
+  complete corrective plan. The retained BSN top bar currently composes logo,
+  product name, divider, scrollable breadcrumb, Menu, then Search; its semantic
+  order likewise assigns Menu `TabIndex(100)` before Search `TabIndex(101)`.
+  `SearchMenuPlugin` attaches both controls' observers: Search maintains its
+  edit/dropdown model and queues travel, while Menu queues explicit Browse-open
+  state and Browse close/selection restores semantic Menu focus.
+
+  The correction will move the Search surface before Menu in the BSN child
+  order and assign Search 100/Menu 101, without changing component identities,
+  dimensions, flex behavior, command observers, dropdown ownership, or focus
+  restoration. A structural regression will pin logo/name → breadcrumb →
+  Search → Menu, direct-child geometry, semantic tab order, and distinct
+  accessibility labels. Existing fuzzy/alias ranking, Enter-to-travel,
+  keyboard Menu activation, Browse close/selection focus return, breadcrumb
+  scrolling, and all required 800×600/960×600 UI-scale reachability tests will
+  remain the behavioral cross-check. No simulation/replay behavior, plugin
+  ownership, Q15/Q16 ruling, deferred WP16 implementation, dependency,
+  generated/truth asset, numerical tolerance, or architecture file may change.
+- **2026-07-17** — Completed architecture-conformance Phase 2 and returned
+  WP4 to **✅ done**. Application assembly now exposes the exact
+  architecture-facing owners `TimePlugin`, `PropagationPlugin`,
+  `OriginPlugin`, `CameraPlugin`, `LabelsPlugin`, `ScenePlugin`,
+  `OrbitLinesPlugin`, `SelectionPlugin`, `UiKit`, `HudPlugin`,
+  `SearchMenuPlugin`, `SettingsUiPlugin`, and `PlatformPlugin`; feature-gated
+  `SteamPlugin` retains its required pre-graphics initialization. Focused
+  helpers are composed once beneath those owners: Camera owns raw-input
+  translation and camera startup, Scene owns bodies/polish/starfield, HUD owns
+  layers/time/left-panel surfaces, Settings UI owns schema/modal/persistence,
+  and Platform owns window/runtime settings, renderer recovery, and frame/exit
+  lifecycle. The chained input → commands → clock → propagation → origin →
+  camera → render sets, f64 propagation, sole rebase boundary, settings
+  bootstrap, golden capture, and no-op/Steam service boundary are unchanged.
+
+  One new assembly regression pins all 13 owners in §8.2 order, rejects
+  duplicate owners, proves each internal helper has exactly one composition
+  owner, and checks required resources. Existing independent tests continue to
+  prove one 66-body scene, one camera, 66 labels with the architecture-correct
+  57 reticles, 65 orbits, retained HUD/settings surfaces, and exact frame flow.
+  The portable replay hash remains bit-identical at
+  `8282160698094571922`; Q15 recovery, Q16's text-only Saturn plus Io reticle,
+  golden definitions, and responsive UI behavior remain unchanged.
+
+  `cargo test` passes **336 tests** (53 `sim-core` · 232 `solar-sim` · 48
+  `xtask` lib · 2 xtask smoke · 1 active spot-check), and `cargo test -p
+  solar-sim --features steam` passes **233 tests**. `cargo fmt --all --
+  --check`, both zero-warning clippy configurations,
+  `scripts/check-texture-metadata.sh` (16 assets), and `git diff --check` pass;
+  `cargo tree -p solar-sim --no-default-features --edges normal --prefix none`
+  contains no Steamworks package. No dependency, deferred WP16 implementation,
+  catalog/generated/truth asset, architecture/agent file, numerical tolerance,
+  or AC-3 top-bar source changed.
+- **2026-07-17** — Reopened WP4 for authorized architecture-conformance
+  Phase 2 after Phase 1 commit `21352b9` passed its complete gate and was
+  pushed. The mandatory pre-code review re-read ARCHITECTURE invariants 4 and
+  6–8 and §§8.2–8.5 and 12, the WP4 brief, `TASKS.md`, and the complete
+  corrective plan. The current responsibility map is: root
+  `apply_sim_commands`/`tick_clock` own command-to-time flow;
+  `PropagationPlugin` owns f64 body truth; `OriginPlugin` owns focus advance
+  and the sole f64→f32 rebase; `CameraRigPlugin` plus the internal
+  `InputIntentPlugin` and root camera startup own input/camera work;
+  `LabelsPlugin` owns projection/declutter while `SelectionPlugin` owns the
+  viewport pick surface; root sphere startup plus `ScenePolishPlugin` and
+  `StarfieldPlugin` own bodies, Sun light/bloom, emphasis, and starfield;
+  `OrbitLinesPlugin` owns retained parent-relative paths; `UiKitPlugin`
+  currently mixes theme/gallery with top-bar/breadcrumb HUD work;
+  `LayersPlugin`, `TimeBarPlugin`, and `LeftPanelPlugin` own the remaining HUD;
+  `SearchPlugin` owns Search/Browse; `ProductSettingsPlugin` currently mixes
+  settings UI/persistence with window/runtime settings and renderer recovery;
+  `PlatformServicesPlugin` owns the no-op/Steam service lifecycle while root
+  systems own smoke/frame lifecycle; feature-gated `SteamPlugin` correctly
+  initializes before `DefaultPlugins`.
+
+  The architecture-preserving correction will expose exactly the §8.2 owners:
+  `TimePlugin`, `PropagationPlugin`, `OriginPlugin`, `CameraPlugin`,
+  `LabelsPlugin`, `ScenePlugin`, `OrbitLinesPlugin`, `SelectionPlugin`,
+  `UiKit`, `HudPlugin`, `SearchMenuPlugin`, `SettingsUiPlugin`,
+  `PlatformPlugin`, and feature-gated `SteamPlugin`. Focused implementations
+  remain private subplugins, each system will have one composition owner, and
+  the existing frame-set chain remains unchanged. `SteamPlugin`/the no-op
+  service boundary stays before graphics creation; settings bootstrap stays
+  before clock/layer derivation; Platform takes window/runtime and render
+  recovery while Settings UI retains schema, modal, and persistence ownership.
+  Assembly regressions will pin exact owner order, one instance of every
+  application-facing plugin, required resources, and the existing independent
+  66-body/camera/label/orbit/HUD startup invariants. No behavior, replay hash,
+  golden definition, dependency, deferred WP16 implementation, generated/truth
+  asset, numerical tolerance, or Q15/Q16 ruling may change.
+- **2026-07-17** — Completed architecture-conformance Phase 1 and returned
+  WP11 to **✅ done**. Layers-panel visibility is now canonical
+  `PresentationState` reduced from explicit desired-state
+  `SimCommand::SetLayersPanelOpen(bool)` traffic shared by desktop and
+  headless execution. The rail observer reads canonical state only to enqueue
+  one command; it no longer mutates panel state or a desktop-only dirty flag.
+  Replay-v2 serializes/parses the new command, rejects invalid booleans and
+  field counts, and hashes panel visibility as part of complete presentation
+  identity; replay-v1 remains parseable. The portable replay hash intentionally
+  changes from `1535747298578131566` to `8282160698094571922` solely because
+  this previously omitted canonical state is now covered. Duplicate desired
+  states advertise no false Bevy change, ordered open/close sequences converge
+  identically across the real desktop gate and headless runner, and a static
+  regression pins the observer's command-only boundary. Composed UI coverage
+  proves necessary panel rebuilds retain rail/panel scroll and semantic focus;
+  existing UI-off, Browse/Settings modal priority, stable entity identity, and
+  responsive reachability regressions remain green.
+
+  Four new app regressions raise `cargo test` to **335 tests** (53 `sim-core`
+  · 231 `solar-sim` · 48 `xtask` lib · 2 xtask smoke · 1 active spot-check);
+  `cargo test -p solar-sim --features steam` passes **232 tests**. `cargo fmt
+  --all -- --check`, both zero-warning clippy configurations,
+  `scripts/check-texture-metadata.sh` (16 assets), and `git diff --check` pass.
+  No WP4/WP7 source, deferred WP16 implementation, dependency,
+  catalog/generated/truth asset, architecture/agent file, numerical tolerance,
+  or Q16 Saturn/Io behavior changed.
+- **2026-07-17** — Reopened WP11 for authorized architecture-conformance
+  Phase 1 after the documentation baseline was committed as `cf7aab1` and
+  pushed to `codex/ui-gameplay-remediation`. The mandatory pre-code review
+  re-read ARCHITECTURE invariants 4 and 7 and §§8.2, 9.3–9.4, and 12,
+  `TASKS.md`, the completed stabilization record, and the complete corrective
+  plan. It confirms that `RailAction::ToggleLayersPanel` directly mutates the
+  desktop-only `RailUiState.layers_panel_open`, so the user-visible transition
+  is absent from replay, combined state hashing, and headless convergence.
+  The correction will add an explicit desired-state command, reduce it through
+  the shared canonical presentation state, and make the rail observer enqueue
+  exactly one command without mutating that state. Replay-v2 serialization,
+  strict parsing, corrupt-input rejection, portable hashing, duplicate-command
+  idempotence, and ordered desktop/headless parity will be extended together;
+  replay v1 remains accepted. Retained panel identity, scroll/focus recovery,
+  UI-off's sole `SHOW UI` affordance, and Browse/Settings modal precedence must
+  remain unchanged. Targeted static and composed regressions will precede the
+  full normal/Steam submission matrix. No WP4/WP7 source, deferred WP16 work,
+  dependency, catalog/generated/truth asset, architecture file, numerical
+  tolerance, or Q16 Saturn/Io behavior is in scope.
+- **2026-07-17** — Recorded the human-requested, architecture-governed
+  conformance queue without changing source code or work-package status.
+  `docs/ui-gameplay-architecture-conformance-2026-07-17.md` classifies WP10's
+  hyperbolic no-period behavior as a justified deferred clarification and
+  records three unwaived violations: Layers-panel visibility bypassing
+  `SimCommand`, the missing ARCHITECTURE §8.2 application-facing plugin graph,
+  and Menu preceding Search in the top bar. The plan orders remediation under
+  WP11 → WP4 → WP7, one work package at a time, with targeted acceptance,
+  complete normal/Steam verification, and automatic commit/push only after the
+  human authorizes the plan and each phase's evidence confirms completion.
+  This documentation-only planning step does not resume deferred WP16, alter
+  Q16's Saturn/Io ruling, or edit acceptance criteria, generated/truth assets,
+  dependencies, `ARCHITECTURE.md`, or any `AGENTS.md`.
+- **2026-07-17** — Synchronized the UI/gameplay stabilization completion
+  record after the human-requested documentation audit; no source code or
+  work-package status changed. `docs/ui-gameplay-stabilization-2026-07-16.md`
+  now records the architecture-preserving Q16 result (Saturn's
+  sphere/rings/text/orbit aggregate with no Saturn icon or reticle, plus Io
+  reticle coverage), the complete Task 7 retained-update and composed-lifecycle
+  outcome, the final portable replay hash `1535747298578131566`, and the final
+  verification totals instead of the earlier intermediate checkpoint. Fresh
+  post-update evidence is green: `cargo test` passes **331 tests** (53
+  `sim-core` · 227 `solar-sim` · 48 `xtask` lib · 2 xtask smoke · 1 active
+  spot-check); `cargo test -p solar-sim --features steam` passes **228 tests**;
+  formatting, both zero-warning clippy configurations, and `git diff --check`
+  pass. The locked Task 6 acceptance text and append-only historical entries
+  remain unchanged.
+- **2026-07-17** — Human explicitly closed Q16 with the recommended
+  architecture-preserving ruling and WP13 returned to **✅ done**. Per
+  ARCHITECTURE §10.3, Saturn remains strictly text-only: its complete aggregate
+  is the sphere, rings, text label, and orbit, with no Saturn icon or reticle;
+  Io supplies the representative Icons-layer reticle coverage for the shared
+  high-rate blend. This resolves the only remaining ambiguity in stabilization
+  Task 6 without an architecture revision or source change. The accepted
+  implementation is recorded by `07cd193` and the composed aggregate/replay
+  verification by `9d936da`; the final branch gate remains green at 331
+  workspace tests and 228 `solar-sim` Steam-feature tests, with both clippy
+  configurations, formatting, and diff checks passing. WP16 remains deferred,
+  and its isolated Steam stash was not applied or modified.
+- **2026-07-17** — Completed stabilization Task 7 and returned WP7 to
+  **✅ done** after re-reading the locked plan and closing every retained
+  update-efficiency acceptance item. The command boundary now bypasses Bevy
+  mutation tracking while reducers run, compares complete semantic
+  before/after state, and marks clock, camera, presentation, View Options,
+  navigation, settings, and transient UI resources only when their values
+  actually change. Duplicate commands and repeated clamped time edits retain
+  exact state flags, while explicit Apply/Restore actions still request
+  durable settings writes. Stable input ownership and pointer-capture state
+  likewise publish no false changes.
+
+  Desktop and headless execution now share an exact f64 simulation-time
+  propagation stamp: paused, UI-only, rate-only, and range-pinned frames reuse
+  bit-identical 66-body truth, while each distinct `SetTime`, playback,
+  reverse-from-pin, or eased-LIVE time propagates exactly once. Orbit geometry
+  uses the complete drifted elements, effective mean motion, and parent GM as
+  its exact key. Its documented reuse error is zero kilometres and zero render
+  units; fresh-versus-retained tests cover all eight secular planets at the
+  1800/2300 limits, catalog epoch, and high-confidence boundary, both fitted
+  hyperbolic and two-body-GM paths, and the complete catalog-derived
+  smallest-body-to-Sedna zoom domain without changing physics or tolerances.
+
+  Stable emphasis, labels/reticles, body transforms/visibility, orbit lines
+  and Gizmo assets, time controls, HUD, search, and breadcrumb values now
+  avoid component/material/asset rewrites. Retained render keys preserve
+  settings, Layers/rail, Browse, and left-panel entity identity for stable or
+  unrelated values; required structural rebuilds retain semantic focus and
+  scroll. Default-valued View Options overrides are canonicalized away, and
+  camera yaw/zoom no longer scans all body presentation when selection is
+  unchanged. Review also found and fixed a hidden-UI edge: an external
+  Settings open/close can no longer consume the saved rail target before
+  `SHOW UI` restores it.
+
+  The composed real-catalog lifecycle now drives the actual text/modal input
+  router, exact single-owner Escape commands, hovered-scroll wheel capture
+  versus viewport Dolly, focus-driven scrolling, Jupiter collection → Io
+  navigation, cue-less settings recovery, Saturn's real sphere/ring/text/orbit
+  aggregate plus Io's architecture-valid reticle, and variable-wall-delta
+  LIVE replay with an identical parsed stream and final hash. Independent
+  architecture, command/simulation, and retained-UI reviews found no remaining
+  Task 7 blocker. Final evidence is green: `cargo test` passes **331 tests**
+  (53 `sim-core` · 227 `solar-sim` · 48 `xtask` lib · 2 xtask smoke · 1
+  active spot-check); `cargo fmt --all -- --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`, and
+  `git diff --check` pass; the untouched compatibility path passes 228
+  `solar-sim` tests and zero-warning clippy with `--features steam`. Q16
+  remains open, WP13 remains `blocked(Q16)`, and no Saturn icon, Steam/WP16
+  source, dependency, catalog/generated/truth asset, persisted schema, or
+  numerical-tolerance change was made.
+- **2026-07-17** — Began the required pre-code review for stabilization Task
+  7, reopening WP7 as the coordinating retained-UI/update-efficiency package
+  from the green 303-test Task 6 commit. Re-reading ARCHITECTURE invariants
+  4, 6–8 and §§7, 8.2–8.4, 9, 10, and 12 plus the locked Task 7 acceptance
+  found a shared Bevy change-detection defect rather than isolated repaint
+  problems. The desktop command gate mutably dereferences clock, camera,
+  View Options, navigation, Browse, settings, and transient UI state for every
+  command even when that reducer branch is a no-op. Stable selection and
+  presentation-convergence systems repeat the same mistake. An unrelated or
+  duplicate UI command can therefore advertise false clock, camera,
+  navigation, and `AppSettings` changes, re-propagate all 66 bodies while
+  paused, reapply window/runtime settings, rebuild the actionable breadcrumb
+  and other surfaces, and trigger unrelated body/UI work.
+
+  The reviewed correction will preserve reducer order while mutating through
+  Bevy's change-detection bypass, compare semantic before/after state, and
+  explicitly mark only resources that actually changed. Desktop propagation
+  and the headless replay runner will share an exact simulation-time reuse
+  policy: unchanged time reuses bit-identical `BodyStates`, while `SetTime`,
+  LIVE easing, ordinary playback, or changed startup catalog truth still
+  propagates. Catalog truth remains the architecture's immutable startup
+  resource; no partial runtime hot-reload contract will be invented.
+  Retained orbit geometry will continue to use exact complete conic inputs,
+  with a documented zero-kilometre temporal-cache error bound and
+  fresh-versus-retained coverage across the supported 1800–2300 endpoints,
+  catalog epoch, high-confidence boundary, elliptic secular planets, and the
+  hyperbolic mean-motion/parent-GM path. No time bucket, screen-space
+  approximation, physics tolerance, or f64 truth change is allowed.
+
+  Stable render work will acquire mutable assets/components only when the
+  desired value differs: body/ring emphasis materials, label/reticle
+  colors and visibility, retained orbit assets/anchors, camera/body
+  transforms, and page-independent body presentation. Stable and idempotent
+  settings, Layers, Browse, navigation, and View Options transitions will
+  retain surface entity identity; actual structural rebuilds must preserve
+  the already-reviewed focus and scroll contracts, while single-control
+  visual changes use retained-state repaint where that surface permits it.
+  Acceptance evidence will prove paused idle/UI-only/rate-only frames perform
+  zero propagation, a paused `SetTime` performs exactly one bit-identical
+  propagation, stable emphasis/orbits emit no component or asset rewrites,
+  unrelated/duplicate commands leave change flags and surface identities
+  stable, and one composed real-catalog lifecycle covers text/modal input,
+  scrolling, Jupiter/Io navigation, default recovery, Saturn's real
+  sphere/ring/text/orbit aggregate plus Io's architecture-valid reticle, and
+  variable-input LIVE replay. Q16 remains open and no forbidden Saturn icon
+  will be added. Steam/WP16, dependencies, catalogs, generated/truth assets,
+  starfield, persisted schemas, and numerical tolerances remain out of scope.
+- **2026-07-17** — Completed every architecture-authorized stabilization Task
+  6 source change; WP13 is now `blocked(Q16)` only because the locked wording
+  names a Saturn icon that Rev C explicitly forbids. Independent aggregate,
+  transition, and UI reviews found no source blocker. The Clock set now
+  publishes the signed simulation-time advance produced strictly by
+  `SimClock::tick`, after commands and before propagation. Orbit emphasis
+  therefore follows actual eased LIVE movement, reverse time, pause, and
+  1800/2300 range pins without treating an instantaneous `SetTime` edit as
+  sustained speed. Crossfades snap only within one `f32::EPSILON` of their
+  exact endpoint so the reviewed 0.25-second transition lands bit-exactly
+  after fifteen 60 Hz steps; no assertion tolerance was loosened.
+
+  Saturn's ring attachment now carries its owning catalog body index and
+  resolves alpha through that identity instead of a hard-coded name.
+  Mercury–Saturn sphere materials, owned ring, text labels, and orbits share
+  the same monotone body-indexed blend at both +100 and −100 yr/s; Io proves
+  the real architecture-valid Icons-layer reticle path and Uranus remains at
+  baseline on initial entry. Global/local orbit visibility still overrides
+  brightness, while material handles, retained orbit geometry, transforms,
+  f64 `BodyStates`, inflated-pick radius, and ray-hit results remain unchanged.
+  Every label hide path now clears focus only when that root owned it, so a
+  fully faded label cannot remain invisibly keyboard-activatable. Onset
+  consumption is explicitly after `OrbitEmphasisSet`: the toast appears in
+  the transition frame, never repeats while held, and emits exactly once after
+  release/re-entry.
+
+  Eight new regressions raise the workspace suite from 295 to 303 tests (53
+  `sim-core` · 199 `solar-sim` · 48 `xtask` lib · 2 xtask smoke · 1 active
+  spot-check); the Steam-feature verification passes 200 `solar-sim` tests
+  without changing deferred WP16 code. `cargo test`,
+  `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test -p solar-sim --features steam`,
+  `cargo clippy -p solar-sim --all-targets --features steam -- -D warnings`,
+  `cargo fmt --all -- --check`, and `git diff --check` all pass. Stable
+  label-color rewrite optimization remains documented for Task 7. No
+  dependency, catalog, generated-asset, starfield, physics, or tolerance
+  change was made.
+- **2026-07-17** — Began the required pre-code review for stabilization Task
+  6, reopening WP13 as the coordinating high-rate rendering package from the
+  green 295-test Task 5 commit. Re-reading ARCHITECTURE §§7, 8.2, 10.3–10.4,
+  and 12 plus the locked Task 6 acceptance found that orbit emphasis currently
+  derives phase advance from nominal `rate × wall delta`, not the simulation
+  clock's actual tick. LIVE easing can therefore move Mercury by radians in
+  one rendered frame while leaving its dot fully visible, whereas a clock
+  pinned at 1800/2300 can remain faded with bright orbits despite zero
+  propagation. The frame-flow fix will publish
+  `abs(t_after_tick − t_before_tick)` from `tick_clock`, after commands but
+  before propagation, so eased LIVE motion and clamps are truthful while an
+  instantaneous `SetTime` edit is not misclassified as sustained aliasing.
+
+  The render aggregate is also only implicitly associated. Every
+  `SaturnRing` marker receives hard-coded Saturn alpha even if it is detached
+  or mis-parented; ring attachments will instead carry their owning catalog
+  body index from spawn and resolve the blend through that identity. Orbit
+  updates already run after the emphasis set, but onset-toast consumption does
+  not; it will be explicitly ordered so a transition is consumed in the same
+  frame. A label whose root becomes `Display::None` at the reviewed near-zero
+  cutoff can retain keyboard focus, so hidden label roots will relinquish
+  focus rather than remain invisibly activatable. Stable label-color rewrite
+  optimization is deliberately recorded for Task 7, where all steady-state
+  render work is reviewed together.
+
+  Acceptance evidence will drive the real catalog at ±100 yr/s and 60 Hz
+  through intermediate/full fade and smooth release. It will cover
+  Mercury–Saturn sphere materials, Saturn's owned ring, text-label alpha/root
+  visibility, a real non-primary Icons-layer reticle pending Q16, orbit
+  brightness with global/local visibility precedence, Uranus remaining
+  initially un-emphasized, one onset/toast per crossing, LIVE snap and
+  pinned-edge truth, and unchanged f64 `BodyStates`, transforms, material
+  handles, inflated-pick radius, and ray-hit results. No Steam, dependency,
+  catalog, generated asset, starfield, physics, or tolerance change is in
+  scope.
+- **2026-07-17** — Completed stabilization Task 5 and returned WP14 to
+  **✅ done** after the independent final review found no blockers. Startup
+  `--reset-settings` now consumes the same semantic
+  `ApplySettings(default)` settings reducer as the accessible in-product
+  `RESTORE DEFAULTS` action, synchronously persists reviewed defaults, and
+  only then derives initial clock/layer/runtime state. Fourteen isolated child
+  phases use a nonce-specific non-production settings identifier plus
+  cross-platform config-root overrides to prove exact persistence before and
+  after parsed CLI reset, the actual in-product action/shared reducer path,
+  ordinary golden capture, and reset-plus-capture. Golden-only
+  resolution/vsync/frame-cap and view-layer overrides now run under an
+  explicit transient persistence policy; external convergence, requested
+  deferred saves, and window-close sync saves cannot overwrite the production
+  file, while an explicit reset remains durable before capture begins.
+
+  The cue-recovery notice now renders above the ordinary HUD/diagnostics but
+  below Search, Browse, and Settings. Its generic teardown recognizes focused
+  descendants and hands focus to `SHOW UI`, the first live control in the
+  active modal, or the semantic Layers rail action, including replay,
+  external-layer, and Settings Apply paths. Composed regressions prove exactly
+  one accessible notice across stable updates, no command/settings/save
+  mutation merely from appearance, one semantic restore command and reviewed
+  default convergence on activation, zero cue notices plus exactly one
+  tabbable `SHOW UI` action when UI is off, overlay ordering, and live focus
+  after every teardown path. Six new regressions raise the workspace suite
+  from 289 to 295 tests (53 `sim-core` · 191 `solar-sim` · 48 `xtask` lib ·
+  2 xtask smoke · 1 active spot-check); the Steam-feature verification passes
+  192 `solar-sim` tests without changing deferred WP16 code.
+  `cargo test`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test -p solar-sim --features steam`,
+  `cargo clippy -p solar-sim --all-targets --features steam -- -D warnings`,
+  `cargo fmt --all -- --check`, and `git diff --check` all pass. No
+  dependency, catalog, generated-asset, physics, or tolerance work changed.
+- **2026-07-17** — Expanded the Task 5 pre-code gate after the independent
+  combined review found one further persistence defect. Golden capture uses
+  the production settings identifier, replaces the live `AppSettings` with
+  capture-only resolution/vsync/frame-cap values, and installs view-specific
+  cue layers. The normal settings-convergence system then queues a delayed
+  save; because a golden run lasts well beyond the 100 ms debounce, an
+  ordinary capture can overwrite user settings and a
+  `--reset-settings` capture can undo the defaults it just persisted.
+
+  Golden runtime overrides will therefore use an explicit transient
+  persistence policy. A requested reset will still cross the shared
+  `ApplySettings(default)` reducer and synchronously persist to the production
+  identifier before capture overrides are derived, but capture-time
+  convergence, requested saves, and close handling will not enqueue disk
+  writes. Isolated persistence evidence will prove a capture lifecycle cannot
+  change the exact pre-existing file, while reset-plus-capture leaves reviewed
+  defaults durable. This remains within Task 5/WP14; no golden image contract,
+  Steam work, dependency, generated asset, physics, or tolerance changes are
+  in scope.
+- **2026-07-17** — Began the required pre-code review for stabilization Task
+  5, reopening WP14 as the coordinating settings/recovery package from the
+  green 289-test Task 4 commit. Re-reading ARCHITECTURE §§8.2, 8.5, 9.3, and
+  12, the Q15 ruling, and the locked Task 5 acceptance found that the existing
+  CLI and in-product resets do not yet share one semantic settings reducer:
+  startup mutates `AppSettings` directly, while `RESTORE DEFAULTS` queues
+  `ApplySettings(default)`, presentation restoration, and close commands. The
+  relaunch test invokes the direct helper rather than parsed
+  `--reset-settings`, does not exercise the in-product command sequence through
+  persistence, and isolates only `HOME`; platforms preferring another config
+  root could therefore touch the production settings identifier.
+
+  The transient cue floor also has two implementation defects. Its z-index is
+  above both the Search dropdown and the full-screen Browse modal, so the
+  notice can obscure or receive pointer input ahead of the active transient
+  surface. When replay, Settings Apply, or another layer control restores a
+  cue while the notice owns focus, the generic despawn path does not choose a
+  successor and leaves `InputFocus` pointing at a dead entity. The reviewed
+  implementation will route startup reset through the same
+  `ApplySettings(default)` settings reducer before deriving initial runtime
+  state, synchronously persist that result, and use the parsed startup option
+  at this testable boundary. Isolated multi-process cycles will use a unique
+  non-production settings identifier plus platform config-directory
+  overrides, and will prove exact persistence before and after both the CLI
+  bootstrap and the actual in-product command path.
+
+  The cue notice will move below Search, Browse, and Settings while remaining
+  above the ordinary HUD. Every cue-root despawn will resolve focused
+  descendants to `SHOW UI` when UI becomes hidden, the active modal when one
+  exists, or the semantic Layers rail action otherwise. Composed lifecycle
+  regressions will prove one accessible notice across repeated updates, no
+  command/settings/save mutation merely from appearance, one semantic restore
+  command on activation, exact default convergence, zero cue notices plus one
+  tabbable `SHOW UI` control when UI is off, the overlay hierarchy, and live
+  focus after external layer and Settings restore paths. No Steam, dependency,
+  catalog, generated asset, physics, or tolerance work is in scope.
+- **2026-07-17** — Completed stabilization Task 4 and returned WP7 to
+  **✅ done** after an independent final source review found no blockers.
+  Breadcrumb items now retain semantic root/body/collection destinations
+  behind their stable route IDs, and `(depth, target_id)` is validated
+  atomically against the current stack before either the camera or application
+  state can change. Desktop and headless reducers converge selected-body,
+  panel, and navigation state after each ordered command; unsupported
+  collection pages reject without mutation; Jupiter Collection/Info/View,
+  Io, current/ancestor/root breadcrumb routes, and same-frame versus
+  split-frame sequences now produce the documented canonical states.
+  Breadcrumb rebuilding is explicitly ordered after navigation convergence
+  and restores focus to a live semantic successor.
+
+  Search input and its dropdown now share TextEdit ownership, so focused
+  results suppress all background gameplay input and Escape uses the shared
+  cancellation path. Keyboard and pointer selection each queue exactly one
+  Travel command, commit the displayed value, restore live Search focus, and
+  suppress exact-match popup reopening until a fresh edit. Browse preserves
+  Travel-then-close ordering and returns focus to its live Menu invoker, with
+  stale-target clearing as the fallback. Replay command text remains
+  compatible; semantic navigation identity intentionally changes the pinned
+  portable state hash to `1535747298578131566`. Fifteen new regressions raise
+  the workspace suite from 274 to 289 tests (53 `sim-core` · 185 `solar-sim`
+  · 48 `xtask` lib · 2 xtask smoke · 1 active spot-check). Evidence:
+  `cargo test`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo fmt --all -- --check`, and `git diff --check` all pass. No Steam,
+  dependency, catalog, generated-asset, physics, or tolerance work changed.
+- **2026-07-17** — Began the required pre-code review for stabilization Task
+  4, reopening WP7 as the coordinating breadcrumb/navigation package from the
+  green 274-test Task 3 commit. Re-reading ARCHITECTURE §§8.2, 8.4, 9.1, and
+  12 plus the locked Task 4 acceptance exposed coupled state-machine defects.
+  Collection crumbs use synthetic IDs such as `jupiter_moons`, but both
+  reducers require a catalog body and therefore render an actionable no-op.
+  Breadcrumb commands validate depth and target independently, so stale,
+  mismatched, or out-of-range pairs can partially mutate camera, page, or
+  stack. `SetLeftPanelTab(Collection)` also accepts bodies with no moon
+  collection, while command batches synchronize selected-body navigation only
+  after every command, causing a later same-frame tab command after Travel or
+  breadcrumb navigation to be overwritten. Selection-derived navigation and
+  breadcrumb rebuilding have no explicit same-frame ordering, and a focused
+  ancestor button is despawned without a semantic successor. Search-result
+  focus is currently misclassified as Gameplay, allowing background hotkeys
+  and making Escape ineffective; Search selection clears focus, while Browse
+  closes to Search rather than its Menu invoker and can immediately reopen a
+  retained-query dropdown.
+
+  The reviewed implementation will give each `NavigationItem` a semantic
+  destination (root/body/collection) while retaining stable route IDs and
+  replay text compatibility; validate `(depth, target_id)` atomically against
+  the current stack; resolve camera body plus panel page from that one target;
+  reject unsupported collection tabs without mutation; and converge selected
+  body/navigation after every accepted command so recorded order is honored.
+  Breadcrumb rendering will run after selection convergence and restore focus
+  by semantic route. Search input plus its dropdown will share TextEdit
+  ownership; a common commit/cancel path will return focus to Search while
+  suppressing exact-match popup reopening until a fresh edit, and Browse will
+  return focus to Menu with a live-entity fallback. Acceptance evidence will
+  cover the exact Jupiter/Io paths, current and ancestor breadcrumb actions,
+  malformed/stale rejection, same-frame versus split-frame command order,
+  replay/headless parity, pointer and keyboard Search/Browse selection,
+  gameplay-hotkey suppression, Escape cancellation, focus survival, and a
+  second-update no-reopen assertion. No Steam, dependency, catalog, generated
+  asset, physics, or tolerance work is in scope.
+- **2026-07-17** — Completed stabilization Task 3 and returned WP7 to
+  **✅ done** after two independent source gates and a final no-blocker
+  acceptance review. Non-modal surfaces now use ordered tab groups
+  (top/search/left/time/rail/layers/recovery), unique semantic indices, and a
+  central `ScrollIntoView` observer for registered scroll surfaces. Settings,
+  the left panel, all three Browse columns, the search dropdown, right rail,
+  layers panel, and breadcrumb retain or deliberately reset scroll/focus
+  across rebuilds; semantic left-panel transitions cannot be overwritten by
+  outgoing live scroll, Browse close/reopen cannot recover stale actions, and
+  UI-off plus cue-recovery paths always hand focus to a live modal or rail
+  control. The top bar uses a flex-integrated scrollable breadcrumb, the time
+  bar uses two compact rows, long Browse labels wrap inside bounded controls,
+  the left-panel tabs live inside its scroll region, Settings has an
+  auto-height wrapping footer and the supported 2.0 scale step, and all
+  transient rails/dropdowns are constrained between fixed HUD bars. The
+  headless matrix fixture now runs Bevy's real Inter text measurement,
+  editable-content sizing, Taffy layout, glyph layout, transforms, and
+  clipping. Twenty-nine new regressions raise the workspace suite from 245 to
+  274 tests (53 `sim-core` · 170 `solar-sim` · 48 `xtask` lib · 2 xtask smoke
+  · 1 active spot-check), including all seven UI surfaces at 800×600 and
+  960×600 with scales 0.75, 1.0, 1.5, and 2.0, real Tab/Shift-Tab search
+  activation, line/pixel scroll clamping, wheel-versus-Dolly ownership, and
+  command/replay-driven focus recovery. `cargo test`,
+  `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo fmt --all -- --check`, and `git diff --check` are green. No Steam,
+  catalog, generated asset, dependency, physics, or tolerance scope changed.
+- **2026-07-17** — A second independent Task 3 source gate found three more
+  acceptance blockers before closure. The headless layout fixture currently
+  replaces Bevy's `PostUpdate` UI pipeline with layout/transforms only, so it
+  omits text/editable-content measurement and can falsely pass controls whose
+  real text would overlap or clip. The newly tabbable search-results group is
+  also incompatible with the existing edit lifecycle: moving focus from the
+  Search input to a result ends editing and despawns that focused dropdown in
+  the same frame. Finally, activating the cue-recovery action despawns its
+  focused entity without choosing a semantic successor. The integrated
+  correction must restore a representative Bevy text-measurement/layout
+  pipeline in the fixture; keep the search session alive while focus is
+  within its input-or-dropdown ownership surface and prove keyboard result
+  activation; and restore cue-recovery focus to a stable rail action after
+  its command removes the notice. These regressions join the four already
+  documented gate failures and all must pass the real eight-case matrix
+  before Task 3 can be completed.
+- **2026-07-17** — Task 3 remains in progress after the independent
+  acceptance gate found four coupled continuity defects in the first
+  implementation. Intentional left-panel resets from tab, breadcrumb, and
+  selected-body transitions are currently overwritten by the outgoing live
+  `ScrollPosition`; Browse close clears its semantic focus target in the
+  reducer but the closing rebuild captures that stale target again; a
+  command-driven UI restore can leave focus on the now-hidden modal `SHOW UI`
+  affordance; and the three-column Browse layout still gives long no-wrap
+  labels no horizontal or wrapping path at 800×600 with UI scale 2.0. The
+  reviewed correction keeps these concerns integrated: mark semantic
+  left-panel scroll resets so rebuild snapshotting cannot override them;
+  capture Browse action focus only while the menu remains open and prove a
+  close/reopen starts at `CLOSE`; treat `SHOW UI` as the canonical modal
+  focus while UI is off and move command-restored focus to the rebuilt rail
+  (or the active higher-priority modal); and make Browse titles/actions
+  width-constrained and wrapping, with the eight-case Bevy layout regression
+  checking text bounds as well as button reachability. Dedicated regressions
+  for each failure are required before the full Task 3 verification suite and
+  WP7 completion evidence are rerun.
+- **2026-07-17** — Began the required pre-code review for stabilization Task
+  3, reopening WP7 as the coordinating UI work package after Task 2 returned
+  WP5 to done. Re-reading ARCHITECTURE §§8.2, 8.4, 8.5, 9, and 12 plus the
+  locked Task 3 matrix exposed coupled continuity and reachability defects:
+  non-modal HUD controls have `TabIndex` components but no `TabGroup`
+  ancestors; Settings, the left panel, and time controls reuse equal indices
+  instead of declaring semantic order; focus restoration can target despawned
+  entities or jump to an unrelated modal action; focused offscreen controls do
+  not scroll into view; and the Settings UI-scale action omits the supported
+  2.0 value. At 800×600 or 960×600 with scales 1.5–2.0, fixed top/time bars,
+  the absolute breadcrumb, the unconstrained right rail/layers panel, the
+  search dropdown, the left-panel chrome, and the fixed-height Settings footer
+  clip or overlap required controls. The integrated implementation will add
+  ordered surface tab groups and unique semantic indices, central
+  focus-to-scroll behavior at the existing `UiScrollSurface` boundary,
+  retained/constrained rail and layers scrolling, semantic focus snapshots
+  with explicit fallbacks, Browse expansion continuity, a flex-integrated
+  breadcrumb, a compact two-row time bar, a bounded scrollable search
+  dropdown, a narrower left panel with tabs inside its scroll region, an
+  auto-height Settings footer, and the missing 2.0 scale step. Acceptance
+  evidence will use actual Bevy layout across all eight required
+  resolution/scale pairs, first/last-control scroll reachability,
+  Tab/Shift-Tab order, real wheel-versus-Dolly routing, and rebuild focus/scroll
+  regressions before WP7 is returned to done. Full-tree repaint optimization
+  remains Task 7; no Steam, catalog, generated asset, dependency, physics, or
+  tolerance work is in scope.
+- **2026-07-17** — Completed stabilization Task 2 and returned WP5 to
+  **✅ done** after an independent architecture review found no remaining
+  blocker. `InteractionState` is the sole frame-latched interaction-context
+  resource; it is captured after Bevy input collection and before both
+  focused-keyboard and picking dispatch, while scroll-hover capture remains
+  non-context pointer-routing data. Text editing, Browse, and Settings now
+  suppress gameplay keys, right-drag, wheel dolly, label activation, and
+  viewport picking for the whole owned frame. Browse and Settings are
+  command-reducer-exclusive, modal focus is seeded and reconciled inside the
+  active tab group, and focused buttons own Space without also triggering the
+  global playback binding. Date/time Escape restores the pre-edit display and
+  emits no command; Enter emits exactly one `SetTime`. Twelve new
+  ownership/focus/cancellation regressions raise the workspace suite from 233
+  to 245 tests (53 `sim-core` · 141 `solar-sim` · 48 `xtask` lib · 2 xtask
+  smoke · 1 active spot-check). `cargo test`,
+  `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo fmt --all -- --check`, and `git diff --check` are green. No Steam,
+  catalog, generated asset, dependency, or numerical-tolerance change is
+  included.
+- **2026-07-17** — Began the required pre-code review for stabilization Task
+  2 (WP5 input ownership) after re-reading ARCHITECTURE invariants 4 and 7
+  and the locked Task 2 acceptance. The audit found five coupled defects:
+  date/time Escape has no cancel path and valid edits commit on every focus
+  loss; Browse and Settings create modal tab groups without placing focus
+  inside them; focused UI buttons and the global Space binding can both act
+  on one keypress; Browse and Settings can coexist despite the single-context
+  model; and label/viewport guards depend on an `InteractionState` snapshot
+  that is stale during the next PreUpdate after a modal command. The scoped
+  design is therefore integrated: retain an explicit time-edit cancellation
+  snapshot, deterministically seed modal focus, suppress raw activation keys
+  owned by the focused widget, make ordered modal-open commands mutually
+  exclusive with a defensive TextEdit → Browse → Settings resolver, and
+  derive label/pick blocking from canonical focus/Browse/Settings state at
+  dispatch time. Acceptance evidence will include real focused-input,
+  Tab/Shift-Tab containment, same-key single-command, Escape-order, pointer,
+  label, and viewport regressions before Task 2 is marked complete. No Steam,
+  catalog, generated asset, dependency, or unrelated rendering work is in
+  scope.
+- **2026-07-17** — Completed stabilization Task 1 (WP5 command boundary and
+  replay schema) before beginning Task 2. `ReplayStream` now retains an
+  explicit v1/v2 version, v1 round-trips without upgrading, and v2 always
+  requires its exact ordered finite frame-input set instead of silently
+  falling back to synthetic v1 timing. Desktop and headless execution now
+  share the presentation, View Options, left-panel/navigation, Browse,
+  settings, and persistence-convergence reducers; application commands are no
+  longer discarded while catalog/camera resources are unavailable. Settings
+  open/closed state is canonical rather than a desktop-only transient request.
+  The combined replay hash now covers exact wall time, every layer,
+  fullscreen, Settings/Browse modal state, full navigation identity, View
+  Options, and normalized settings while continuing to exclude render-only
+  state. Frame recordings now stamp every same-frame command with the
+  frame-start time, so a `SetTime` followed by another command replays
+  correctly, and invalid breadcrumb targets cannot partially mutate UI state.
+  The portable 600-frame hash intentionally changed from
+  `11341847874983838712` to `1553394718950124988`; no numerical tolerance or
+  physics assertion changed. Ten new transition/rejection/parity tests raise
+  the workspace baseline from 223 to 233 tests (53 `sim-core` · 129
+  `solar-sim` · 48 `xtask` lib · 2 xtask smoke · 1 active spot-check).
+  `cargo test`, `cargo clippy -p solar-sim --all-targets -- -D warnings`,
+  `cargo fmt --all`, and `git diff --check` are green. WP5 remains
+  `in-progress` only for the documented Task 2 input-ownership acceptance.
+- **2026-07-17** — Reopened WP5 for the human-approved UI/gameplay remediation
+  and deferred WP16 while the Steam/overlay investigation remains explicitly
+  on hold. The pre-code audit found that the replay-v2 stream does not retain
+  its parsed version, the combined replay hash omits layer, presentation, and
+  wall-time state, and desktop/headless application reducers have diverged.
+  Task 1 will repair those defects against ARCHITECTURE invariants 4 and 7 and
+  the reviewed acceptance matrix in
+  `docs/ui-gameplay-stabilization-2026-07-16.md`; no Steam runtime, overlay,
+  packaging, App ID, dependency, catalog, or generated asset work is in scope.
+  The paused six-file WP16/MSAA delta is preserved without loss in stash
+  `hold-wp16-steam-msaa-2026-07-16`, and branch
+  `codex/ui-gameplay-remediation` starts from committed stabilization baseline
+  `0e49870`. The required pre-change `cargo test` is green at the committed
+  223-test baseline (53 `sim-core` · 119 `solar-sim` · 48 `xtask` lib ·
+  2 xtask smoke · 1 active spot-check) before source changes.
+- **2026-07-16** — Completed the human-directed UI/gameplay stabilization
+  cycle and closed Q15 with both approved recovery measures. The reviewed
+  implementation brief and task-by-task acceptance matrix live in
+  `docs/ui-gameplay-stabilization-2026-07-16.md`. All application-visible View
+  Options, Browse, settings commit/reset, left-panel, and breadcrumb
+  transitions now cross `SimCommandQueue`; replay-v2 records wall delta and
+  wall-clock TDB inputs for deterministic LIVE snaps while replay-v1 remains
+  parseable. Text, Browse, and Settings contexts suppress background hotkeys,
+  orbit, dolly, label activation, and viewport picking; long Settings,
+  left-panel, and Browse surfaces retain/clamp scroll state and keyboard focus
+  is restored across rebuilds. The breadcrumb is actionable, cue-less persisted
+  views expose one transient restore notice, `--reset-settings` performs an
+  isolated write/relaunch/reset/relaunch persistence cross-check, and Saturn's
+  rings now share its high-rate fade. Paused clocks skip unchanged propagation
+  and secular orbit resampling, and steady emphasis no longer rewrites
+  materials. The portable replay hash intentionally changed from
+  `11614332433107791956` to `11341847874983838712` because the combined hash
+  now includes View Options, settings, navigation, and modal state; no numeric
+  tolerance or assertion was weakened. `cargo test` passes the increased
+  223-test baseline (53 `sim-core` · 119 `solar-sim` · 48 `xtask` lib · 2
+  xtask smoke · 1 active spot-check), `cargo test -p solar-sim --features
+  steam` passes 120 tests, both required clippy invocations pass with
+  `-D warnings`, and formatting/diff checks are clean. No dependency, catalog,
+  truth fixture, `ARCHITECTURE.md`, `AGENTS.md`, WP status, or acceptance text
+  changed.
+- **2026-07-16** — Finalized the Settings recovery follow-up after the human
+  reported that the real macOS release build now passes pointer adjustment,
+  scrolling, `REVERT`, `APPLY`, `CLOSE`, and Escape. Hosted
+  [run 29488349896](https://github.com/jiayanzeng/solar-sim-workspace/actions/runs/29488349896)
+  is green for commit `60a19a6718edbc3b239606325f1b663c723d5a12`:
+  `invariants` 30s, `lint` 47s, `test-linux` 1m54s, `platform (macos-14)`
+  3m03s, and `platform (windows-latest)` 8m17s. `README.md` now documents the
+  operational Settings controls and current 212-test baseline;
+  `docs/wp16-steam-overlay-spike.md` records the validated non-Steam usability
+  baseline so the later overlay retest is not confounded with this resolved
+  defect. Q15 is narrowed but remains open for the separate persisted
+  visual-cue recovery choice. No WP status or acceptance criterion changed.
+- **2026-07-16** — Follow-up to the Settings lock-in repair: the human
+  confirmed that Escape dismissed the modal but every pointer-operated
+  setting remained inert. A focused contract assertion added to
+  `settings_screen_renders_every_control_with_accessibility_labels` reproduced
+  the defect exactly: `cargo test -p solar-sim
+  settings::tests::settings_screen_renders_every_control_with_accessibility_labels
+  -- --exact` found 0 of 38 setting actions carrying Bevy 0.19's
+  `ui_widgets::Button`. The shared `ui_kit` chip, checkbox, slider, and tab
+  segment scenes had resolved the unqualified `Button` name to the legacy
+  visual `bevy_ui::widget::Button`, which does not emit the `Activate` event
+  consumed by the app's observers. All four scenes now use
+  `bevy::ui_widgets::Button` explicitly. The same focused command now passes
+  with all 38 controls pinned to the action-emitting component. `cargo test`
+  passes the 212-test workspace baseline, `cargo test -p solar-sim --features
+  steam` passes 109 tests, `cargo clippy --workspace --all-targets -- -D
+  warnings` passes, and `cargo fmt --all -- --check` plus `git diff --check`
+  are clean. No dependency, settings schema, acceptance text, or WP status
+  changed.
+- **2026-07-16** — Fixed the WP14 Settings-screen lock-in reported during the
+  Mac-first WP16 bring-up, without resuming overlay work. The screen is now a
+  full-window modal tab group with a blocking scrim and a real scroll position;
+  pointer scrolling is clamped to the content range. `CLOSE`, `APPLY`, and the
+  Escape key all route through the deterministic `SimCommand` boundary, closing
+  clears input focus, and gameplay orbit/dolly/key intents are suppressed while
+  the modal is open. `APPLY` also dismisses the modal, so applying a hidden-UI
+  layer state cannot strand the user behind an invisible settings screen.
+  Regression tests cover the spawned modal's close path, close-request focus
+  cleanup, line/pixel scroll clamping, modal input suppression, presentation
+  reduction, and replay serialization. Evidence: the pre-change `cargo test`
+  passed the 208-test baseline; post-change `cargo test` passes 212 tests (53
+  `sim-core`, 108 `solar-sim`, 48 `xtask` lib, two xtask smoke, one active
+  spot-check), and `cargo test -p solar-sim --features steam` passes 109 tests.
+  `cargo fmt --all -- --check`, `git diff --check`, `cargo clippy --workspace
+  --all-targets -- -D warnings`, and `cargo clippy -p solar-sim --all-targets
+  --features steam -- -D warnings` pass. The exact local `cargo run -p solar-sim
+  --release -- --smoke 120 --expect-backend metal --reject-software-adapter
+  --assert-nonblack` launch completes at 85.0 fps on the Apple M2 Pro and reports
+  a non-black 5120×2880 readback. Q15 remains open for the separate persisted
+  visual-cue recovery decision; no WP14 or WP16 status/acceptance text changed.
+- **2026-07-16** — The first real-client M2 Pro overlay attempt found four
+  WP16 integration defects before it could count as spike evidence. The supplied
+  terminal log shows Metal `AdapterInfo` before `[S_API] SteamAPI_Init()`,
+  `steam: initialized app_id=480 overlay_available=false`, and unresponsive
+  Shift-Tab. `codesign -d --entitlements - target/release/solar-sim` showed no
+  entitlements. Platform initialization now precedes Bevy `DefaultPlugins`;
+  the adapter pumps Steam callbacks every frame and refreshes `PlatformStatus`;
+  `prepare-steam-dev` ad-hoc signs the binary with Valve's two required macOS
+  overlay entitlements. The focused platform tests pass 3/3 with the new
+  delayed-overlay transition test, the focused xtask tests pass 4/4 with the
+  entitlement contract, and feature-enabled clippy passes with warnings
+  denied. Full `cargo test` passes the new 208-test default baseline (53
+  `sim-core`, 104 `solar-sim`, 48 `xtask` lib, two xtask smoke, one active
+  spot-check), and the feature-enabled app suite passes 105 tests. The corrected
+  local `codesign` inspection reports both entitlements, and the Steam-enabled
+  60-frame Metal smoke prints `[S_API]` before adapter reporting, passes the
+  backend and real-GPU checks at 179.5 fps, and confirms a 1920×1200 non-black
+  readback. A separate 15-second launch still reported no overlay transition,
+  while `vmmap` showed Steam API/client images but no overlay renderer. The
+  remaining global/per-Spacewar client setting and launch-injection check
+  therefore stays with the human. The macOS overlay result remains pending a
+  corrected Shift-Tab rerun; no WP16 acceptance box changed. Q15 records the
+  separate persisted-settings recovery ambiguity without changing WP14.
+- **2026-07-16** — WP16's default-build dependency isolation is accepted at
+  commit `ad9be42b12347acee4d2d4f17776199f0f6a9dd1`. The exact local
+  `cargo tree -p solar-sim --edges normal --no-default-features` check contains
+  no Steamworks crate, while `cargo tree -p solar-sim --edges normal --features
+  steam` resolves `steamworks v0.13.1` and `steamworks-sys v0.13.0`. Hosted PR
+  [run 29473492755](https://github.com/jiayanzeng/solar-sim-workspace/actions/runs/29473492755)
+  passed in 54m26s: `lint` 5m09s, `test-linux` 20m44s, `invariants` 33s,
+  `platform (macos-14)` 3m33s, and `platform (windows-latest)` 54m20s. The
+  opt-in Steam adapter compiled and linked on both hosted platform legs (23s
+  on `macos-14`, 17m44s on `windows-latest`); the macOS Metal smoke passed in
+  9s and the expected Windows `Microsoft Basic Render Driver` / `Cpu` / `Dx12`
+  soft smoke passed in 2m05s. This checks only WP16's first acceptance item;
+  the overlay, signing/SteamPipe, and bundle-size items remain open.
+- **2026-07-16** — WP16's Mac-first Steam adapter and interim-identity
+  guardrails landed after the human closed Q14 and narrowed Q13. Optional
+  `steamworks = "0.13.1"` is reachable only through the `steam` feature;
+  `SteamPlugin` initializes the single provenance-commented App ID 480,
+  exposes only `PlatformServices`, drops the client on Bevy exit, and falls
+  back to the overlay-unavailable no-op adapter when Steam is absent. The
+  `xtask prepare-steam-dev` command generates the ignored `steam_appid.txt`
+  beside the built app from that same Rust source. The package and depot
+  `steam-release-preflight` modes both exit 1 with the required
+  interim-Spacewar refusal. `docs/wp16-steam-overlay-spike.md` records the
+  exact M2 Pro commands and leaves the real-client result pending the human
+  run; Windows and SteamPipe evidence remain deferred under open Q13. `cargo
+  test` passes the new 206-test default baseline (53 `sim-core`, 103
+  `solar-sim`, 47 `xtask` lib, two xtask smoke, one active spot-check). The
+  feature test command passes all 104 `solar-sim` tests; both default-workspace
+  and feature-enabled clippy commands pass with warnings denied. The local
+  feature-enabled 60-frame smoke command exits 0 on `Apple M2 Pro` / Metal
+  after Steam initialization reports no running client, proving the app still
+  runs with the overlay unavailable. No WP16 acceptance box is changed in this
+  entry; hosted Mac/Windows feature-link evidence is pending.
 - **2026-07-14** — WP16 moved to **in-progress** with the dependency-free
   platform boundary completed before the hardware overlay spike. The app now
   installs `PlatformServicesPlugin` with an overlay-unavailable no-op default;

@@ -16,8 +16,13 @@ pub(crate) const SATURN_RING_INNER_RADIUS: f32 = 1.11;
 pub(crate) const SATURN_RING_OUTER_RADIUS: f32 = 2.32;
 const SATURN_RING_SEGMENTS: usize = 256;
 
-#[derive(Component, Debug, Clone, Copy)]
-pub(crate) struct SaturnRing;
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SaturnRing {
+    /// Catalog index of the body whose complete render aggregate owns this
+    /// geometry. Keeping the identity on the attachment avoids a Saturn-name
+    /// special case in the temporal-aliasing renderer.
+    pub(crate) body_index: usize,
+}
 
 pub(crate) fn catalog_color(body: &BodyRecord) -> Color {
     let (r, g, b) = body.color_srgb;
@@ -69,6 +74,7 @@ pub(crate) fn body_material(
 pub(crate) fn spawn_saturn_ring(
     commands: &mut Commands,
     parent: Entity,
+    body_index: usize,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     asset_server: Option<&AssetServer>,
@@ -76,7 +82,7 @@ pub(crate) fn spawn_saturn_ring(
     let texture = asset_server.map(|assets| assets.load(SATURN_RING_TEXTURE_PATH));
     commands.spawn((
         Name::new("Saturn rings"),
-        SaturnRing,
+        SaturnRing { body_index },
         ChildOf(parent),
         Mesh3d(meshes.add(build_saturn_ring_mesh())),
         MeshMaterial3d(materials.add(StandardMaterial {

@@ -3,10 +3,13 @@
 //!   cargo run -p xtask -- gen-catalog --fixtures xtask/fixtures --allow-partial --out assets/catalog.sample.ron
 //!   cargo run -p xtask --features online -- gen-catalog --online --capture xtask/fixtures/captured-YYYY-MM --out assets/catalog.ron
 //!   cargo run -p xtask -- bake-starfield --source bsc5p.vot --out assets/starfield.bsc
+//!   cargo run -p xtask -- prepare-steam-dev --app target/release/solar-sim
 
 use anyhow::{bail, Result};
 use std::path::PathBuf;
-use xtask::{emit, fetch, golden, plan, starfield, texture, GenOptions, DEFAULT_EPOCH_JD_TDB};
+use xtask::{
+    emit, fetch, golden, plan, starfield, steam, texture, GenOptions, DEFAULT_EPOCH_JD_TDB,
+};
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -17,11 +20,69 @@ fn main() -> Result<()> {
         Some("check-texture-metadata") => check_texture_metadata(&args[1..]),
         Some("capture-goldens") => capture_goldens(&args[1..]),
         Some("compare-goldens") => compare_goldens(&args[1..]),
+        Some("prepare-steam-dev") => prepare_steam_dev(&args[1..]),
+        Some("steam-release-preflight") => steam_release_preflight(&args[1..]),
         _ => {
-            eprintln!("usage:\n  xtask gen-catalog [--out PATH] [--epoch-jd F] [--dry-run] [--fixtures DIR [--allow-partial]] [--online [--capture DIR]]\n  xtask bake-starfield --source PATH --out PATH [--limit N]\n  xtask convert-texture --source PATH.ppm --out PATH.ktx2 [--alpha-from-luminance]\n  xtask check-texture-metadata [--dir assets/textures]\n  xtask capture-goldens --app PATH --out DIR --backend TAG\n  xtask compare-goldens --baseline DIR --candidate DIR [--max-mean F] [--max-p99 F] [--allow-retries]");
+            eprintln!("usage:\n  xtask gen-catalog [--out PATH] [--epoch-jd F] [--dry-run] [--fixtures DIR [--allow-partial]] [--online [--capture DIR]]\n  xtask bake-starfield --source PATH --out PATH [--limit N]\n  xtask convert-texture --source PATH.ppm --out PATH.ktx2 [--alpha-from-luminance]\n  xtask check-texture-metadata [--dir assets/textures]\n  xtask capture-goldens --app PATH --out DIR --backend TAG\n  xtask compare-goldens --baseline DIR --candidate DIR [--max-mean F] [--max-p99 F] [--allow-retries]\n  xtask prepare-steam-dev --app PATH\n  xtask steam-release-preflight --action package|depot");
             std::process::exit(2);
         }
     }
+}
+
+fn prepare_steam_dev(args: &[String]) -> Result<()> {
+    let mut application: Option<PathBuf> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--app" => {
+                i += 1;
+                application = Some(PathBuf::from(
+                    args.get(i)
+                        .ok_or_else(|| anyhow::anyhow!("--app needs a path"))?,
+                ));
+            }
+            other => bail!("unknown flag: {other}"),
+        }
+        i += 1;
+    }
+    let output = steam::prepare_development_application(
+        &application.ok_or_else(|| anyhow::anyhow!("--app is required"))?,
+    )?;
+    println!(
+        "generated {} from STEAM_APP_ID={} (development only)",
+        output.display(),
+        steam::STEAM_APP_ID
+    );
+    Ok(())
+}
+
+fn steam_release_preflight(args: &[String]) -> Result<()> {
+    let mut action: Option<steam::ReleaseAction> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--action" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or_else(|| anyhow::anyhow!("--action needs package or depot"))?;
+                action = Some(steam::ReleaseAction::parse(value).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "unsupported release action '{value}'; expected package or depot"
+                    )
+                })?);
+            }
+            other => bail!("unknown flag: {other}"),
+        }
+        i += 1;
+    }
+    let action = action.ok_or_else(|| anyhow::anyhow!("--action is required"))?;
+    steam::require_release_app_id(action)?;
+    println!(
+        "Steam {action} App-ID preflight passed for {}",
+        steam::STEAM_APP_ID
+    );
+    Ok(())
 }
 
 fn convert_texture(args: &[String]) -> Result<()> {

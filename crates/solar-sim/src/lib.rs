@@ -14,19 +14,22 @@ mod input_intent;
 mod labels;
 mod layers;
 mod left_panel;
+mod native_error_surface;
 mod orbit_lines;
 mod platform;
 mod scene_polish;
 mod search;
 mod settings;
 mod starfield;
+#[cfg(any(feature = "steam", test))]
+mod steam_app_id;
 mod surface_textures;
 mod time_bar;
 mod ui_kit;
 
 pub use control::{
-    replay_headless, CameraController, CommandRecording, HeadlessSimulation, ReplayParseError,
-    ReplayRunError, ReplayStream, SimCommand, StampedCommand,
+    replay_headless, CameraController, CommandRecording, HeadlessSimulation, ReplayFrameInput,
+    ReplayParseError, ReplayRunError, ReplayStream, ReplayVersion, SimCommand, StampedCommand,
 };
 pub use formatting::format_distance_km;
 pub use golden::{
@@ -37,8 +40,9 @@ pub use labels::{
     DeclutterCandidate, LabelPriority, LabelsPlugin, ScreenRect, SelectionPlugin,
 };
 pub use layers::{
-    LayerId, LayerState, LayerStateSnapshot, LayersPanelRoot, LayersPlugin, PresentationState,
-    RightRailRoot, UiRestoreAffordance, ZOOM_IN_DOLLY_DELTA, ZOOM_OUT_DOLLY_DELTA,
+    visual_cue_recovery_needed, LayerId, LayerState, LayerStateSnapshot, LayersPanelRoot,
+    LayersPlugin, PresentationState, RightRailRoot, UiRestoreAffordance, VisualCueRecoveryRoot,
+    ZOOM_IN_DOLLY_DELTA, ZOOM_OUT_DOLLY_DELTA,
 };
 pub use left_panel::{
     body_info_view_model, body_info_view_model_with_units, moon_collections,
@@ -52,8 +56,10 @@ pub use orbit_lines::{
     HYPERBOLIC_HALF_SPAN_S, MAX_ORBIT_VERTICES, MIN_ORBIT_VERTICES,
 };
 pub use platform::{
-    NoopPlatformServices, PlatformServices, PlatformServicesPlugin, PlatformStatus,
+    NoopPlatformServices, PlatformPlugin, PlatformServices, PlatformServicesPlugin, PlatformStatus,
 };
+#[cfg(feature = "steam")]
+pub use platform::{SteamPlatformServices, SteamPlugin};
 pub use scene_polish::{
     hysteresis_state, phase_step_rad, simulated_step_for_phase, BodyOrbitEmphasis,
     OrbitEmphasisOnset, OrbitEmphasisState, ScenePolishPlugin, SunLight, AMBIENT_BRIGHTNESS,
@@ -62,13 +68,12 @@ pub use scene_polish::{
 };
 pub use search::{
     search_catalog, BrowseColumn, BrowseColumnKind, BrowseCounts, BrowseEntry, BrowseMenuRoot,
-    BrowseModel, SearchDropdownRoot, SearchHit, SearchMatchKind, SearchPlugin,
+    BrowseModel, SearchDropdownRoot, SearchHit, SearchMatchKind, SearchMenuPlugin,
 };
 pub use settings::{
-    AppSettings, DisplayModeSetting, DistanceUnit, FrameCap, PersistedLayerState,
-    ProductSettingsPlugin, QualityPreset, RecoveryDirective, RenderErrorScreen, RenderFailureKind,
-    RenderRecoveryPhase, RenderRecoveryStatus, ResolutionSetting, SettingsScreenRoot,
-    StartModeSetting, SETTINGS_IDENTIFIER,
+    AppSettings, DisplayModeSetting, DistanceUnit, FrameCap, PersistedLayerState, QualityPreset,
+    RecoveryDirective, RenderFailureKind, RenderRecoveryPhase, RenderRecoveryStatus,
+    ResolutionSetting, SettingsScreenRoot, SettingsUiPlugin, StartModeSetting, SETTINGS_IDENTIFIER,
 };
 pub use starfield::{
     decode_starfield, load_starfield, StarfieldAssetError, StarfieldPlugin, StarfieldPoint,
@@ -82,10 +87,10 @@ pub use time_bar::{
 };
 pub use ui_kit::{
     checkbox_row, chip, panel, section_header, slider, tab_bar, toast, top_bar, BreadcrumbText,
-    MenuBrowseButton, NavigationItem, NavigationStack, SearchHint, SearchInput, SearchPlaceholder,
-    TopBarRoot, UiColorToken, UiColors, UiKitPlugin, UiSpacing, UiTheme, UiTypeScale, WidgetKind,
-    WidgetRoot, WidgetSpec, WidgetVisualState, BREADCRUMB_SEPARATOR, INTER_FONT_ASSET,
-    TOP_BAR_HEIGHT_PX,
+    HudPlugin, MenuBrowseButton, NavigationDestination, NavigationItem, NavigationStack,
+    SearchHint, SearchInput, SearchPlaceholder, TopBarRoot, UiColorToken, UiColors, UiKit,
+    UiSpacing, UiTheme, UiTypeScale, WidgetKind, WidgetRoot, WidgetSpec, WidgetVisualState,
+    BREADCRUMB_SEPARATOR, INTER_FONT_ASSET, ROOT_NAVIGATION_ID, TOP_BAR_HEIGHT_PX,
 };
 #[cfg(debug_assertions)]
 pub use ui_kit::{WidgetGalleryCell, WidgetGalleryRoot};
@@ -102,7 +107,7 @@ use bevy::settings::SettingsPlugin;
 use bevy::ui::IsDefaultUiCamera;
 use bevy::window::ExitCondition;
 use control::{
-    advance_camera_controller, consume_presentation_command, consume_sim_command,
+    advance_camera_controller, consume_application_command, consume_sim_command,
     framing_distance_units, full_system_framing_distance_units, SimCommandQueue, SimulationFrame,
 };
 use input_intent::InputIntentPlugin;
@@ -170,6 +175,7 @@ pub struct RunOptions {
     /// Debug-only renderer recovery probe. It is translated through the same
     /// recorded `SimCommand` path as the F9 binding.
     pub simulate_device_loss: bool,
+    pub reset_settings: bool,
     pub golden_capture: Option<GoldenCaptureOptions>,
 }
 
@@ -183,6 +189,7 @@ impl Default for RunOptions {
             assert_nonblack: false,
             initial_focus_id: None,
             simulate_device_loss: false,
+            reset_settings: false,
             golden_capture: None,
         }
     }
@@ -257,6 +264,7 @@ impl RunOptions {
                 }
                 #[cfg(debug_assertions)]
                 "--simulate-device-loss" => options.simulate_device_loss = true,
+                "--reset-settings" => options.reset_settings = true,
                 _ => {}
             }
             i += 1;
@@ -437,6 +445,54 @@ fn propagate_into(
     Ok(())
 }
 
+/// Exact-time reuse stamp for the immutable startup catalog.
+///
+/// Runtime catalog hot reload is deliberately not an architectural contract:
+/// startup validation fixes catalog truth for the process lifetime. Therefore
+/// the complete propagation cache key is the exact f64 simulation-time bits.
+/// Reusing that key introduces zero temporal approximation error.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct PropagationStamp {
+    last_t_bits: Option<u64>,
+    generation: u64,
+}
+
+impl PropagationStamp {
+    pub(crate) fn initialized(t_s: f64) -> Self {
+        Self {
+            last_t_bits: Some(t_s.to_bits()),
+            generation: 1,
+        }
+    }
+
+    fn needs_propagation(self, t_s: f64) -> bool {
+        self.last_t_bits != Some(t_s.to_bits())
+    }
+
+    #[cfg(test)]
+    fn generation(self) -> u64 {
+        self.generation
+    }
+}
+
+/// Shared desktop/headless exact-time propagation policy. `BodyStates` are
+/// left bit-identical when time is unchanged, while every distinct exact time
+/// is evaluated once through the same f64 pipeline.
+pub(crate) fn propagate_at_changed_time(
+    catalog: &Catalog,
+    t_s: f64,
+    states: &mut BodyStates,
+    stamp: &mut PropagationStamp,
+) -> Result<bool, PropagationError> {
+    if !stamp.needs_propagation(t_s) {
+        return Ok(false);
+    }
+    propagate_into(catalog, t_s, states)?;
+    stamp.last_t_bits = Some(t_s.to_bits());
+    stamp.generation = stamp.generation.saturating_add(1);
+    Ok(true)
+}
+
 fn add_f64(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 }
@@ -468,6 +524,31 @@ struct CatalogFailure(String);
 
 #[derive(Resource)]
 pub struct SimulationClock(SimClock);
+
+/// Signed simulation-time advance produced by the clock tick for this frame.
+///
+/// The Commands set runs before `tick_clock`, so command jumps such as
+/// `SetTime` are deliberately outside this value. Render-only consumers use
+/// the actual post-clamp/post-snap advance instead of reconstructing it from
+/// the configured rate, which would be wrong at the soft-range pins and while
+/// snapping to LIVE.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct SimulationTickAdvance {
+    seconds: f64,
+}
+
+impl SimulationTickAdvance {
+    fn between(before_tick_t: f64, after_tick_t: f64) -> Self {
+        let seconds = after_tick_t - before_tick_t;
+        Self {
+            seconds: if seconds.is_finite() { seconds } else { 0.0 },
+        }
+    }
+
+    pub(crate) fn seconds(self) -> f64 {
+        self.seconds
+    }
+}
 
 #[derive(Message, Debug, Clone, Copy)]
 struct ClockTickReport(TickReport);
@@ -539,6 +620,37 @@ pub enum SimulationSet {
     Render,
 }
 
+#[cfg(test)]
+const REV_C_PLUGIN_ORDER: [&str; 13] = [
+    "TimePlugin",
+    "PropagationPlugin",
+    "OriginPlugin",
+    "CameraPlugin",
+    "LabelsPlugin",
+    "ScenePlugin",
+    "OrbitLinesPlugin",
+    "SelectionPlugin",
+    "UiKit",
+    "HudPlugin",
+    "SearchMenuPlugin",
+    "SettingsUiPlugin",
+    "PlatformPlugin",
+];
+
+/// Runtime audit trail for the architecture-facing composition boundary. It
+/// deliberately records only Rev C §8.2 owners, never their private helper
+/// plugins, so assembly regressions can detect reordered or duplicated owners.
+#[derive(Resource, Debug, Default)]
+struct ArchitecturePluginGraph(Vec<&'static str>);
+
+pub(crate) fn record_architecture_plugin(app: &mut App, name: &'static str) {
+    app.init_resource::<ArchitecturePluginGraph>();
+    app.world_mut()
+        .resource_mut::<ArchitecturePluginGraph>()
+        .0
+        .push(name);
+}
+
 fn configure_frame_flow(app: &mut App) {
     app.configure_sets(
         Update,
@@ -555,11 +667,23 @@ fn configure_frame_flow(app: &mut App) {
     );
 }
 
+pub struct TimePlugin;
+
+impl Plugin for TimePlugin {
+    fn build(&self, app: &mut App) {
+        record_architecture_plugin(app, "TimePlugin");
+        app.add_systems(Update, apply_sim_commands.in_set(SimulationSet::Commands))
+            .add_systems(Update, tick_clock.in_set(SimulationSet::Clock));
+    }
+}
+
 pub struct PropagationPlugin;
 
 impl Plugin for PropagationPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, propagate_bodies.in_set(SimulationSet::Propagation));
+        record_architecture_plugin(app, "PropagationPlugin");
+        app.init_resource::<PropagationStamp>()
+            .add_systems(Update, propagate_bodies.in_set(SimulationSet::Propagation));
     }
 }
 
@@ -567,6 +691,7 @@ pub struct OriginPlugin;
 
 impl Plugin for OriginPlugin {
     fn build(&self, app: &mut App) {
+        record_architecture_plugin(app, "OriginPlugin");
         app.add_systems(
             Update,
             (advance_camera_focus, update_focus_and_rebase)
@@ -576,12 +701,43 @@ impl Plugin for OriginPlugin {
     }
 }
 
-pub struct CameraRigPlugin;
+pub struct CameraPlugin;
 
-impl Plugin for CameraRigPlugin {
+impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, update_camera.in_set(SimulationSet::Camera));
+        record_architecture_plugin(app, "CameraPlugin");
+        app.add_plugins(InputIntentPlugin)
+            .add_systems(Startup, spawn_camera)
+            .add_systems(Update, update_camera.in_set(SimulationSet::Camera));
     }
+}
+
+pub struct ScenePlugin;
+
+impl Plugin for ScenePlugin {
+    fn build(&self, app: &mut App) {
+        record_architecture_plugin(app, "ScenePlugin");
+        app.add_plugins((ScenePolishPlugin, StarfieldPlugin))
+            .add_systems(Startup, (spawn_body_spheres, spawn_catalog_error));
+    }
+}
+
+fn add_architecture_plugins(app: &mut App) {
+    app.add_plugins((
+        TimePlugin,
+        PropagationPlugin,
+        OriginPlugin,
+        CameraPlugin,
+        LabelsPlugin,
+        ScenePlugin,
+        OrbitLinesPlugin,
+        SelectionPlugin,
+        UiKit,
+        HudPlugin,
+        SearchMenuPlugin,
+        SettingsUiPlugin,
+        PlatformPlugin,
+    ));
 }
 
 pub fn run_from_env() {
@@ -602,6 +758,9 @@ pub fn run_from_env() {
         std::process::exit(2);
     }
     let catalog = load_catalog_from_path(&options.catalog_path);
+    #[cfg(feature = "steam")]
+    let mut app = build_app_with_platform(options, catalog, SteamPlugin);
+    #[cfg(not(feature = "steam"))]
     let mut app = build_app(options, catalog);
     match app.run() {
         AppExit::Success => {}
@@ -610,7 +769,18 @@ pub fn run_from_env() {
 }
 
 pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>) -> App {
+    build_app_with_platform(options, catalog, PlatformServicesPlugin::default())
+}
+
+fn build_app_with_platform<P: Plugin>(
+    options: RunOptions,
+    catalog: Result<Catalog, CatalogLoadError>,
+    platform_plugin: P,
+) -> App {
     let mut app = App::new();
+    // Steam's overlay must hook before Bevy creates the graphics device.
+    // Do not move platform initialization below DefaultPlugins.
+    app.add_plugins(platform_plugin);
     let golden_capture = options.golden_capture.clone();
     let golden_spec = golden_capture
         .as_ref()
@@ -650,6 +820,15 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
     app.add_plugins(default_plugins);
     app.register_type::<AppSettings>()
         .add_plugins(SettingsPlugin::new(SETTINGS_IDENTIFIER));
+    // Resolve the explicit recovery boundary before any clock, layer, window,
+    // or capture state is derived from the loaded settings.
+    let persistence = if golden_capture.is_some() {
+        settings::SettingsPersistencePolicy::TransientRuntime
+    } else {
+        settings::SettingsPersistencePolicy::Persistent
+    };
+    let bootstrapped_settings =
+        settings::bootstrap_app_settings(app.world_mut(), options.reset_settings, persistence);
     let initial_settings = if golden_capture.is_some() {
         let settings = AppSettings {
             resolution: ResolutionSetting {
@@ -662,7 +841,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
         };
         settings.normalized()
     } else {
-        app.world().resource::<AppSettings>().clone().normalized()
+        bootstrapped_settings
     };
     let initial_layers = golden_spec.map_or_else(
         || initial_settings.initial_layer_state(),
@@ -689,6 +868,8 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
     #[cfg(not(debug_assertions))]
     let initial_commands = SimCommandQueue::default();
     app.insert_resource(SimulationClock(initial_clock))
+        .insert_resource(SimulationTickAdvance::default())
+        .insert_resource(PropagationStamp::default())
         .insert_resource(initial_commands)
         .insert_resource(CommandRecording::default())
         .insert_resource(SimulationFrame::default())
@@ -744,7 +925,8 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
             }
             app.insert_resource(camera)
                 .insert_resource(loaded)
-                .insert_resource(states);
+                .insert_resource(states)
+                .insert_resource(PropagationStamp::initialized(initial_t_s));
         }
         Err(error) => {
             app.insert_resource(CatalogFailure(error.to_string()))
@@ -752,36 +934,7 @@ pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>
         }
     }
 
-    app.add_plugins(PlatformServicesPlugin::default());
-    app.add_plugins((
-        InputIntentPlugin,
-        PropagationPlugin,
-        OriginPlugin,
-        CameraRigPlugin,
-        ScenePolishPlugin,
-        StarfieldPlugin,
-        OrbitLinesPlugin,
-        UiKitPlugin,
-        SearchPlugin,
-        LayersPlugin,
-        TimeBarPlugin,
-        LabelsPlugin,
-        SelectionPlugin,
-        LeftPanelPlugin,
-        ProductSettingsPlugin,
-    ))
-    .add_systems(
-        Startup,
-        (spawn_body_spheres, spawn_camera, spawn_catalog_error),
-    )
-    .add_systems(Update, apply_sim_commands.in_set(SimulationSet::Commands))
-    .add_systems(Update, tick_clock.in_set(SimulationSet::Clock))
-    .add_systems(
-        Update,
-        (advance_simulation_frame, smoke_exit)
-            .chain()
-            .in_set(SimulationSet::Render),
-    );
+    add_architecture_plugins(&mut app);
 
     if let Some(capture) = golden_capture {
         golden::configure_golden_capture(&mut app, capture);
@@ -816,6 +969,13 @@ struct SimCommandGate<'w> {
     reports: MessageWriter<'w, ClockTickReport>,
     layers: ResMut<'w, LayerState>,
     presentation: ResMut<'w, PresentationState>,
+    view_options: ResMut<'w, ViewOptionsState>,
+    left_panel: ResMut<'w, left_panel::LeftPanelUiState>,
+    navigation: ResMut<'w, NavigationStack>,
+    browse: ResMut<'w, search::BrowseUiState>,
+    app_settings: ResMut<'w, AppSettings>,
+    settings_screen: ResMut<'w, settings::SettingsScreenState>,
+    settings_save: ResMut<'w, settings::SettingsSaveRequest>,
     #[cfg(debug_assertions)]
     debug_device_loss: ResMut<'w, DebugDeviceLossRequest>,
 }
@@ -825,51 +985,166 @@ fn apply_sim_commands(gate: SimCommandGate) {
         mut queue,
         mut clock,
         loaded,
-        camera,
+        mut camera,
         frame,
         mut recording,
         mut reports,
         mut layers,
         mut presentation,
+        mut view_options,
+        mut left_panel,
+        mut navigation,
+        mut browse,
+        mut app_settings,
+        mut settings_screen,
+        mut settings_save,
         #[cfg(debug_assertions)]
         mut debug_device_loss,
     } = gate;
-    let (Some(loaded), Some(mut camera)) = (loaded, camera) else {
-        queue.drain().for_each(drop);
-        return;
-    };
     let commands: Vec<_> = queue.drain().collect();
+    let frame_start_t = clock.0.t();
     for command in commands {
-        recording.record(frame.0, clock.0.t(), command.clone());
+        recording.record(frame.0, frame_start_t, command.clone());
         #[cfg(debug_assertions)]
         if matches!(command, SimCommand::SimulateDeviceLoss) {
             request_debug_device_loss(&mut debug_device_loss);
         }
+        let clock_before = clock_semantic_state(&clock.0);
+        let camera_before = camera.as_deref().map(CameraController::semantic_snapshot);
         let layers_before = *layers;
         let presentation_before = *presentation;
-        consume_presentation_command(
+        let view_options_before = (*view_options).clone();
+        let left_panel_before = (*left_panel).clone();
+        let navigation_before = (*navigation).clone();
+        let browse_before = (*browse).clone();
+        let app_settings_before = (*app_settings).clone();
+        let settings_screen_before = (*settings_screen).clone();
+        let settings_save_before = settings_save.is_requested();
+        consume_application_command(
             &command,
+            loaded.as_deref(),
             layers.bypass_change_detection(),
             presentation.bypass_change_detection(),
+            view_options.bypass_change_detection(),
+            left_panel.bypass_change_detection(),
+            navigation.bypass_change_detection(),
+            browse.bypass_change_detection(),
+            app_settings.bypass_change_detection(),
+            settings_screen.bypass_change_detection(),
+            settings_save.bypass_change_detection(),
         );
+        if let (Some(loaded), Some(camera)) = (loaded.as_deref(), camera.as_mut()) {
+            let command_report = consume_sim_command(
+                &command,
+                &mut clock.bypass_change_detection().0,
+                camera.bypass_change_detection(),
+                loaded,
+                &navigation,
+            );
+            let camera = camera.bypass_change_detection();
+            write_tick_report(command_report, &mut reports);
+            left_panel::sync_left_panel_selection_state(
+                camera,
+                loaded,
+                left_panel.bypass_change_detection(),
+                navigation.bypass_change_detection(),
+            );
+        }
+        if clock_semantic_state(&clock.0) != clock_before {
+            clock.set_changed();
+        }
+        if camera.as_deref().map(CameraController::semantic_snapshot) != camera_before {
+            if let Some(camera) = camera.as_mut() {
+                camera.set_changed();
+            }
+        }
         if *layers != layers_before {
             layers.set_changed();
         }
         if *presentation != presentation_before {
             presentation.set_changed();
         }
-        let report = consume_sim_command(&command, &mut clock.0, &mut camera, &loaded);
-        write_tick_report(report, &mut reports);
+        if *view_options != view_options_before {
+            view_options.set_changed();
+        }
+        if *left_panel != left_panel_before {
+            left_panel.set_changed();
+        }
+        if *navigation != navigation_before {
+            navigation.set_changed();
+        }
+        if *browse != browse_before {
+            browse.set_changed();
+        }
+        if *app_settings != app_settings_before {
+            app_settings.set_changed();
+        }
+        if *settings_screen != settings_screen_before {
+            settings_screen.set_changed();
+        }
+        if settings_save.is_requested() != settings_save_before {
+            settings_save.set_changed();
+        }
     }
+}
+
+fn clock_semantic_state(clock: &SimClock) -> (u64, sim_core::time::RateIndex, bool, bool) {
+    (
+        clock.t().to_bits(),
+        clock.rate(),
+        clock.is_playing(),
+        clock.is_snapping(),
+    )
 }
 
 fn tick_clock(
     time: Res<Time>,
     mut clock: ResMut<SimulationClock>,
+    mut tick_advance: ResMut<SimulationTickAdvance>,
+    frame: Res<SimulationFrame>,
+    mut recording: ResMut<CommandRecording>,
     mut reports: MessageWriter<ClockTickReport>,
 ) {
-    let report = clock.0.tick(time.delta_secs_f64(), wall_now_t());
+    let wall_dt_s = time.delta_secs_f64();
+    let wall_now_t = wall_now_t();
+    recording.record_frame(frame.0, wall_dt_s, wall_now_t);
+    let before = (
+        clock.0.t().to_bits(),
+        clock.0.rate(),
+        clock.0.is_playing(),
+        clock.0.is_snapping(),
+    );
+    let (report, actual_advance) = tick_simulation_clock(
+        &mut clock.bypass_change_detection().0,
+        wall_dt_s,
+        wall_now_t,
+    );
+    if *tick_advance != actual_advance {
+        *tick_advance = actual_advance;
+    }
+    let after = (
+        clock.0.t().to_bits(),
+        clock.0.rate(),
+        clock.0.is_playing(),
+        clock.0.is_snapping(),
+    );
+    if before != after || report != TickReport::default() {
+        clock.set_changed();
+    }
     write_tick_report(report, &mut reports);
+}
+
+fn tick_simulation_clock(
+    clock: &mut SimClock,
+    wall_dt_s: f64,
+    wall_now_t: f64,
+) -> (TickReport, SimulationTickAdvance) {
+    let before_tick_t = clock.t();
+    let report = clock.tick(wall_dt_s, wall_now_t);
+    (
+        report,
+        SimulationTickAdvance::between(before_tick_t, clock.t()),
+    )
 }
 
 fn write_tick_report(report: TickReport, reports: &mut MessageWriter<ClockTickReport>) {
@@ -882,19 +1157,35 @@ fn propagate_bodies(
     loaded: Option<Res<LoadedCatalog>>,
     clock: Res<SimulationClock>,
     states: Option<ResMut<BodyStates>>,
+    mut stamp: ResMut<PropagationStamp>,
     mut fault: ResMut<PropagationFault>,
 ) {
+    if !stamp.needs_propagation(clock.0.t()) {
+        return;
+    }
     let (Some(loaded), Some(mut states)) = (loaded, states) else {
         return;
     };
-    match propagate_into(&loaded.catalog, clock.0.t(), &mut states) {
-        Ok(()) => fault.0 = None,
+    match propagate_at_changed_time(
+        &loaded.catalog,
+        clock.0.t(),
+        states.bypass_change_detection(),
+        stamp.bypass_change_detection(),
+    ) {
+        Ok(changed) => {
+            debug_assert!(changed);
+            states.set_changed();
+            stamp.set_changed();
+            if fault.0.is_some() {
+                fault.0 = None;
+            }
+        }
         Err(error) => {
             let message = error.to_string();
             if fault.0.as_deref() != Some(message.as_str()) {
                 error!("{message}");
+                fault.0 = Some(message);
             }
-            fault.0 = Some(message);
         }
     }
 }
@@ -907,7 +1198,16 @@ fn advance_camera_focus(
     let (Some(states), Some(mut camera)) = (states, camera) else {
         return;
     };
-    advance_camera_controller(&mut camera, &states, time.delta_secs_f64());
+    if !states.is_changed() && !camera.is_travelling() {
+        return;
+    }
+    if advance_camera_controller(
+        camera.bypass_change_detection(),
+        &states,
+        time.delta_secs_f64(),
+    ) {
+        camera.set_changed();
+    }
 }
 
 pub fn rebase_position(position_km: [f64; 3], focus_km: [f64; 3]) -> Vec3 {
@@ -928,10 +1228,16 @@ fn update_focus_and_rebase(
     let (Some(states), Some(camera)) = (states, camera) else {
         return;
     };
+    if !states.is_changed() && !camera.is_changed() {
+        return;
+    }
     let focus_position_km = camera.focus_position_km();
     for (visual, mut transform) in &mut bodies {
         if let Some(state) = states.0.get(visual.index) {
-            transform.translation = rebase_position(state.position_km, focus_position_km);
+            let translation = rebase_position(state.position_km, focus_position_km);
+            if transform.translation != translation {
+                transform.translation = translation;
+            }
         }
     }
 }
@@ -972,6 +1278,7 @@ fn spawn_body_spheres(
             surface_textures::spawn_saturn_ring(
                 &mut commands,
                 body_entity,
+                index,
                 &mut meshes,
                 &mut materials,
                 asset_server.as_deref(),
@@ -1040,9 +1347,18 @@ fn update_camera(
     controller: Res<CameraController>,
     mut camera: Query<&mut Transform, With<Camera3d>>,
 ) {
+    if !controller.is_changed() {
+        return;
+    }
+    let mut desired = Transform::from_translation(controller.render_translation());
+    desired.look_at(Vec3::ZERO, Vec3::Y);
     for mut transform in &mut camera {
-        transform.translation = controller.render_translation();
-        transform.look_at(Vec3::ZERO, Vec3::Y);
+        if transform.translation != desired.translation {
+            transform.translation = desired.translation;
+        }
+        if transform.rotation != desired.rotation {
+            transform.rotation = desired.rotation;
+        }
     }
 }
 
@@ -1213,7 +1529,7 @@ fn update_diag_overlay(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sim_core::time::t_from_jd_tdb;
+    use sim_core::time::{t_from_jd_tdb, RateIndex, StartMode, T_MAX_S};
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
 
@@ -1251,6 +1567,78 @@ mod tests {
         assert!(RunOptions::from_args(&missing_smoke).is_err());
         let unscoped_rejection = ["solar-sim", "--reject-software-adapter"].map(str::to_owned);
         assert!(RunOptions::from_args(&unscoped_rejection).is_err());
+    }
+
+    #[test]
+    fn reset_settings_cli_is_explicit_and_off_by_default() {
+        assert!(!RunOptions::default().reset_settings);
+        let args = ["solar-sim", "--reset-settings"].map(str::to_owned);
+        assert!(RunOptions::from_args(&args).unwrap().reset_settings);
+    }
+
+    #[test]
+    fn architecture_plugin_assembly_matches_rev_c_and_owns_helpers_once() {
+        let mut app = App::new();
+        add_architecture_plugins(&mut app);
+
+        assert_eq!(
+            app.world().resource::<ArchitecturePluginGraph>().0,
+            REV_C_PLUGIN_ORDER
+        );
+        let unique: std::collections::HashSet<_> = app
+            .world()
+            .resource::<ArchitecturePluginGraph>()
+            .0
+            .iter()
+            .copied()
+            .collect();
+        assert_eq!(unique.len(), REV_C_PLUGIN_ORDER.len());
+
+        macro_rules! assert_added_once {
+            ($($plugin:ty),+ $(,)?) => {
+                $(assert_eq!(
+                    app.get_added_plugins::<$plugin>().len(),
+                    1,
+                    "{} must have exactly one composition owner",
+                    stringify!($plugin),
+                );)+
+            };
+        }
+
+        assert_added_once!(
+            TimePlugin,
+            PropagationPlugin,
+            OriginPlugin,
+            CameraPlugin,
+            LabelsPlugin,
+            ScenePlugin,
+            OrbitLinesPlugin,
+            SelectionPlugin,
+            UiKit,
+            HudPlugin,
+            SearchMenuPlugin,
+            SettingsUiPlugin,
+            PlatformPlugin,
+        );
+        assert_added_once!(
+            input_intent::InputIntentPlugin,
+            ScenePolishPlugin,
+            StarfieldPlugin,
+            LayersPlugin,
+            TimeBarPlugin,
+            LeftPanelPlugin,
+            settings::PlatformRuntimePlugin,
+        );
+
+        assert!(app.world().contains_resource::<PropagationStamp>());
+        assert!(app.world().contains_resource::<OrbitLineBrightness>());
+        assert!(app.world().contains_resource::<UiTheme>());
+        assert!(app.world().contains_resource::<NavigationStack>());
+        assert!(app.world().contains_resource::<LayerState>());
+        assert!(app.world().contains_resource::<PresentationState>());
+        assert!(app.world().contains_resource::<ViewOptionsState>());
+        assert!(app.world().contains_resource::<search::BrowseUiState>());
+        assert!(app.world().contains_resource::<RenderRecoveryStatus>());
     }
 
     #[test]
@@ -1308,6 +1696,83 @@ mod tests {
         assert_eq!(states.0[io], expected);
     }
 
+    #[derive(Resource, Default)]
+    struct BodyStateChangeProbe(u64);
+
+    fn count_body_state_changes(states: Res<BodyStates>, mut probe: ResMut<BodyStateChangeProbe>) {
+        if states.is_changed() {
+            probe.0 += 1;
+        }
+    }
+
+    #[test]
+    fn desktop_propagation_reuses_exact_time_and_changes_once_for_a_time_jump() {
+        let catalog = catalog();
+        let mut clock = SimClock::new(StartMode::default(), 0.0);
+        clock.pause();
+        let initial_t = clock.t();
+        let initial_states = propagate_catalog(&catalog, initial_t).unwrap();
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(LoadedCatalog::new(catalog.clone()))
+            .insert_resource(SimulationClock(clock))
+            .insert_resource(initial_states.clone())
+            .insert_resource(PropagationStamp::initialized(initial_t))
+            .init_resource::<PropagationFault>()
+            .init_resource::<BodyStateChangeProbe>()
+            .add_systems(Update, (propagate_bodies, count_body_state_changes).chain());
+
+        // The inserted truth is generation one. An idle frame observes the
+        // initial Bevy insertion but performs no second propagation.
+        app.update();
+        assert_eq!(app.world().resource::<PropagationStamp>().generation(), 1);
+        let inserted_change_count = app.world().resource::<BodyStateChangeProbe>().0;
+        assert_eq!(app.world().resource::<BodyStates>().0, initial_states.0);
+
+        app.update();
+        assert_eq!(app.world().resource::<PropagationStamp>().generation(), 1);
+        assert_eq!(
+            app.world().resource::<BodyStateChangeProbe>().0,
+            inserted_change_count
+        );
+
+        // Rate is UI-facing clock state, not propagation truth while paused.
+        app.world_mut()
+            .resource_mut::<SimulationClock>()
+            .0
+            .set_rate(RateIndex::MAX);
+        app.update();
+        assert_eq!(app.world().resource::<PropagationStamp>().generation(), 1);
+        assert_eq!(
+            app.world().resource::<BodyStateChangeProbe>().0,
+            inserted_change_count
+        );
+
+        let target_t = initial_t + sim_core::catalog::SECONDS_PER_DAY;
+        app.world_mut()
+            .resource_mut::<SimulationClock>()
+            .0
+            .set_t(target_t);
+        app.update();
+        assert_eq!(app.world().resource::<PropagationStamp>().generation(), 2);
+        assert_eq!(
+            app.world().resource::<BodyStateChangeProbe>().0,
+            inserted_change_count + 1
+        );
+        let fresh = propagate_catalog(&catalog, target_t).unwrap();
+        assert_eq!(app.world().resource::<BodyStates>().0, fresh.0);
+
+        // Reusing the exact f64 key has a zero-kilometre cache error and does
+        // not advertise a second BodyStates change.
+        app.update();
+        assert_eq!(app.world().resource::<PropagationStamp>().generation(), 2);
+        assert_eq!(
+            app.world().resource::<BodyStateChangeProbe>().0,
+            inserted_change_count + 1
+        );
+        assert_eq!(app.world().resource::<BodyStates>().0, fresh.0);
+    }
+
     #[test]
     fn planet_states_match_direct_core_output_bit_for_bit_at_catalog_epoch() {
         let catalog = catalog();
@@ -1327,6 +1792,64 @@ mod tests {
             .unwrap();
             assert_eq!(states.0[body_index], direct, "{id}");
         }
+    }
+
+    #[test]
+    fn tick_advance_reports_signed_motion_pause_and_the_range_pin_exactly() {
+        let frame_s = 1.0 / 60.0;
+        let mut clock = SimClock::new(StartMode::Live, 0.0);
+        clock.set_rate(RateIndex::MIN);
+
+        let (_report, reverse) = tick_simulation_clock(&mut clock, frame_s, 0.0);
+        assert_eq!(
+            reverse.seconds(),
+            RateIndex::MIN.seconds_per_second() * frame_s
+        );
+
+        clock.pause();
+        let (_report, paused) = tick_simulation_clock(&mut clock, frame_s, 0.0);
+        assert_eq!(paused.seconds(), 0.0);
+
+        clock.set_t(T_MAX_S);
+        clock.set_rate(RateIndex::MAX);
+        clock.play();
+        let (report, pinned) = tick_simulation_clock(&mut clock, frame_s, 0.0);
+        assert_eq!(report.clamped, Some(sim_core::time::RangeEdge::AtMax));
+        assert_eq!(clock.t(), T_MAX_S);
+        assert_eq!(pinned.seconds(), 0.0);
+    }
+
+    #[test]
+    fn live_snap_reports_its_eased_actual_advance_instead_of_the_stale_rate() {
+        let frame_s = 1.0 / 60.0;
+        let wall_now_t = 1.0e9;
+        let mut clock = SimClock::new(StartMode::Live, 0.0);
+        clock.set_rate(RateIndex::MIN);
+        clock.snap_to_live();
+
+        let (_report, advance) = tick_simulation_clock(&mut clock, frame_s, wall_now_t);
+        let expected = wall_now_t * (1.0 - (-frame_s / 0.12).exp());
+        assert!((advance.seconds() - expected).abs() <= expected * 1.0e-15);
+        assert!(advance.seconds() > 0.0);
+        assert_ne!(
+            advance.seconds(),
+            RateIndex::MIN.seconds_per_second() * frame_s
+        );
+    }
+
+    #[test]
+    fn command_time_jump_is_excluded_from_the_following_tick_advance() {
+        let frame_s = 1.0 / 60.0;
+        let previous_frame_t = 100.0;
+        let command_target_t = 1.0e9;
+        let mut clock = SimClock::new(StartMode::Live, previous_frame_t);
+
+        // This models `SetTime` in the Commands set. `tick_simulation_clock`
+        // samples only after that boundary, exactly as `tick_clock` does.
+        clock.set_t(command_target_t);
+        let (_report, advance) = tick_simulation_clock(&mut clock, frame_s, command_target_t);
+        assert!((advance.seconds() - frame_s).abs() < 1.0e-6);
+        assert!(advance.seconds() < (command_target_t - previous_frame_t + frame_s).abs() * 1.0e-6);
     }
 
     #[test]
@@ -1356,6 +1879,71 @@ mod tests {
             let rebased = rebase_position(one_km_away, position);
             assert!((rebased.x - 0.001).abs() <= 2.0e-8, "{id}: {rebased:?}");
         }
+    }
+
+    #[derive(Resource, Default)]
+    struct TransformWriteProbe(usize);
+
+    fn capture_transform_writes(
+        changed: Query<(), Changed<Transform>>,
+        mut probe: ResMut<TransformWriteProbe>,
+    ) {
+        probe.0 = changed.iter().count();
+    }
+
+    #[test]
+    fn idle_origin_and_camera_systems_do_not_rewrite_unchanged_transforms() {
+        let states = BodyStates(vec![
+            StateVector::default(),
+            StateVector {
+                position_km: [1_000.0, 0.0, 0.0],
+                velocity_km_s: [0.0; 3],
+            },
+        ]);
+        let camera = CameraController::new(0, [0.0; 3], DEFAULT_CAMERA_DISTANCE_UNITS);
+        let body_translation = rebase_position(states.0[1].position_km, [0.0; 3]);
+        let mut camera_transform = Transform::from_translation(camera.render_translation());
+        camera_transform.look_at(Vec3::ZERO, Vec3::Y);
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(states)
+            .insert_resource(camera)
+            .init_resource::<TransformWriteProbe>();
+        app.world_mut().spawn((
+            BodyVisual { index: 1 },
+            Transform::from_translation(body_translation),
+        ));
+        app.world_mut()
+            .spawn((Camera3d::default(), camera_transform));
+        app.add_systems(
+            Update,
+            (
+                advance_camera_focus,
+                update_focus_and_rebase,
+                update_camera,
+                capture_transform_writes,
+            )
+                .chain(),
+        );
+
+        app.update();
+        app.update();
+        assert_eq!(app.world().resource::<TransformWriteProbe>().0, 0);
+
+        // Even upstream false-positive flags cannot force a transform write;
+        // the render values are compared before acquiring mutable component
+        // access.
+        app.world_mut().resource_mut::<BodyStates>().set_changed();
+        app.world_mut()
+            .resource_mut::<CameraController>()
+            .set_changed();
+        app.update();
+        assert_eq!(app.world().resource::<TransformWriteProbe>().0, 0);
+
+        app.world_mut().resource_mut::<BodyStates>().0[1].position_km[0] = 2_000.0;
+        app.update();
+        assert_eq!(app.world().resource::<TransformWriteProbe>().0, 1);
     }
 
     #[test]
@@ -1437,10 +2025,16 @@ mod tests {
                 &MeshMaterial3d<StandardMaterial>,
             )>()
             .iter(app.world())
-            .map(|(_, parent, material)| (parent.0, material.0.clone()))
+            .map(|(ring, parent, material)| (ring.body_index, parent.0, material.0.clone()))
             .collect();
         assert_eq!(rings.len(), 1);
-        assert_eq!(rings[0].0, saturn_entity);
+        let saturn_index = app
+            .world()
+            .resource::<LoadedCatalog>()
+            .index_of("saturn")
+            .unwrap();
+        assert_eq!(rings[0].0, saturn_index);
+        assert_eq!(rings[0].1, saturn_entity);
 
         let materials = app.world().resource::<Assets<StandardMaterial>>();
         let sun_material = materials.get(&sun.1).unwrap();
@@ -1456,7 +2050,7 @@ mod tests {
             "catalog color remains the complete headless/missing-asset fallback"
         );
 
-        let ring_material = materials.get(&rings[0].1).unwrap();
+        let ring_material = materials.get(&rings[0].2).unwrap();
         assert_eq!(ring_material.alpha_mode, AlphaMode::Blend);
         assert!(ring_material.double_sided);
     }
@@ -1576,6 +2170,394 @@ mod tests {
                 SimulationSet::Camera,
                 SimulationSet::Render,
             ]
+        );
+    }
+
+    #[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
+    struct SemanticChangeProbe {
+        clock: bool,
+        camera: bool,
+        layers: bool,
+        presentation: bool,
+        view_options: bool,
+        left_panel: bool,
+        navigation: bool,
+        browse: bool,
+        app_settings: bool,
+        settings_screen: bool,
+        settings_save: bool,
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn capture_semantic_change_flags(
+        clock: Res<SimulationClock>,
+        camera: Res<CameraController>,
+        layers: Res<LayerState>,
+        presentation: Res<PresentationState>,
+        view_options: Res<ViewOptionsState>,
+        left_panel: Res<left_panel::LeftPanelUiState>,
+        navigation: Res<NavigationStack>,
+        browse: Res<search::BrowseUiState>,
+        app_settings: Res<AppSettings>,
+        settings_screen: Res<settings::SettingsScreenState>,
+        settings_save: Res<settings::SettingsSaveRequest>,
+        mut probe: ResMut<SemanticChangeProbe>,
+    ) {
+        *probe = SemanticChangeProbe {
+            clock: clock.is_changed(),
+            camera: camera.is_changed(),
+            layers: layers.is_changed(),
+            presentation: presentation.is_changed(),
+            view_options: view_options.is_changed(),
+            left_panel: left_panel.is_changed(),
+            navigation: navigation.is_changed(),
+            browse: browse.is_changed(),
+            app_settings: app_settings.is_changed(),
+            settings_screen: settings_screen.is_changed(),
+            settings_save: settings_save.is_changed(),
+        };
+    }
+
+    fn command_gate_change_test_app() -> App {
+        let catalog = catalog();
+        let clock = SimClock::new(StartMode::default(), 0.0);
+        let states = propagate_catalog(&catalog, clock.t()).unwrap();
+        let loaded = LoadedCatalog::new(catalog);
+        let sun = loaded.index_of("sun").unwrap();
+        let camera = CameraController::new(
+            sun,
+            states.0[sun].position_km,
+            DEFAULT_CAMERA_DISTANCE_UNITS,
+        );
+        let mut left_panel = left_panel::LeftPanelUiState::default();
+        let mut navigation = NavigationStack::default();
+        left_panel::sync_left_panel_selection_state(
+            &camera,
+            &loaded,
+            &mut left_panel,
+            &mut navigation,
+        );
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<SimCommandQueue>()
+            .insert_resource(SimulationClock(clock))
+            .insert_resource(loaded)
+            .insert_resource(camera)
+            .init_resource::<SimulationFrame>()
+            .init_resource::<CommandRecording>()
+            .init_resource::<LayerState>()
+            .init_resource::<PresentationState>()
+            .init_resource::<ViewOptionsState>()
+            .insert_resource(left_panel)
+            .insert_resource(navigation)
+            .init_resource::<search::BrowseUiState>()
+            .init_resource::<AppSettings>()
+            .init_resource::<settings::SettingsScreenState>()
+            .init_resource::<settings::SettingsSaveRequest>()
+            .init_resource::<SemanticChangeProbe>()
+            .add_message::<ClockTickReport>()
+            .add_systems(
+                Update,
+                (apply_sim_commands, capture_semantic_change_flags).chain(),
+            );
+        #[cfg(debug_assertions)]
+        app.init_resource::<DebugDeviceLossRequest>();
+        app
+    }
+
+    #[test]
+    fn duplicate_commands_preserve_semantic_change_flags_but_still_request_explicit_save() {
+        let mut app = command_gate_change_test_app();
+        app.update();
+
+        {
+            let mut queue = app.world_mut().resource_mut::<SimCommandQueue>();
+            queue.push(SimCommand::SetLayerVisibility {
+                layer: LayerId::Labels,
+                visible: true,
+            });
+            queue.push(SimCommand::SetBodySize(BodySizeScale::X1));
+            queue.push(SimCommand::SetLeftPanelCollapsed(false));
+            queue.push(SimCommand::SetBrowseOpen(false));
+            queue.push(SimCommand::CloseSettings);
+            queue.push(SimCommand::ApplySettings(Box::default()));
+        }
+        app.update();
+
+        assert_eq!(
+            *app.world().resource::<SemanticChangeProbe>(),
+            SemanticChangeProbe {
+                settings_save: true,
+                ..default()
+            }
+        );
+        assert!(app
+            .world()
+            .resource::<settings::SettingsSaveRequest>()
+            .is_requested());
+
+        app.world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .push(SimCommand::Pause);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<SemanticChangeProbe>(),
+            SemanticChangeProbe {
+                clock: true,
+                ..default()
+            }
+        );
+
+        app.world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .push(SimCommand::Pause);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<SemanticChangeProbe>(),
+            SemanticChangeProbe::default()
+        );
+
+        app.world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .push(SimCommand::SetTime(T_MAX_S + 1.0));
+        app.update();
+        assert_eq!(
+            *app.world().resource::<SemanticChangeProbe>(),
+            SemanticChangeProbe {
+                clock: true,
+                ..default()
+            }
+        );
+
+        app.world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .push(SimCommand::SetTime(T_MAX_S + 1.0));
+        app.update();
+        assert_eq!(
+            *app.world().resource::<SemanticChangeProbe>(),
+            SemanticChangeProbe::default(),
+            "a repeated explicit clamp may emit its report without advertising changed clock truth"
+        );
+    }
+
+    #[test]
+    fn desktop_and_headless_layers_panel_commands_converge_in_recorded_order() {
+        let catalog = catalog();
+        let mut headless = HeadlessSimulation::new(&catalog).unwrap();
+        let mut app = command_gate_change_test_app();
+        app.update();
+
+        let ordered = [
+            SimCommand::SetLayersPanelOpen(true),
+            SimCommand::SetLayersPanelOpen(true),
+            SimCommand::SetLayersPanelOpen(false),
+            SimCommand::SetLayersPanelOpen(true),
+        ];
+        for command in &ordered {
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .push(command.clone());
+        }
+        app.update();
+        headless
+            .step_with_wall_time(0.0, 0.0, &ordered, None)
+            .unwrap();
+
+        assert_eq!(
+            *app.world().resource::<PresentationState>(),
+            headless.presentation_state()
+        );
+        assert!(headless.presentation_state().is_layers_panel_open());
+        assert_eq!(
+            *app.world().resource::<SemanticChangeProbe>(),
+            SemanticChangeProbe {
+                presentation: true,
+                ..default()
+            }
+        );
+
+        app.world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .push(SimCommand::SetLayersPanelOpen(true));
+        app.update();
+        headless
+            .step_with_wall_time(0.0, 0.0, &[SimCommand::SetLayersPanelOpen(true)], None)
+            .unwrap();
+        assert_eq!(
+            *app.world().resource::<PresentationState>(),
+            headless.presentation_state()
+        );
+        assert_eq!(
+            *app.world().resource::<SemanticChangeProbe>(),
+            SemanticChangeProbe::default()
+        );
+    }
+
+    #[test]
+    fn command_gate_reduces_application_state_before_catalog_loads() {
+        let mut queue = SimCommandQueue::default();
+        for command in [
+            SimCommand::SetLayerVisibility {
+                layer: LayerId::Labels,
+                visible: false,
+            },
+            SimCommand::ToggleFullscreen,
+            SimCommand::OpenSettings,
+            SimCommand::SetBrowseOpen(true),
+        ] {
+            queue.push(command);
+        }
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(queue)
+            .insert_resource(SimulationClock(SimClock::new(StartMode::default(), 0.0)))
+            .init_resource::<SimulationFrame>()
+            .init_resource::<CommandRecording>()
+            .init_resource::<LayerState>()
+            .init_resource::<PresentationState>()
+            .init_resource::<ViewOptionsState>()
+            .init_resource::<left_panel::LeftPanelUiState>()
+            .init_resource::<NavigationStack>()
+            .init_resource::<search::BrowseUiState>()
+            .init_resource::<AppSettings>()
+            .init_resource::<settings::SettingsScreenState>()
+            .init_resource::<settings::SettingsSaveRequest>()
+            .add_message::<ClockTickReport>()
+            .add_systems(Update, apply_sim_commands);
+        #[cfg(debug_assertions)]
+        app.init_resource::<DebugDeviceLossRequest>();
+
+        app.update();
+
+        assert!(app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .next()
+            .is_none());
+        assert_eq!(
+            app.world()
+                .resource::<CommandRecording>()
+                .stream()
+                .entries()
+                .len(),
+            4
+        );
+        assert!(!app
+            .world()
+            .resource::<LayerState>()
+            .is_visible(LayerId::Labels));
+        let presentation = *app.world().resource::<PresentationState>();
+        assert!(presentation.is_fullscreen());
+        assert!(!presentation.is_settings_open());
+        assert!(app.world().resource::<search::BrowseUiState>().is_open());
+        let settings = app.world().resource::<AppSettings>();
+        assert_eq!(
+            settings.display_mode,
+            DisplayModeSetting::BorderlessFullscreen
+        );
+        assert!(!settings.layers.labels);
+    }
+
+    #[test]
+    fn desktop_command_gate_converges_navigation_after_each_ordered_command() {
+        let catalog = catalog();
+        let states = propagate_catalog(&catalog, t_from_jd_tdb(2_461_042.0)).unwrap();
+        let loaded = LoadedCatalog::new(catalog);
+        let sun = loaded.index_of("sun").unwrap();
+        let jupiter = loaded.index_of("jupiter").unwrap();
+        let io = loaded.index_of("io").unwrap();
+        let camera = CameraController::new(
+            sun,
+            states.0[sun].position_km,
+            DEFAULT_CAMERA_DISTANCE_UNITS,
+        );
+
+        let mut queue = SimCommandQueue::default();
+        queue.push(SimCommand::TravelToBody("jupiter".into()));
+        queue.push(SimCommand::SetLeftPanelTab(LeftPanelTab::Collection));
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(queue)
+            .insert_resource(SimulationClock(SimClock::new(StartMode::default(), 0.0)))
+            .insert_resource(loaded)
+            .insert_resource(camera)
+            .init_resource::<SimulationFrame>()
+            .init_resource::<CommandRecording>()
+            .init_resource::<LayerState>()
+            .init_resource::<PresentationState>()
+            .init_resource::<ViewOptionsState>()
+            .init_resource::<left_panel::LeftPanelUiState>()
+            .init_resource::<NavigationStack>()
+            .init_resource::<search::BrowseUiState>()
+            .init_resource::<AppSettings>()
+            .init_resource::<settings::SettingsScreenState>()
+            .init_resource::<settings::SettingsSaveRequest>()
+            .add_message::<ClockTickReport>()
+            .add_systems(Update, apply_sim_commands);
+        #[cfg(debug_assertions)]
+        app.init_resource::<DebugDeviceLossRequest>();
+
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<CameraController>()
+                .selected_body_index(),
+            jupiter
+        );
+        assert_eq!(
+            left_panel::left_panel_replay_state(
+                app.world().resource::<left_panel::LeftPanelUiState>()
+            )
+            .1,
+            LeftPanelTab::Collection
+        );
+        assert_eq!(
+            app.world().resource::<NavigationStack>().label(),
+            "Solar System › Jupiter › Moons"
+        );
+
+        app.world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .push(SimCommand::TravelToBody("io".into()));
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<CameraController>()
+                .selected_body_index(),
+            io
+        );
+        assert_eq!(
+            app.world().resource::<NavigationStack>().label(),
+            "Solar System › Jupiter › Io"
+        );
+
+        {
+            let mut queue = app.world_mut().resource_mut::<SimCommandQueue>();
+            queue.push(SimCommand::NavigateBreadcrumb {
+                depth: 1,
+                target_id: "jupiter".into(),
+            });
+            queue.push(SimCommand::SetLeftPanelTab(LeftPanelTab::ViewOptions));
+        }
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<CameraController>()
+                .selected_body_index(),
+            jupiter
+        );
+        assert_eq!(
+            left_panel::left_panel_replay_state(
+                app.world().resource::<left_panel::LeftPanelUiState>()
+            )
+            .1,
+            LeftPanelTab::ViewOptions
+        );
+        assert_eq!(
+            app.world().resource::<NavigationStack>().label(),
+            "Solar System › Jupiter"
         );
     }
 

@@ -8,7 +8,7 @@
 use super::theme::{UiColorToken, UiTheme};
 use bevy::{
     prelude::*,
-    text::{FontSourceTemplate, LetterSpacing},
+    text::{FontSourceTemplate, LetterSpacing, LineBreak, TextLayout},
 };
 
 pub const INTER_FONT_ASSET: &str = "fonts/InterVariable.ttf";
@@ -197,7 +197,7 @@ fn tab_segment(theme: UiTheme, text: String, text_color: Color, active: bool) ->
         Color::NONE
     };
     bsn! {
-        Button
+        bevy::ui_widgets::Button
         Node {
             flex_grow: 1.0,
             height: percent(100),
@@ -229,7 +229,7 @@ pub fn checkbox_row(theme: UiTheme, spec: WidgetSpec) -> impl Scene {
         Color::NONE
     };
     bsn! {
-        Button
+        bevy::ui_widgets::Button
         Node {
             width: percent(100),
             height: px(38),
@@ -303,7 +303,7 @@ pub fn chip(theme: UiTheme, spec: WidgetSpec) -> impl Scene {
     let state = spec.state;
     let tracking = theme.type_scale.uppercase_tracking_px;
     bsn! {
-        Button
+        bevy::ui_widgets::Button
         Node {
             height: px(28),
             padding: UiRect::horizontal(px(theme.spacing.sm_px)),
@@ -340,7 +340,7 @@ pub fn slider(theme: UiTheme, spec: WidgetSpec) -> impl Scene {
         WidgetVisualState::Disabled => 42.0,
     };
     bsn! {
-        Button
+        bevy::ui_widgets::Button
         Node {
             width: percent(100),
             height: px(46),
@@ -399,15 +399,20 @@ pub fn toast(theme: UiTheme, spec: WidgetSpec) -> impl Scene {
         }
         WidgetRoot { kind: WidgetKind::Toast, state }
         AccessibleLabel(accessible_label)
+        Pickable::IGNORE
         BackgroundColor({colors.background})
         BorderColor::all(colors.border)
         Children [(
             Text(text)
+            TextLayout {
+                linebreak: LineBreak::WordBoundary
+            }
             TextFont {
                 font: FontSourceTemplate::Handle(INTER_FONT_ASSET),
                 font_size: px(theme.type_scale.body_px),
             }
             TextColor({colors.text})
+            Pickable::IGNORE
         )]
     }
 }

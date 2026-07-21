@@ -6,6 +6,13 @@
 //! the camera focus each frame. Ellipses use uniform true-anomaly spacing,
 //! which puts shorter chords near perihelion, while the hyperbolic branch is
 //! a strictly open ±25-Julian-year arc centered on perihelion (Rev C §10.2).
+//!
+//! The temporal geometry cache is exact under the immutable startup catalog:
+//! its key is the complete drifted [`Elements`], effective mean motion, and
+//! parent GM. A path is reused only when that key compares exactly equal, so
+//! temporal reuse contributes zero kilometers of f64 error and zero render
+//! units after the fixed kilometer-to-render conversion. This deliberately
+//! avoids time buckets and screen-space approximations.
 
 use crate::scene_polish::OrbitEmphasisSet;
 use crate::{
@@ -36,9 +43,21 @@ const EDGE_ON_ALPHA_FACTOR: f64 = 0.2;
 pub struct OrbitPath {
     vertices_parent_km: Vec<[f64; 3]>,
     time_offsets_from_perihelion_s: Option<Vec<f64>>,
-    elements: Elements,
+    cache_key: OrbitGeometryCacheKey,
     plane_normal: [f64; 3],
     characteristic_radius_km: f64,
+}
+
+/// Complete exact inputs that can change sampled conic geometry.
+///
+/// The catalog is immutable after startup, but retaining all three inputs in
+/// the key makes the reuse proof explicit for both fitted mean motion and the
+/// two-body parent-GM path.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct OrbitGeometryCacheKey {
+    elements: Elements,
+    mean_motion_rad_per_s: f64,
+    mu_parent_km3_s2: f64,
 }
 
 impl OrbitPath {
@@ -58,7 +77,7 @@ impl OrbitPath {
     }
 
     pub fn elements(&self) -> Elements {
-        self.elements
+        self.cache_key.elements
     }
 }
 
@@ -108,26 +127,54 @@ pub fn sample_orbit(
     mu_parent_km3_s2: f64,
     current_t_s: f64,
 ) -> Result<OrbitPath, KeplerError> {
+    let cache_key = orbit_geometry_cache_key(orbit, mu_parent_km3_s2, current_t_s)?;
+    sample_orbit_from_key(cache_key)
+}
+
+fn orbit_geometry_cache_key(
+    orbit: &Orbit,
+    mu_parent_km3_s2: f64,
+    current_t_s: f64,
+) -> Result<OrbitGeometryCacheKey, KeplerError> {
     if !current_t_s.is_finite() {
         return Err(KeplerError::NonFinite);
     }
     let elements = elements_at(orbit, current_t_s);
-    let n_rad_s = orbit.mean_motion_rad_per_s(mu_parent_km3_s2);
+    let mean_motion_rad_per_s = orbit.mean_motion_rad_per_s(mu_parent_km3_s2);
     // Validate before the hyperbolic endpoint solve so both branches preserve
     // `state_at`'s error semantics for bad elements, mean motion, and parent GM.
-    state_from_elements(&elements, mu_parent_km3_s2, n_rad_s, 0.0)?;
-    if elements.is_hyperbolic() {
-        sample_hyperbolic(elements, mu_parent_km3_s2, n_rad_s)
+    state_from_elements(&elements, mu_parent_km3_s2, mean_motion_rad_per_s, 0.0)?;
+    Ok(OrbitGeometryCacheKey {
+        elements,
+        mean_motion_rad_per_s,
+        mu_parent_km3_s2,
+    })
+}
+
+fn sample_orbit_from_key(cache_key: OrbitGeometryCacheKey) -> Result<OrbitPath, KeplerError> {
+    if cache_key.elements.is_hyperbolic() {
+        sample_hyperbolic(cache_key)
     } else {
-        sample_elliptic(elements, mu_parent_km3_s2, n_rad_s)
+        sample_elliptic(cache_key)
     }
 }
 
-fn sample_elliptic(
-    elements: Elements,
+fn retained_orbit_path(
+    path: &OrbitPath,
+    orbit: &Orbit,
     mu_parent_km3_s2: f64,
-    n_rad_s: f64,
-) -> Result<OrbitPath, KeplerError> {
+    current_t_s: f64,
+) -> Result<Option<OrbitPath>, KeplerError> {
+    let cache_key = orbit_geometry_cache_key(orbit, mu_parent_km3_s2, current_t_s)?;
+    if cache_key == path.cache_key {
+        Ok(None)
+    } else {
+        sample_orbit_from_key(cache_key).map(Some)
+    }
+}
+
+fn sample_elliptic(cache_key: OrbitGeometryCacheKey) -> Result<OrbitPath, KeplerError> {
+    let elements = cache_key.elements;
     let count = orbit_vertex_count(elements.e);
     let unique_count = count - 1;
     let mut vertices = Vec::with_capacity(count);
@@ -139,7 +186,13 @@ fn sample_elliptic(
             ((1.0 - elements.e * elements.e).sqrt() * sin_nu).atan2(elements.e + cos_nu);
         let mean_anomaly = eccentric_anomaly - elements.e * eccentric_anomaly.sin();
         vertices.push(
-            state_from_elements(&elements, mu_parent_km3_s2, n_rad_s, mean_anomaly)?.position_km,
+            state_from_elements(
+                &elements,
+                cache_key.mu_parent_km3_s2,
+                cache_key.mean_motion_rad_per_s,
+                mean_anomaly,
+            )?
+            .position_km,
         );
     }
     // Copy, rather than recompute, so the seam is bit-identically closed.
@@ -148,20 +201,17 @@ fn sample_elliptic(
     Ok(OrbitPath {
         vertices_parent_km: vertices,
         time_offsets_from_perihelion_s: None,
-        elements,
+        cache_key,
         plane_normal: plane_normal(elements),
         characteristic_radius_km: elements.a_km * (1.0 + elements.e),
     })
 }
 
-fn sample_hyperbolic(
-    elements: Elements,
-    mu_parent_km3_s2: f64,
-    n_rad_s: f64,
-) -> Result<OrbitPath, KeplerError> {
+fn sample_hyperbolic(cache_key: OrbitGeometryCacheKey) -> Result<OrbitPath, KeplerError> {
+    let elements = cache_key.elements;
     let count = orbit_vertex_count(elements.e);
     let last = count - 1;
-    let mean_anomaly_limit = n_rad_s * HYPERBOLIC_HALF_SPAN_S;
+    let mean_anomaly_limit = cache_key.mean_motion_rad_per_s * HYPERBOLIC_HALF_SPAN_S;
     let hyperbolic_anomaly_limit = solve_hyperbolic(mean_anomaly_limit, elements.e)?;
     let mut vertices = Vec::with_capacity(count);
     let mut offsets = Vec::with_capacity(count);
@@ -175,10 +225,16 @@ fn sample_hyperbolic(
             let h = -hyperbolic_anomaly_limit
                 + 2.0 * hyperbolic_anomaly_limit * index as f64 / last as f64;
             let mean_anomaly = elements.e * h.sinh() - h;
-            (mean_anomaly, mean_anomaly / n_rad_s)
+            (mean_anomaly, mean_anomaly / cache_key.mean_motion_rad_per_s)
         };
         vertices.push(
-            state_from_elements(&elements, mu_parent_km3_s2, n_rad_s, mean_anomaly)?.position_km,
+            state_from_elements(
+                &elements,
+                cache_key.mu_parent_km3_s2,
+                cache_key.mean_motion_rad_per_s,
+                mean_anomaly,
+            )?
+            .position_km,
         );
         offsets.push(offset_s);
     }
@@ -190,7 +246,7 @@ fn sample_hyperbolic(
     Ok(OrbitPath {
         vertices_parent_km: vertices,
         time_offsets_from_perihelion_s: Some(offsets),
-        elements,
+        cache_key,
         plane_normal: plane_normal(elements),
         characteristic_radius_km,
     })
@@ -262,6 +318,7 @@ pub struct OrbitLinesPlugin;
 
 impl Plugin for OrbitLinesPlugin {
     fn build(&self, app: &mut App) {
+        crate::record_architecture_plugin(app, "OrbitLinesPlugin");
         app.init_resource::<OrbitLineBrightness>()
             .add_systems(Startup, spawn_orbit_lines)
             .add_systems(
@@ -370,7 +427,10 @@ fn update_orbit_lines(
         let Some(parent_state) = states.0.get(line.parent_index) else {
             continue;
         };
-        transform.translation = rebase_position(parent_state.position_km, focus_position_km);
+        let desired_translation = rebase_position(parent_state.position_km, focus_position_km);
+        if transform.translation != desired_translation {
+            transform.translation = desired_translation;
+        }
 
         let body = &loaded.catalog.bodies[line.body_index];
         let Some(orbit) = body.orbit.as_ref() else {
@@ -381,13 +441,13 @@ fn update_orbit_lines(
         };
 
         let mut rebuilt = false;
-        let current_elements = elements_at(orbit, clock.0.t());
-        if current_elements != line.path.elements {
-            match sample_orbit(orbit, mu_parent_km3_s2, clock.0.t()) {
-                Ok(path) => {
+        if clock.is_changed() {
+            match retained_orbit_path(&line.path, orbit, mu_parent_km3_s2, clock.0.t()) {
+                Ok(Some(path)) => {
+                    rebuilt = path.vertices_parent_km != line.path.vertices_parent_km;
                     line.path = path;
-                    rebuilt = true;
                 }
+                Ok(None) => {}
                 Err(error) => {
                     error!("could not refresh orbit line for '{}': {error}", body.id);
                     continue;
@@ -424,13 +484,20 @@ fn update_orbit_lines(
         let brightness = options.body_brightness(line.body_index);
         let color_changed =
             displayed_alpha != line.displayed_alpha || brightness != line.displayed_brightness;
-        line.displayed_alpha = displayed_alpha;
-        line.displayed_brightness = brightness;
+        if displayed_alpha != line.displayed_alpha {
+            line.displayed_alpha = displayed_alpha;
+        }
+        if brightness != line.displayed_brightness {
+            line.displayed_brightness = brightness;
+        }
 
+        if !rebuilt && !color_changed {
+            continue;
+        }
+        let color = line_color(line.palette.rgb, displayed_alpha, brightness);
         let Some(mut asset) = gizmo_assets.get_mut(&gizmo.handle) else {
             continue;
         };
-        let color = line_color(line.palette.rgb, displayed_alpha, brightness);
         if rebuilt {
             rebuild_asset(&mut asset, &line.path, color);
         } else if color_changed {
@@ -453,6 +520,14 @@ fn rebuild_asset(asset: &mut GizmoAsset, path: &OrbitPath, color: LinearRgba) {
 fn update_asset_color(asset: &mut GizmoAsset, color: LinearRgba) {
     let color_count = asset.strip_colors.len().saturating_sub(1);
     asset.strip_colors[..color_count].fill(color);
+}
+
+#[cfg(test)]
+pub(crate) fn rendered_orbit_brightness(world: &mut World, body_index: usize) -> Option<f32> {
+    let mut lines = world.query::<&OrbitLine>();
+    lines
+        .iter(world)
+        .find_map(|line| (line.body_index == body_index).then_some(line.displayed_brightness))
 }
 
 fn parent_relative_render_position(position_km: [f64; 3]) -> Vec3 {
@@ -521,10 +596,18 @@ fn norm(vector: [f64; 3]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{load_catalog_text, propagate_catalog};
+    use crate::control::zoom_limits;
+    use crate::{
+        load_catalog_text, propagate_catalog, ScenePolishPlugin, SimulationTickAdvance,
+        EMPHASIS_CROSSFADE_S, EMPHASIZED_ORBIT_BRIGHTNESS,
+    };
     use sim_core::catalog::Catalog;
     use sim_core::kepler::state_at;
-    use sim_core::time::{t_from_jd_tdb, SimClock, StartMode};
+    use sim_core::time::{
+        t_from_jd_tdb, RateIndex, SimClock, StartMode, DAY_S, DEFAULT_START_EPOCH_JD_TDB,
+        T_HIGH_CONFIDENCE_MAX_S, T_MAX_S, T_MIN_S,
+    };
+    use std::time::Duration;
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
 
@@ -542,6 +625,81 @@ mod tests {
             body.orbit.as_ref().expect("orbiting body has orbit"),
             parent.gm_km3_s2.expect("parent has GM"),
         )
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct RenderedOrbitSnapshot {
+        handle: Handle<GizmoAsset>,
+        vertices_parent_km: Vec<[f64; 3]>,
+        colors: Vec<LinearRgba>,
+        displayed_alpha: f32,
+        displayed_brightness: f32,
+    }
+
+    fn emphasis_orbit_app() -> App {
+        let catalog = catalog();
+        let t_s = t_from_jd_tdb(2_461_042.0);
+        let states = propagate_catalog(&catalog, t_s).unwrap();
+        let loaded = LoadedCatalog::new(catalog);
+        let sun = loaded.index_of("sun").unwrap();
+        let camera = CameraController::new(sun, states.0[sun].position_km, 3_000_000.0);
+
+        let mut app = App::new();
+        app.init_resource::<Time<Real>>()
+            .init_resource::<Assets<GizmoAsset>>()
+            .init_resource::<Assets<StandardMaterial>>()
+            .init_resource::<SimulationTickAdvance>()
+            .insert_resource(loaded)
+            .insert_resource(states)
+            .insert_resource(camera)
+            .insert_resource(SimulationClock(SimClock::new(
+                StartMode::FixedEpoch {
+                    jd_tdb: 2_461_042.0,
+                },
+                t_s,
+            )))
+            .insert_resource(LayerState::default())
+            .insert_resource(ViewOptionsState::default())
+            .add_plugins((ScenePolishPlugin, OrbitLinesPlugin));
+        render_emphasis_frame(&mut app, 0.0, 0.0);
+        app
+    }
+
+    fn render_emphasis_frame(app: &mut App, simulated_step_s: f64, wall_delta_s: f64) {
+        app.world_mut()
+            .resource_mut::<SimulationTickAdvance>()
+            .seconds = simulated_step_s;
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_secs_f64(wall_delta_s));
+        app.update();
+    }
+
+    fn rendered_orbit(app: &mut App, body_index: usize) -> RenderedOrbitSnapshot {
+        let (handle, vertices_parent_km, displayed_alpha, displayed_brightness) = {
+            let world = app.world_mut();
+            let mut query = world.query::<(&OrbitLine, &Gizmo)>();
+            let (line, gizmo) = query
+                .iter(world)
+                .find(|(line, _)| line.body_index == body_index)
+                .expect("body orbit must exist");
+            (
+                gizmo.handle.clone(),
+                line.path.vertices_parent_km.clone(),
+                line.displayed_alpha,
+                line.displayed_brightness,
+            )
+        };
+        let assets = app.world().resource::<Assets<GizmoAsset>>();
+        let asset = assets.get(&handle).expect("retained orbit asset");
+        let color_count = asset.strip_colors.len().saturating_sub(1);
+        RenderedOrbitSnapshot {
+            handle,
+            vertices_parent_km,
+            colors: asset.strip_colors[..color_count].to_vec(),
+            displayed_alpha,
+            displayed_brightness,
+        }
     }
 
     #[test]
@@ -635,16 +793,16 @@ mod tests {
         for id in ["nereid", "3i_atlas"] {
             let (orbit, mu) = body_orbit(&catalog, id);
             let path = sample_orbit(orbit, mu, t_from_jd_tdb(2_461_042.0)).unwrap();
-            let perihelion_index = if path.elements.is_hyperbolic() {
+            let perihelion_index = if path.elements().is_hyperbolic() {
                 path.vertices_parent_km.len() / 2
             } else {
                 0
             };
             let sampled = norm(path.vertices_parent_km[perihelion_index]);
-            let expected = if path.elements.is_hyperbolic() {
-                path.elements.a_km.abs() * (path.elements.e - 1.0)
+            let expected = if path.elements().is_hyperbolic() {
+                path.elements().a_km.abs() * (path.elements().e - 1.0)
             } else {
-                path.elements.a_km * (1.0 - path.elements.e)
+                path.elements().a_km * (1.0 - path.elements().e)
             };
             let relative_error = (sampled - expected).abs() / expected;
             assert!(relative_error <= 1.0e-12, "{id}: {relative_error:e}");
@@ -665,6 +823,145 @@ mod tests {
         assert_ne!(
             epoch_path.vertices_parent_km[0],
             later_path.vertices_parent_km[0]
+        );
+    }
+
+    #[test]
+    fn exact_retained_paths_match_fresh_secular_planets_across_supported_time() {
+        const PLANETS: [&str; 8] = [
+            "mercury", "venus", "earth", "mars", "jupiter", "saturn", "uranus", "neptune",
+        ];
+        let catalog = catalog();
+        let catalog_epoch_t = t_from_jd_tdb(DEFAULT_START_EPOCH_JD_TDB);
+        let times = [T_MIN_S, catalog_epoch_t, T_HIGH_CONFIDENCE_MAX_S, T_MAX_S];
+
+        for id in PLANETS {
+            let (orbit, mu) = body_orbit(&catalog, id);
+            assert!(orbit.secular.is_some(), "{id} must exercise secular drift");
+            let mut retained = sample_orbit(orbit, mu, times[0]).unwrap();
+            for t_s in times {
+                if let Some(refreshed) = retained_orbit_path(&retained, orbit, mu, t_s).unwrap() {
+                    retained = refreshed;
+                }
+                let fresh = sample_orbit(orbit, mu, t_s).unwrap();
+                assert_eq!(retained, fresh, "{id} at t={t_s}");
+                assert_eq!(
+                    retained
+                        .vertices_parent_km
+                        .iter()
+                        .zip(&fresh.vertices_parent_km)
+                        .map(|(left, right)| norm(sub(*left, *right)))
+                        .fold(0.0_f64, f64::max),
+                    0.0,
+                    "{id} temporal-cache error in km at t={t_s}"
+                );
+                assert!(retained
+                    .vertices_parent_km
+                    .iter()
+                    .zip(&fresh.vertices_parent_km)
+                    .all(|(left, right)| parent_relative_render_position(*left)
+                        == parent_relative_render_position(*right)));
+                assert!(
+                    retained_orbit_path(&retained, orbit, mu, t_s)
+                        .unwrap()
+                        .is_none(),
+                    "{id} must reuse an exact key without rebuilding"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn exact_cache_geometry_is_zoom_independent_across_supported_limits() {
+        let mut app = emphasis_orbit_app();
+        let (saturn, saturn_position, minimum, maximum, fresh_vertices) = {
+            let loaded = app.world().resource::<LoadedCatalog>();
+            let states = app.world().resource::<BodyStates>();
+            let saturn = loaded.index_of("saturn").unwrap();
+            let body = &loaded.catalog.bodies[saturn];
+            let parent = loaded.index_of(body.parent.as_deref().unwrap()).unwrap();
+            let mu = loaded.catalog.bodies[parent].gm_km3_s2.unwrap();
+            let t_s = app.world().resource::<SimulationClock>().0.t();
+            let smallest_body = loaded
+                .catalog
+                .bodies
+                .iter()
+                .enumerate()
+                .min_by(|(_, left), (_, right)| left.radius_km.total_cmp(&right.radius_km))
+                .map(|(index, _)| index)
+                .unwrap();
+            (
+                saturn,
+                states.0[saturn].position_km,
+                zoom_limits(loaded, smallest_body).0,
+                zoom_limits(loaded, saturn).1,
+                sample_orbit(body.orbit.as_ref().unwrap(), mu, t_s)
+                    .unwrap()
+                    .vertices_parent_km,
+            )
+        };
+        assert!(minimum > 0.0 && maximum > minimum);
+
+        let baseline = rendered_orbit(&mut app, saturn);
+        assert_eq!(baseline.vertices_parent_km, fresh_vertices);
+        for step in 0..=16 {
+            let fraction = f64::from(step) / 16.0;
+            let distance = minimum * (maximum / minimum).powf(fraction);
+            app.insert_resource(CameraController::new(saturn, saturn_position, distance));
+            render_emphasis_frame(&mut app, 0.0, 0.0);
+            let retained = rendered_orbit(&mut app, saturn);
+            assert_eq!(retained.handle, baseline.handle, "zoom step {step}");
+            assert_eq!(
+                retained.vertices_parent_km, fresh_vertices,
+                "zoom step {step} at {distance} render units"
+            );
+        }
+    }
+
+    #[test]
+    fn hyperbolic_cache_key_covers_fitted_mean_motion_and_parent_gm() {
+        let catalog = catalog();
+        let (orbit, mu) = body_orbit(&catalog, "3i_atlas");
+        let t_s = t_from_jd_tdb(orbit.epoch_jd_tdb);
+        let original = sample_orbit(orbit, mu, t_s).unwrap();
+        assert!(retained_orbit_path(&original, orbit, mu, t_s)
+            .unwrap()
+            .is_none());
+
+        let mut fitted = orbit.clone();
+        fitted.mean_motion_deg_per_day =
+            Some((orbit.mean_motion_rad_per_s(mu) * DAY_S).to_degrees() * 1.01);
+        let retained_fitted = retained_orbit_path(&original, &fitted, mu, t_s)
+            .unwrap()
+            .expect("fitted mean motion is part of the exact key");
+        let fresh_fitted = sample_orbit(&fitted, mu, t_s).unwrap();
+        assert_eq!(retained_fitted, fresh_fitted);
+        assert_ne!(
+            retained_fitted.cache_key.mean_motion_rad_per_s,
+            original.cache_key.mean_motion_rad_per_s
+        );
+        assert_ne!(
+            retained_fitted.vertices_parent_km,
+            original.vertices_parent_km
+        );
+
+        let mut two_body = orbit.clone();
+        two_body.mean_motion_deg_per_day = None;
+        let two_body_original = sample_orbit(&two_body, mu, t_s).unwrap();
+        let changed_mu = mu * 1.01;
+        let retained_mu = retained_orbit_path(&two_body_original, &two_body, changed_mu, t_s)
+            .unwrap()
+            .expect("parent GM is part of the exact key");
+        let fresh_mu = sample_orbit(&two_body, changed_mu, t_s).unwrap();
+        assert_eq!(retained_mu, fresh_mu);
+        assert_eq!(retained_mu.cache_key.mu_parent_km3_s2, changed_mu);
+        assert_ne!(
+            retained_mu.cache_key.mean_motion_rad_per_s,
+            two_body_original.cache_key.mean_motion_rad_per_s
+        );
+        assert_ne!(
+            retained_mu.vertices_parent_km,
+            two_body_original.vertices_parent_km
         );
     }
 
@@ -706,6 +1003,213 @@ mod tests {
     }
 
     #[test]
+    fn actual_hundred_year_step_fades_mercury_through_saturn_and_restores_orbits_exactly() {
+        #[derive(Resource, Default)]
+        struct ChangedOrbitLines(Vec<usize>);
+
+        fn count_changed_orbit_lines(
+            lines: Query<&OrbitLine, Changed<OrbitLine>>,
+            mut changed: ResMut<ChangedOrbitLines>,
+        ) {
+            changed.0.extend(lines.iter().map(|line| line.body_index));
+        }
+
+        const FRAME_S: f64 = 1.0 / 60.0;
+        const INNER_PLANETS: [&str; 6] = ["mercury", "venus", "earth", "mars", "jupiter", "saturn"];
+
+        let mut app = emphasis_orbit_app();
+        app.init_resource::<ChangedOrbitLines>()
+            .add_systems(Update, count_changed_orbit_lines.after(update_orbit_lines));
+        app.update();
+        app.world_mut()
+            .resource_mut::<ChangedOrbitLines>()
+            .0
+            .clear();
+        let body_indices: Vec<_> = {
+            let loaded = app.world().resource::<LoadedCatalog>();
+            INNER_PLANETS
+                .iter()
+                .map(|id| loaded.index_of(id).unwrap())
+                .collect()
+        };
+        let uranus = app
+            .world()
+            .resource::<LoadedCatalog>()
+            .index_of("uranus")
+            .unwrap();
+        let baseline: Vec<_> = body_indices
+            .iter()
+            .map(|index| rendered_orbit(&mut app, *index))
+            .collect();
+        let uranus_baseline = rendered_orbit(&mut app, uranus);
+        assert!(baseline.iter().all(|orbit| orbit.displayed_alpha > 0.0));
+        assert!(baseline
+            .iter()
+            .all(|orbit| orbit.displayed_brightness == 1.0));
+
+        let hundred_year_step = RateIndex::MAX.seconds_per_second() * FRAME_S;
+        render_emphasis_frame(&mut app, hundred_year_step, FRAME_S);
+        {
+            let changed = &app.world().resource::<ChangedOrbitLines>().0;
+            assert!(!changed.contains(&uranus));
+            for index in &body_indices {
+                assert!(changed.contains(index));
+            }
+        }
+        {
+            let emphasis = app.world().resource::<OrbitEmphasisState>();
+            for (id, index) in INNER_PLANETS.iter().zip(&body_indices) {
+                let body = emphasis.body(*index).unwrap();
+                assert!(body.is_engaged(), "{id}");
+                assert!((0.0..1.0).contains(&emphasis.body_alpha(*index)), "{id}");
+                assert!(
+                    (1.0..EMPHASIZED_ORBIT_BRIGHTNESS).contains(&emphasis.orbit_brightness(*index)),
+                    "{id}"
+                );
+            }
+            assert!(!emphasis.body(uranus).unwrap().is_engaged());
+            assert_eq!(emphasis.body_alpha(uranus), 1.0);
+            assert_eq!(emphasis.orbit_brightness(uranus), 1.0);
+        }
+        for ((id, index), original) in INNER_PLANETS.iter().zip(&body_indices).zip(&baseline) {
+            let expected_brightness = app
+                .world()
+                .resource::<OrbitEmphasisState>()
+                .orbit_brightness(*index);
+            let intermediate = rendered_orbit(&mut app, *index);
+            assert_eq!(
+                intermediate.displayed_brightness, expected_brightness,
+                "{id}"
+            );
+            assert_eq!(
+                intermediate.displayed_alpha, original.displayed_alpha,
+                "{id}"
+            );
+            assert_eq!(intermediate.handle, original.handle, "{id}");
+            assert_eq!(
+                intermediate.vertices_parent_km, original.vertices_parent_km,
+                "{id}"
+            );
+            assert_ne!(intermediate.colors, original.colors, "{id}");
+        }
+
+        let fade_frames = (f64::from(EMPHASIS_CROSSFADE_S) / FRAME_S).ceil() as usize;
+        for _ in 1..fade_frames {
+            render_emphasis_frame(&mut app, hundred_year_step, FRAME_S);
+        }
+        for (id, index) in INNER_PLANETS.iter().zip(&body_indices) {
+            let emphasis = app.world().resource::<OrbitEmphasisState>();
+            assert_eq!(emphasis.body_alpha(*index), 0.0, "{id}");
+            assert_eq!(
+                emphasis.orbit_brightness(*index),
+                EMPHASIZED_ORBIT_BRIGHTNESS,
+                "{id}"
+            );
+            let emphasized = rendered_orbit(&mut app, *index);
+            let original = &baseline[INNER_PLANETS.iter().position(|value| value == id).unwrap()];
+            assert_eq!(emphasized.handle, original.handle, "{id}");
+            assert_eq!(
+                emphasized.vertices_parent_km, original.vertices_parent_km,
+                "{id}"
+            );
+            assert_eq!(emphasized.displayed_alpha, original.displayed_alpha, "{id}");
+            assert_eq!(
+                emphasized.displayed_brightness, EMPHASIZED_ORBIT_BRIGHTNESS,
+                "{id}"
+            );
+            assert!(emphasized
+                .colors
+                .iter()
+                .zip(&original.colors)
+                .all(|(actual, base)| {
+                    actual.red > base.red
+                        && actual.green > base.green
+                        && actual.blue > base.blue
+                        && actual.alpha == base.alpha
+                }));
+        }
+        assert_eq!(rendered_orbit(&mut app, uranus), uranus_baseline);
+
+        let saturn = *body_indices.last().unwrap();
+        app.world_mut()
+            .resource_mut::<LayerState>()
+            .set_visible(LayerId::Orbits, false);
+        render_emphasis_frame(&mut app, hundred_year_step, FRAME_S);
+        let globally_hidden = rendered_orbit(&mut app, saturn);
+        assert_eq!(globally_hidden.displayed_alpha, 0.0);
+        assert_eq!(
+            globally_hidden.displayed_brightness,
+            EMPHASIZED_ORBIT_BRIGHTNESS
+        );
+        assert!(globally_hidden
+            .colors
+            .iter()
+            .all(|color| color.alpha == 0.0));
+
+        app.world_mut()
+            .resource_mut::<LayerState>()
+            .set_visible(LayerId::Orbits, true);
+        app.world_mut()
+            .resource_mut::<ViewOptionsState>()
+            .set_local_orbit_visible("saturn", false);
+        render_emphasis_frame(&mut app, hundred_year_step, FRAME_S);
+        let locally_hidden = rendered_orbit(&mut app, saturn);
+        assert_eq!(locally_hidden.displayed_alpha, 0.0);
+        assert_eq!(
+            locally_hidden.displayed_brightness,
+            EMPHASIZED_ORBIT_BRIGHTNESS
+        );
+        assert!(locally_hidden.colors.iter().all(|color| color.alpha == 0.0));
+        assert!(rendered_orbit(&mut app, body_indices[0]).displayed_alpha > 0.0);
+
+        app.world_mut()
+            .resource_mut::<ViewOptionsState>()
+            .set_local_orbit_visible("saturn", true);
+        render_emphasis_frame(&mut app, hundred_year_step, FRAME_S);
+        assert_eq!(
+            rendered_orbit(&mut app, saturn).displayed_alpha,
+            baseline.last().unwrap().displayed_alpha
+        );
+
+        render_emphasis_frame(&mut app, FRAME_S, FRAME_S);
+        {
+            let emphasis = app.world().resource::<OrbitEmphasisState>();
+            for (id, index) in INNER_PLANETS.iter().zip(&body_indices) {
+                assert!(!emphasis.body(*index).unwrap().is_engaged(), "{id}");
+                assert!((0.0..1.0).contains(&emphasis.body_alpha(*index)), "{id}");
+                assert!(
+                    (1.0..EMPHASIZED_ORBIT_BRIGHTNESS).contains(&emphasis.orbit_brightness(*index)),
+                    "{id}"
+                );
+            }
+        }
+        for ((id, index), original) in INNER_PLANETS.iter().zip(&body_indices).zip(&baseline) {
+            let expected_brightness = app
+                .world()
+                .resource::<OrbitEmphasisState>()
+                .orbit_brightness(*index);
+            let restoring = rendered_orbit(&mut app, *index);
+            assert_eq!(restoring.displayed_brightness, expected_brightness, "{id}");
+            assert_eq!(restoring.displayed_alpha, original.displayed_alpha, "{id}");
+            assert_eq!(restoring.handle, original.handle, "{id}");
+            assert_eq!(
+                restoring.vertices_parent_km, original.vertices_parent_km,
+                "{id}"
+            );
+            assert_ne!(restoring.colors, original.colors, "{id}");
+        }
+        for _ in 1..fade_frames {
+            render_emphasis_frame(&mut app, FRAME_S, FRAME_S);
+        }
+        for ((id, index), original) in INNER_PLANETS.iter().zip(&body_indices).zip(&baseline) {
+            let emphasis = app.world().resource::<OrbitEmphasisState>();
+            assert_eq!(emphasis.body_alpha(*index), 1.0, "{id}");
+            assert_eq!(emphasis.orbit_brightness(*index), 1.0, "{id}");
+            assert_eq!(rendered_orbit(&mut app, *index), *original, "{id}");
+        }
+    }
+
+    #[test]
     fn sampler_rejects_nonfinite_time_and_bad_parent_gm_without_panicking() {
         let catalog = catalog();
         let (orbit, mu) = body_orbit(&catalog, "nereid");
@@ -720,6 +1224,24 @@ mod tests {
 
     #[test]
     fn all_orbits_spawn_and_reanchor_without_changing_parent_vertices() {
+        #[derive(Resource, Default)]
+        struct RetainedWriteCounts {
+            lines: usize,
+            transforms: usize,
+            assets_changed: bool,
+        }
+
+        fn count_retained_writes(
+            lines: Query<(), Changed<OrbitLine>>,
+            transforms: Query<(), (With<OrbitLine>, Changed<Transform>)>,
+            assets: Res<Assets<GizmoAsset>>,
+            mut counts: ResMut<RetainedWriteCounts>,
+        ) {
+            counts.lines += lines.iter().count();
+            counts.transforms += transforms.iter().count();
+            counts.assets_changed |= assets.is_changed();
+        }
+
         let catalog = catalog();
         let t_s = t_from_jd_tdb(2_461_042.0);
         let states = propagate_catalog(&catalog, t_s).unwrap();
@@ -744,8 +1266,10 @@ mod tests {
                 t_s,
             )))
             .insert_resource(OrbitLineBrightness::default())
+            .init_resource::<RetainedWriteCounts>()
             .add_systems(Startup, spawn_orbit_lines)
-            .add_systems(Update, update_orbit_lines);
+            .add_systems(Update, update_orbit_lines)
+            .add_systems(Update, count_retained_writes.after(update_orbit_lines));
         app.update();
 
         let mut query = app.world_mut().query::<(&OrbitLine, &Transform, &Gizmo)>();
@@ -759,6 +1283,16 @@ mod tests {
         assert!(gizmo.depth_bias < 0.0);
         assert_eq!(gizmo.line_config.joints, GizmoLineJoint::Round(2));
         let vertices_before = line.path.vertices_parent_km.clone();
+
+        *app.world_mut().resource_mut::<RetainedWriteCounts>() = RetainedWriteCounts::default();
+        app.update();
+        let counts = app.world().resource::<RetainedWriteCounts>();
+        assert_eq!(counts.lines, 0);
+        assert_eq!(counts.transforms, 0);
+        assert!(
+            !counts.assets_changed,
+            "a stable frame must not acquire any retained Gizmo asset mutably"
+        );
 
         let sedna = app
             .world()

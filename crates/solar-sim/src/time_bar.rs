@@ -6,6 +6,7 @@
 
 use crate::control::{SimCommand, SimCommandQueue};
 use crate::layers::HudSurface;
+use crate::scene_polish::OrbitEmphasisSet;
 use crate::ui_kit::{toast, UiColorToken, UiTheme, WidgetSpec, WidgetVisualState};
 use crate::{
     wall_now_t, ClockTickReport, OrbitEmphasisOnset, SimulationClock, SimulationSet,
@@ -14,7 +15,7 @@ use crate::{
 use bevy::{
     input::{keyboard::KeyboardInput, ButtonState},
     input_focus::{
-        tab_navigation::{TabIndex, TabNavigationPlugin},
+        tab_navigation::{TabGroup, TabIndex, TabNavigationPlugin},
         FocusedInput, InputFocus,
     },
     prelude::*,
@@ -86,6 +87,8 @@ struct TimeEditFieldComponent {
 #[derive(Resource, Debug, Default)]
 struct TimeEditFocus {
     active: Option<Entity>,
+    original_t_s: Option<f64>,
+    cancelled: Option<Entity>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -201,7 +204,7 @@ impl Plugin for TimeBarPlugin {
                     sync_live_chip,
                     update_slider_thumb,
                     consume_tick_reports,
-                    consume_orbit_emphasis_onsets,
+                    consume_orbit_emphasis_onsets.after(OrbitEmphasisSet),
                     expire_time_toasts,
                 )
                     .chain()
@@ -227,32 +230,60 @@ fn time_bar_scene(theme: UiTheme, clock: &SimClock) -> impl Scene {
             height: px(TIME_BAR_HEIGHT_PX),
             padding: UiRect::horizontal(px(theme.spacing.lg_px)),
             border: UiRect::top(px(theme.spacing.hairline_px)),
-            align_items: AlignItems::Center,
-            column_gap: px(theme.spacing.md_px),
+            flex_direction: FlexDirection::Column,
+            justify_content: JustifyContent::Center,
+            row_gap: px(theme.spacing.xs_px),
         }
         TimeBarRoot
         HudSurface
         AccessibleLabel("Simulation time bar")
+        template_value(TabGroup::new(20))
         BackgroundColor({theme.colors.top_bar.color()})
         BorderColor::all(theme.colors.separator.color())
         GlobalZIndex(95)
         Children [
-            edit_field(theme, TimeEditField::Date, format_date_eyes(&datetime), "Simulation date"),
-            edit_field(theme, TimeEditField::Clock, format_clock(datetime), "Simulation clock"),
             (
                 Node {
-                    width: px(theme.spacing.hairline_px),
-                    height: px(32),
+                    width: percent(100),
+                    height: px(38),
+                    align_items: AlignItems::Center,
+                    column_gap: px(theme.spacing.sm_px),
                 }
-                BackgroundColor({theme.colors.separator.color()})
+                Children [
+                    edit_field(
+                        theme,
+                        TimeEditField::Date,
+                        format_date_eyes(&datetime),
+                        "Simulation date",
+                    ),
+                    edit_field(
+                        theme,
+                        TimeEditField::Clock,
+                        format_clock(datetime),
+                        "Simulation clock",
+                    ),
+                    (
+                        Node {
+                            width: px(theme.spacing.hairline_px),
+                            height: px(32),
+                        }
+                        BackgroundColor({theme.colors.separator.color()})
+                    ),
+                    play_pause_button(theme, clock.is_playing()),
+                    (
+                        Node {
+                            flex_grow: 1.0,
+                            min_width: px(0),
+                        }
+                    ),
+                    live_chip(theme),
+                ]
             ),
-            play_pause_button(theme, clock.is_playing()),
             (
                 Node {
-                    flex_grow: 1.0,
-                    min_width: px(280),
+                    width: percent(100),
                     flex_direction: FlexDirection::Column,
-                    row_gap: px(theme.spacing.sm_px),
+                    row_gap: px(theme.spacing.xs_px),
                 }
                 Children [
                     (
@@ -268,7 +299,6 @@ fn time_bar_scene(theme: UiTheme, clock: &SimClock) -> impl Scene {
                     rate_slider(theme, clock),
                 ]
             ),
-            live_chip(theme),
         ]
     }
 }
@@ -279,14 +309,16 @@ fn edit_field(
     value: String,
     accessible_label: &'static str,
 ) -> impl Scene {
-    let width = match field {
-        TimeEditField::Date => 154.0,
-        TimeEditField::Clock => 92.0,
+    let (width, min_width) = match field {
+        TimeEditField::Date => (154.0, 110.0),
+        TimeEditField::Clock => (92.0, 72.0),
     };
     bsn! {
         Node {
             width: px(width),
+            min_width: px(min_width),
             height: px(38),
+            flex_shrink: 1.0,
             padding: UiRect::horizontal(px(theme.spacing.sm_px)),
             border: UiRect::all(px(theme.spacing.hairline_px)),
             border_radius: BorderRadius::all(px(theme.spacing.radius_px)),
@@ -298,7 +330,10 @@ fn edit_field(
             template_value(EditableText::new(value))
             TimeEditFieldComponent { field }
             AccessibleLabel(accessible_label)
-            TabIndex(0)
+            template_value(TabIndex(match field {
+                TimeEditField::Date => 0,
+                TimeEditField::Clock => 1,
+            }))
             Node {
                 width: percent(100),
             }
@@ -310,7 +345,7 @@ fn edit_field(
             TextLayout {
                 linebreak: LineBreak::NoWrap,
             }
-            on(finish_edit_on_enter)
+            on(finish_time_edit)
         )]
     }
 }
@@ -334,7 +369,7 @@ fn play_pause_button(theme: UiTheme, playing: bool) -> impl Scene {
         bevy::ui_widgets::Button
         PlayPauseButton
         AccessibleLabel("Pause or resume simulation time")
-        TabIndex(0)
+        TabIndex(2)
         BackgroundColor(background)
         BorderColor::all(theme.colors.accent.color())
         on(toggle_play_pause)
@@ -372,7 +407,7 @@ fn rate_slider(theme: UiTheme, clock: &SimClock) -> impl Scene {
         SliderStep(1.0)
         SliderPrecision(0)
         AccessibleLabel("Simulation rate: 24 signed detents and paused center")
-        TabIndex(0)
+        TabIndex(4)
         on(change_rate_slider)
         Children [
             (
@@ -425,7 +460,7 @@ fn live_chip(theme: UiTheme) -> impl Scene {
         bevy::ui_widgets::Button
         LiveChip
         AccessibleLabel("Snap simulation to LIVE time")
-        TabIndex(0)
+        TabIndex(3)
         BackgroundColor({theme.colors.background.color()})
         BorderColor::all(theme.colors.separator.color())
         on(snap_to_live)
@@ -457,14 +492,17 @@ fn toast_stack(theme: UiTheme) -> impl Scene {
         Node {
             position_type: PositionType::Absolute,
             left: px(theme.spacing.lg_px),
+            right: px(theme.spacing.lg_px),
             bottom: px(TIME_BAR_HEIGHT_PX + theme.spacing.lg_px),
-            width: px(390),
+            width: auto(),
+            max_width: px(390),
             flex_direction: FlexDirection::Column,
             row_gap: px(theme.spacing.sm_px),
         }
         TimeToastStack
         HudSurface
         AccessibleLabel("Simulation notices")
+        Pickable::IGNORE
         GlobalZIndex(105)
     }
 }
@@ -474,9 +512,26 @@ fn spawn_time_bar(mut commands: Commands, theme: Res<UiTheme>, clock: Res<Simula
     commands.spawn_scene(toast_stack(*theme));
 }
 
-fn finish_edit_on_enter(input: On<FocusedInput<KeyboardInput>>, mut focus: ResMut<InputFocus>) {
-    if input.input.state == ButtonState::Pressed && input.input.key_code == KeyCode::Enter {
-        focus.clear();
+fn finish_time_edit(
+    mut input: On<FocusedInput<KeyboardInput>>,
+    mut focus: ResMut<InputFocus>,
+    mut state: ResMut<TimeEditFocus>,
+) {
+    if input.input.state != ButtonState::Pressed {
+        return;
+    }
+    match input.input.key_code {
+        KeyCode::Enter | KeyCode::NumpadEnter => {
+            state.cancelled = None;
+            focus.clear();
+            input.propagate(false);
+        }
+        KeyCode::Escape => {
+            state.cancelled = Some(input.focused_entity);
+            focus.clear();
+            input.propagate(false);
+        }
+        _ => {}
     }
 }
 
@@ -513,29 +568,41 @@ fn update_time_edits(
 ) {
     let focused = focus.get().filter(|entity| fields.get(*entity).is_ok());
     let mut presentation_t = clock.0.t();
+    let mut cancelled_entity = None;
 
     if state.active != focused {
         if let Some(previous) = state.active {
             if let Ok((_entity, field, mut editable)) = fields.get_mut(previous) {
-                let outcome =
-                    commit_time_edit(presentation_t, field.field, &editable.value().to_string());
-                presentation_t = outcome.t_s;
-                if outcome.accepted {
-                    commands.push(SimCommand::SetTime(outcome.t_s));
+                if state.cancelled == Some(previous) {
+                    let original_t_s = state.original_t_s.unwrap_or(presentation_t);
+                    replace_editable_text(&mut editable, &display_value(field.field, original_t_s));
+                    cancelled_entity = Some(previous);
+                } else {
+                    let outcome = commit_time_edit(
+                        presentation_t,
+                        field.field,
+                        &editable.value().to_string(),
+                    );
+                    presentation_t = outcome.t_s;
+                    if outcome.accepted {
+                        commands.push(SimCommand::SetTime(outcome.t_s));
+                    }
+                    replace_editable_text(&mut editable, &outcome.display);
                 }
-                replace_editable_text(&mut editable, &outcome.display);
             }
         }
+        state.cancelled = None;
         if let Some(current) = focused {
             if let Ok((_entity, field, mut editable)) = fields.get_mut(current) {
                 replace_editable_text(&mut editable, &edit_value(field.field, presentation_t));
             }
         }
         state.active = focused;
+        state.original_t_s = focused.map(|_| presentation_t);
     }
 
     for (entity, field, mut editable) in &mut fields {
-        if Some(entity) != state.active {
+        if Some(entity) != state.active && Some(entity) != cancelled_entity {
             replace_editable_text(&mut editable, &display_value(field.field, presentation_t));
         }
     }
@@ -596,27 +663,36 @@ fn sync_time_playback_controls(
     } else {
         0.0
     };
+    let rate_label = if playing {
+        clock.0.rate().label()
+    } else {
+        "PAUSED".to_string()
+    };
     for mut label in &mut rate_labels {
-        **label = if playing {
-            clock.0.rate().label()
-        } else {
-            "PAUSED".to_string()
-        };
+        if label.as_str() != rate_label {
+            **label = rate_label.clone();
+        }
     }
     for (entity, value, drag) in &sliders {
         if !drag.dragging && value.0 != slider_value {
             commands.entity(entity).insert(SliderValue(slider_value));
         }
     }
+    let desired_play_background = if playing {
+        with_alpha(theme.colors.accent, 40)
+    } else {
+        theme.colors.panel.color()
+    };
     for mut background in &mut play_buttons {
-        background.0 = if playing {
-            with_alpha(theme.colors.accent, 40)
-        } else {
-            theme.colors.panel.color()
-        };
+        if background.0 != desired_play_background {
+            background.0 = desired_play_background;
+        }
     }
+    let desired_glyph = if playing { "Ⅱ" } else { "▶" };
     for mut glyph in &mut play_glyphs {
-        **glyph = if playing { "Ⅱ" } else { "▶" }.to_string();
+        if glyph.as_str() != desired_glyph {
+            **glyph = desired_glyph.to_string();
+        }
     }
 }
 
@@ -633,32 +709,46 @@ fn sync_live_chip(
     } else {
         theme.colors.text_disabled.color()
     };
+    let desired_chip_background = if is_live {
+        with_alpha(theme.colors.status_live, 28)
+    } else {
+        theme.colors.background.color()
+    };
+    let desired_chip_border = BorderColor::all(if is_live {
+        theme.colors.status_live.color()
+    } else {
+        theme.colors.separator.color()
+    });
     for (mut background, mut border) in &mut live_chips {
-        background.0 = if is_live {
-            with_alpha(theme.colors.status_live, 28)
-        } else {
-            theme.colors.background.color()
-        };
-        *border = BorderColor::all(if is_live {
-            theme.colors.status_live.color()
-        } else {
-            theme.colors.separator.color()
-        });
+        if background.0 != desired_chip_background {
+            background.0 = desired_chip_background;
+        }
+        if *border != desired_chip_border {
+            *border = desired_chip_border;
+        }
     }
     for mut dot in &mut live_dots {
-        dot.0 = dot_color;
+        if dot.0 != dot_color {
+            dot.0 = dot_color;
+        }
     }
+    let desired_text_color = if is_live {
+        theme.colors.status_live.color()
+    } else {
+        theme.colors.text_disabled.color()
+    };
     for mut text in &mut live_text {
-        text.0 = if is_live {
-            theme.colors.status_live.color()
-        } else {
-            theme.colors.text_disabled.color()
-        };
+        if text.0 != desired_text_color {
+            text.0 = desired_text_color;
+        }
     }
 }
 
+type ChangedTimeRateSliders<'w, 's> =
+    Query<'w, 's, (Entity, &'static SliderValue), (With<TimeRateSlider>, Changed<SliderValue>)>;
+
 fn update_slider_thumb(
-    sliders: Query<(Entity, &SliderValue), With<TimeRateSlider>>,
+    sliders: ChangedTimeRateSliders,
     children: Query<&Children>,
     mut thumbs: Query<&mut Node, With<TimeSliderThumb>>,
 ) {
@@ -666,7 +756,10 @@ fn update_slider_thumb(
         let position = (value.0 + SLIDER_LIMIT) / (2.0 * SLIDER_LIMIT) * 100.0;
         for descendant in children.iter_descendants(slider) {
             if let Ok(mut thumb) = thumbs.get_mut(descendant) {
-                thumb.left = percent(position);
+                let desired = percent(position);
+                if thumb.left != desired {
+                    thumb.left = desired;
+                }
             }
         }
     }
@@ -768,8 +861,203 @@ fn format_clock(datetime: DateTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui_kit::test_layout;
+    use crate::{load_catalog_text, LoadedCatalog, ScenePolishPlugin, SimulationTickAdvance};
+    use bevy::{
+        app::TaskPoolPlugin,
+        asset::{AssetApp, AssetPlugin},
+        camera::{NormalizedRenderTarget, RenderTarget},
+        input::{keyboard::Key, InputPlugin},
+        input_focus::{FocusCause, InputDispatchPlugin, InputFocusPlugin},
+        picking::{
+            hover::HoverMap,
+            pointer::{Location, PointerId, PointerLocation},
+            InteractionPlugin, PickingPlugin,
+        },
+        scene::{ScenePlugin, WorldSceneExt},
+        text::TextLayoutInfo,
+        ui::UiStack,
+        window::PrimaryWindow,
+    };
     use sim_core::time::{t_from_jd_tdb, StartMode};
     use std::collections::HashMap;
+    use std::time::Duration;
+
+    const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
+
+    #[derive(Resource, Debug, Default)]
+    struct TimeControlWrites {
+        texts: usize,
+        backgrounds: usize,
+        borders: usize,
+        text_colors: usize,
+        nodes: usize,
+    }
+
+    type ChangedTimeControlTexts<'w, 's> = Query<
+        'w,
+        's,
+        Entity,
+        (
+            Changed<Text>,
+            Or<(With<TimeRateLabel>, With<PlayPauseGlyph>)>,
+        ),
+    >;
+    type ChangedTimeControlBackgrounds<'w, 's> = Query<
+        'w,
+        's,
+        Entity,
+        (
+            Changed<BackgroundColor>,
+            Or<(With<PlayPauseButton>, With<LiveChip>, With<LiveDot>)>,
+        ),
+    >;
+
+    fn count_time_control_writes(
+        texts: ChangedTimeControlTexts,
+        backgrounds: ChangedTimeControlBackgrounds,
+        borders: Query<Entity, (Changed<BorderColor>, With<LiveChip>)>,
+        text_colors: Query<Entity, (Changed<TextColor>, With<LiveText>)>,
+        nodes: Query<Entity, (Changed<Node>, With<TimeSliderThumb>)>,
+        mut writes: ResMut<TimeControlWrites>,
+    ) {
+        writes.texts = texts.iter().count();
+        writes.backgrounds = backgrounds.iter().count();
+        writes.borders = borders.iter().count();
+        writes.text_colors = text_colors.iter().count();
+        writes.nodes = nodes.iter().count();
+    }
+
+    fn time_edit_keypress(
+        field: TimeEditField,
+        replacement: &str,
+        key_code: KeyCode,
+        logical_key: Key,
+    ) -> (String, Vec<SimCommand>, Option<Entity>) {
+        let original_clock = SimClock::new(StartMode::default(), 0.0);
+        let expected_display = display_value(field, original_clock.t());
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            InputPlugin,
+            InputFocusPlugin,
+            InputDispatchPlugin,
+        ))
+        .insert_resource(SimulationClock(original_clock))
+        .init_resource::<TimeEditFocus>()
+        .init_resource::<SimCommandQueue>()
+        .add_systems(Update, update_time_edits);
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow))
+            .id();
+        let editable = app
+            .world_mut()
+            .spawn((
+                TimeEditFieldComponent { field },
+                EditableText::new(expected_display.clone()),
+            ))
+            .observe(finish_time_edit)
+            .id();
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(editable, FocusCause::Navigated);
+        app.update();
+        {
+            let world = app.world_mut();
+            let mut entity = world.entity_mut(editable);
+            let mut value = entity.get_mut::<EditableText>().unwrap();
+            value.editor_mut().set_text(replacement);
+            value.pending_edits.clear();
+        }
+        app.world_mut().write_message(KeyboardInput {
+            key_code,
+            logical_key,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window,
+        });
+        app.update();
+
+        let queued_replacement = app
+            .world()
+            .entity(editable)
+            .get::<EditableText>()
+            .unwrap()
+            .pending_edits
+            .iter()
+            .find_map(|edit| match edit {
+                TextEdit::Insert(value) => Some(value.to_string()),
+                _ => None,
+            })
+            .unwrap_or_else(|| {
+                app.world()
+                    .entity(editable)
+                    .get::<EditableText>()
+                    .unwrap()
+                    .value()
+                    .to_string()
+            });
+        let commands = app
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .collect();
+        let focus = app.world().resource::<InputFocus>().get();
+        (queued_replacement, commands, focus)
+    }
+
+    fn emphasis_toast_app() -> App {
+        let loaded = LoadedCatalog::new(load_catalog_text(REAL_CATALOG).unwrap());
+        let t_s = t_from_jd_tdb(2_461_042.0);
+        let mut app = App::new();
+        app.add_plugins((
+            TaskPoolPlugin::default(),
+            AssetPlugin::default(),
+            ScenePlugin,
+        ))
+        .init_asset::<Font>()
+        .init_resource::<Assets<StandardMaterial>>()
+        .init_resource::<Time<Real>>()
+        .init_resource::<SimulationTickAdvance>()
+        .insert_resource(loaded)
+        .insert_resource(UiTheme::default())
+        .insert_resource(SimulationClock(SimClock::new(
+            StartMode::FixedEpoch {
+                jd_tdb: 2_461_042.0,
+            },
+            t_s,
+        )))
+        .add_plugins(ScenePolishPlugin)
+        .add_systems(
+            Update,
+            consume_orbit_emphasis_onsets
+                .in_set(SimulationSet::Render)
+                .after(OrbitEmphasisSet),
+        );
+        app.world_mut().spawn(TimeToastStack);
+        advance_emphasis_toast_frame(&mut app, 0.0, 0.0);
+        app
+    }
+
+    fn advance_emphasis_toast_frame(app: &mut App, simulated_step_s: f64, wall_delta_s: f64) {
+        app.world_mut()
+            .resource_mut::<SimulationTickAdvance>()
+            .seconds = simulated_step_s;
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_secs_f64(wall_delta_s));
+        app.update();
+    }
+
+    fn orbit_emphasis_toast_count(app: &mut App) -> usize {
+        let world = app.world_mut();
+        world
+            .query_filtered::<Entity, With<TimeToast>>()
+            .iter(world)
+            .count()
+    }
 
     #[test]
     fn slider_round_trips_every_rate_index_detent_through_wp1_mapping() {
@@ -798,6 +1086,34 @@ mod tests {
     }
 
     #[test]
+    fn escape_reverts_date_and_clock_edits_without_a_command() {
+        for (field, replacement) in [
+            (TimeEditField::Date, "2026-01-02"),
+            (TimeEditField::Clock, "13:00:00"),
+        ] {
+            let expected = display_value(field, SimClock::new(StartMode::default(), 0.0).t());
+            let (display, commands, focus) =
+                time_edit_keypress(field, replacement, KeyCode::Escape, Key::Escape);
+            assert_eq!(display, expected);
+            assert!(commands.is_empty());
+            assert_eq!(focus, None);
+        }
+    }
+
+    #[test]
+    fn enter_commits_one_set_time_and_no_background_gameplay_command() {
+        let (_display, commands, focus) = time_edit_keypress(
+            TimeEditField::Date,
+            "2026-01-02",
+            KeyCode::Enter,
+            Key::Enter,
+        );
+        assert_eq!(commands.len(), 1);
+        assert!(matches!(commands[0], SimCommand::SetTime(_)));
+        assert_eq!(focus, None);
+    }
+
+    #[test]
     fn live_chip_matches_clock_predicate_in_all_four_regimes() {
         let now = t_from_jd_tdb(2_461_233.0);
 
@@ -816,6 +1132,63 @@ mod tests {
         assert!(!live_chip_active(&wrong_rate, now));
         assert!(!live_chip_active(&snapping, now));
         assert!(live_chip_active(&live, now));
+    }
+
+    #[test]
+    fn stable_time_controls_do_not_rewrite_components() {
+        let theme = UiTheme::default();
+        let mut clock = SimClock::new(StartMode::default(), 0.0);
+        clock.pause();
+        let mut app = App::new();
+        app.insert_resource(theme)
+            .insert_resource(SimulationClock(clock))
+            .init_resource::<TimeControlWrites>()
+            .add_systems(
+                Update,
+                (
+                    sync_time_playback_controls,
+                    sync_live_chip,
+                    update_slider_thumb,
+                    count_time_control_writes,
+                )
+                    .chain(),
+            );
+        app.world_mut().spawn((TimeRateLabel, Text::new("PAUSED")));
+        app.world_mut()
+            .spawn((PlayPauseButton, BackgroundColor(theme.colors.panel.color())));
+        app.world_mut().spawn((PlayPauseGlyph, Text::new("▶")));
+        app.world_mut().spawn((
+            LiveChip,
+            BackgroundColor(theme.colors.background.color()),
+            BorderColor::all(theme.colors.separator.color()),
+        ));
+        app.world_mut()
+            .spawn((LiveDot, BackgroundColor(theme.colors.text_disabled.color())));
+        app.world_mut()
+            .spawn((LiveText, TextColor(theme.colors.text_disabled.color())));
+        let slider = app
+            .world_mut()
+            .spawn((TimeRateSlider, SliderValue(0.0), SliderDragState::default()))
+            .id();
+        app.world_mut().spawn((
+            TimeSliderThumb,
+            Node {
+                left: percent(50),
+                ..default()
+            },
+            ChildOf(slider),
+        ));
+        app.update();
+
+        *app.world_mut().resource_mut::<TimeControlWrites>() = TimeControlWrites::default();
+        app.update();
+
+        let writes = app.world().resource::<TimeControlWrites>();
+        assert_eq!(writes.texts, 0);
+        assert_eq!(writes.backgrounds, 0);
+        assert_eq!(writes.borders, 0);
+        assert_eq!(writes.text_colors, 0);
+        assert_eq!(writes.nodes, 0);
     }
 
     #[test]
@@ -855,5 +1228,347 @@ mod tests {
         assert_eq!(counts.get(&TimeToastKind::Extrapolation), Some(&1));
         assert_eq!(counts.get(&TimeToastKind::SnappedLive), Some(&1));
         assert_eq!(counts.get(&TimeToastKind::RangeMaximum), None);
+    }
+
+    #[test]
+    fn toast_expiry_despawns_each_notice_once_at_its_own_deadline() {
+        let mut app = App::new();
+        app.insert_resource(Time::<()>::default())
+            .add_systems(Update, expire_time_toasts);
+        let first = app.world_mut().spawn(TimeToast { remaining_s: 0.5 }).id();
+        let second = app.world_mut().spawn(TimeToast { remaining_s: 1.5 }).id();
+
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_secs(1));
+        app.world_mut().run_schedule(Update);
+        assert!(app.world().get_entity(first).is_err());
+        assert!(app.world().get_entity(second).is_ok());
+
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_secs(1));
+        app.world_mut().run_schedule(Update);
+        assert!(app.world().get_entity(second).is_err());
+
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_secs(1));
+        app.world_mut().run_schedule(Update);
+        assert_eq!(
+            app.world_mut()
+                .query_filtered::<Entity, With<TimeToast>>()
+                .iter(app.world())
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn orbit_emphasis_messages_create_one_same_frame_toast_per_global_onset() {
+        const FRAME_S: f64 = 1.0 / 60.0;
+
+        let mut app = emphasis_toast_app();
+        assert_eq!(orbit_emphasis_toast_count(&mut app), 0);
+
+        let hundred_year_step = RateIndex::MAX.seconds_per_second() * FRAME_S;
+        advance_emphasis_toast_frame(&mut app, hundred_year_step, FRAME_S);
+        assert_eq!(
+            orbit_emphasis_toast_count(&mut app),
+            1,
+            "the onset emitted in OrbitEmphasisSet must be consumed in the same frame"
+        );
+
+        for _ in 0..8 {
+            advance_emphasis_toast_frame(&mut app, hundred_year_step, FRAME_S);
+        }
+        assert_eq!(
+            orbit_emphasis_toast_count(&mut app),
+            1,
+            "a held emphasis level must not emit per-frame toasts"
+        );
+
+        advance_emphasis_toast_frame(&mut app, FRAME_S, FRAME_S);
+        assert_eq!(orbit_emphasis_toast_count(&mut app), 1);
+
+        advance_emphasis_toast_frame(&mut app, hundred_year_step, FRAME_S);
+        assert_eq!(
+            orbit_emphasis_toast_count(&mut app),
+            2,
+            "release followed by re-entry is exactly one new onset"
+        );
+    }
+
+    #[test]
+    fn time_controls_fit_every_required_viewport_and_scale() {
+        for (width, height, scale) in test_layout::required_viewports() {
+            let mut app = test_layout::app(width, height, scale);
+            app.insert_resource(UiTheme::default())
+                .insert_resource(SimulationClock(SimClock::new(StartMode::default(), 0.0)))
+                .add_systems(Startup, spawn_time_bar);
+            test_layout::settle(&mut app);
+
+            let world = app.world_mut();
+            let root = world
+                .query_filtered::<Entity, With<TimeBarRoot>>()
+                .single(world)
+                .unwrap();
+            let group = world.get::<TabGroup>(root).unwrap();
+            assert_eq!(group.order, 20);
+            assert!(!group.modal);
+            let root_rect = node_rect(world, root);
+            let mut controls = world.query_filtered::<Entity, Or<(
+                With<TimeEditFieldComponent>,
+                With<PlayPauseButton>,
+                With<TimeRateSlider>,
+                With<LiveChip>,
+            )>>();
+            let controls: Vec<_> = controls.iter(world).collect();
+            assert_eq!(controls.len(), 5);
+            for entity in controls {
+                let rect = node_rect(world, entity);
+                assert!(
+                    rect.min.x >= root_rect.min.x - 1.0
+                        && rect.max.x <= root_rect.max.x + 1.0
+                        && rect.min.y >= root_rect.min.y - 1.0
+                        && rect.max.y <= root_rect.max.y + 1.0,
+                    "{width}×{height} scale {scale}: time control {entity:?} {rect:?} escaped {root_rect:?}"
+                );
+            }
+
+            let mut indices = world.query_filtered::<&TabIndex, Or<(
+                With<TimeEditFieldComponent>,
+                With<PlayPauseButton>,
+                With<TimeRateSlider>,
+                With<LiveChip>,
+            )>>();
+            let mut indices: Vec<_> = indices.iter(world).map(|index| index.0).collect();
+            indices.sort_unstable();
+            assert_eq!(indices, vec![0, 1, 2, 3, 4]);
+        }
+    }
+
+    #[test]
+    fn active_toasts_stay_bounded_wrapped_and_separate_at_required_viewports() {
+        const LONG_NOTICE: &str = "Orbit paths are simplified outside the supported interval; return to the supported interval for full orbital precision.";
+
+        for (width, height, scale) in test_layout::required_viewports() {
+            let theme = UiTheme::default();
+            let mut app = test_layout::app(width, height, scale);
+            app.insert_resource(theme)
+                .insert_resource(SimulationClock(SimClock::new(StartMode::default(), 0.0)))
+                .add_systems(Startup, spawn_time_bar);
+            test_layout::settle(&mut app);
+
+            let stack = app
+                .world_mut()
+                .query_filtered::<Entity, With<TimeToastStack>>()
+                .single(app.world())
+                .unwrap();
+            let toast_entity = app
+                .world_mut()
+                .spawn_scene(toast(
+                    theme,
+                    WidgetSpec::new(
+                        LONG_NOTICE,
+                        format!("Simulation notice: {LONG_NOTICE}"),
+                        WidgetVisualState::Default,
+                    ),
+                ))
+                .unwrap()
+                .insert((
+                    ChildOf(stack),
+                    TimeToast {
+                        remaining_s: TOAST_LIFETIME_S,
+                    },
+                ))
+                .id();
+            let second_toast = app
+                .world_mut()
+                .spawn_scene(toast(
+                    theme,
+                    WidgetSpec::new(
+                        "Simulation returned to the supported interval.",
+                        "Simulation notice: returned to the supported interval",
+                        WidgetVisualState::Default,
+                    ),
+                ))
+                .unwrap()
+                .insert((
+                    ChildOf(stack),
+                    TimeToast {
+                        remaining_s: TOAST_LIFETIME_S,
+                    },
+                ))
+                .id();
+            test_layout::settle(&mut app);
+
+            let world = app.world_mut();
+            let time_bar = world
+                .query_filtered::<Entity, With<TimeBarRoot>>()
+                .single(world)
+                .unwrap();
+            let text_entity = world
+                .get::<Children>(toast_entity)
+                .unwrap()
+                .iter()
+                .find(|entity| world.get::<Text>(*entity).is_some())
+                .unwrap();
+            let stack_rect = node_rect(world, stack);
+            let toast_rect = node_rect(world, toast_entity);
+            let second_toast_rect = node_rect(world, second_toast);
+            let text_rect = node_rect(world, text_entity);
+            let time_bar_rect = node_rect(world, time_bar);
+            let inset_px = theme.spacing.lg_px * scale;
+            let expected_stack_width = (390.0 * scale).min(width as f32 - 2.0 * inset_px);
+
+            assert!(
+                (stack_rect.width() - expected_stack_width).abs() <= 1.0,
+                "{width}×{height} scale {scale}: stack {stack_rect:?} did not resolve to {expected_stack_width}px"
+            );
+            assert!(
+                stack_rect.min.x >= inset_px - 1.0
+                    && stack_rect.max.x <= width as f32 - inset_px + 1.0,
+                "{width}×{height} scale {scale}: stack {stack_rect:?} escaped the viewport inset"
+            );
+            assert!(
+                toast_rect.min.x >= stack_rect.min.x - 1.0
+                    && toast_rect.max.x <= stack_rect.max.x + 1.0
+                    && text_rect.min.x >= toast_rect.min.x - 1.0
+                    && text_rect.max.x <= toast_rect.max.x + 1.0,
+                "{width}×{height} scale {scale}: toast/text {toast_rect:?}/{text_rect:?} escaped {stack_rect:?}"
+            );
+            assert!(
+                second_toast_rect.max.y <= time_bar_rect.min.y + 1.0,
+                "{width}×{height} scale {scale}: toast {second_toast_rect:?} overlapped time bar {time_bar_rect:?}"
+            );
+            assert!(
+                (second_toast_rect.min.y
+                    - toast_rect.max.y
+                    - theme.spacing.sm_px * scale)
+                    .abs()
+                    <= 1.0,
+                "{width}×{height} scale {scale}: toasts {toast_rect:?}/{second_toast_rect:?} lost their theme spacing"
+            );
+            let text_layout = world.get::<TextLayoutInfo>(text_entity).unwrap();
+            assert!(
+                text_layout.size.x * scale <= toast_rect.width() + 1.0
+                    && text_layout.size.y > theme.type_scale.body_px,
+                "{width}×{height} scale {scale}: toast text layout {:?} did not wrap within {toast_rect:?}",
+                text_layout.size
+            );
+            assert_eq!(world.get::<Pickable>(stack), Some(&Pickable::IGNORE));
+            assert_eq!(world.get::<Pickable>(toast_entity), Some(&Pickable::IGNORE));
+            assert_eq!(world.get::<Pickable>(text_entity), Some(&Pickable::IGNORE));
+        }
+    }
+
+    #[test]
+    fn ui_picking_reaches_the_underlying_target_through_an_active_toast() {
+        let theme = UiTheme::default();
+        let mut app = test_layout::app(800, 600, 1.0);
+        app.add_plugins((PickingPlugin, InteractionPlugin));
+        let target = app
+            .world_mut()
+            .spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: percent(100),
+                    height: percent(100),
+                    ..default()
+                },
+                Pickable::default(),
+                GlobalZIndex(100),
+            ))
+            .id();
+        let stack = app
+            .world_mut()
+            .spawn_scene(toast_stack(theme))
+            .unwrap()
+            .id();
+        let toast_entity = app
+            .world_mut()
+            .spawn_scene(toast(
+                theme,
+                WidgetSpec::new(
+                    "Simulation notice",
+                    "Simulation notice: test",
+                    WidgetVisualState::Default,
+                ),
+            ))
+            .unwrap()
+            .insert((
+                ChildOf(stack),
+                TimeToast {
+                    remaining_s: TOAST_LIFETIME_S,
+                },
+            ))
+            .id();
+        test_layout::settle(&mut app);
+
+        let toast_center = node_rect(app.world(), toast_entity).center();
+        let camera = app
+            .world_mut()
+            .query_filtered::<Entity, With<Camera2d>>()
+            .single(app.world())
+            .unwrap();
+        app.world_mut()
+            .entity_mut(camera)
+            .insert(RenderTarget::None {
+                size: UVec2::new(800, 600),
+            });
+        let node_entities: Vec<_> = app
+            .world_mut()
+            .query_filtered::<Entity, With<Node>>()
+            .iter(app.world())
+            .collect();
+        for entity in node_entities {
+            app.world_mut()
+                .entity_mut(entity)
+                .insert(InheritedVisibility::VISIBLE);
+        }
+        app.world_mut().spawn((
+            PointerId::Mouse,
+            PointerLocation::new(Location {
+                target: NormalizedRenderTarget::None {
+                    width: 800,
+                    height: 600,
+                },
+                position: toast_center,
+            }),
+        ));
+        let text_entity = app
+            .world()
+            .get::<Children>(toast_entity)
+            .unwrap()
+            .iter()
+            .find(|entity| app.world().get::<Text>(*entity).is_some())
+            .unwrap();
+        app.world_mut().insert_resource(UiStack {
+            partition: std::iter::once(0..4).collect(),
+            uinodes: vec![target, stack, toast_entity, text_entity],
+        });
+        app.world_mut().run_schedule(First);
+        app.world_mut().run_schedule(PreUpdate);
+
+        let hovered = app
+            .world()
+            .resource::<HoverMap>()
+            .get(&PointerId::Mouse)
+            .unwrap();
+        assert!(hovered.contains_key(&target));
+        assert!(!hovered.contains_key(&stack));
+        assert!(!hovered.contains_key(&toast_entity));
+        assert!(!hovered.contains_key(&text_entity));
+    }
+
+    fn node_rect(world: &World, entity: Entity) -> Rect {
+        let node = world.get::<ComputedNode>(entity).unwrap();
+        let center = world
+            .get::<UiGlobalTransform>(entity)
+            .unwrap()
+            .affine()
+            .translation;
+        Rect::from_center_size(center, node.size())
     }
 }
