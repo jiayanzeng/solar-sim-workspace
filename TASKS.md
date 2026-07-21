@@ -891,6 +891,36 @@ normalization after the WP5 and WP8 phases.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-18** — Completed a documentation-only review of the twelve newly
+  reported UI/gameplay requests and a separate repository-wide status audit.
+  `docs/ui-gameplay-request-architecture-review-2026-07-18.md` maps every
+  request to Rev C and current source, records correction outlines and
+  acceptance criteria, and identifies the items that need human rulings before
+  implementation: initial-body visual proxy/non-Sun scaling and comet tails,
+  +1 day/s default startup, removal of the architecture-required Moons layer,
+  and deterministic region-preset semantics. It recommends an integrated
+  projection integrity → camera/help aliases → selection/orbit picking → HUD
+  polish → description-content order; no source phase is authorized by the
+  report.
+
+  `docs/project-status-audit-2026-07-18.md` records WPs 0–15 complete, WP16
+  deferred, WP17 todo, and WP18 deferred; inventories the 66-body data/assets
+  and release gaps; and distinguishes current local evidence from hosted
+  delivery evidence. Fresh gates pass **345 workspace tests** (53 `sim-core` ·
+  241 `solar-sim` · 48 `xtask` library · 2 smoke · 1 active spot-check) and
+  **242 Steam-feature tests**, both zero-warning clippy configurations,
+  `cargo fmt --all -- --check`, the 16-asset texture metadata audit, the
+  66-body catalog dry-run plan, and `git diff --check`. Public GitHub inspection
+  found branch head `2b145af0` synced before this documentation change and 32
+  commits ahead of `main` with no PR, branch-head check runs, or branch-scoped
+  Actions run; latest `main` CI remains successful at `374f6905`. The audit
+  also records stale README/TASKS headline test counts, conflicting README
+  WP16 status, and the README's overbroad CI-trigger claim for later dedicated
+  maintenance.
+
+  No dashboard status, acceptance criterion, Open-question ruling, source,
+  dependency/lockfile, generated catalog, spot-check truth, physics tolerance,
+  architecture/agent file, or held WP16 Steam stash changed.
 - **2026-07-17** — Completed the integrated UI/gameplay corrective closeout.
   Re-read the complete approved audit, every phase record, and the cumulative
   source diff. UA-1 through UA-6 now close as a composed set: camera travel and
