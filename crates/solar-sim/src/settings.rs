@@ -2010,15 +2010,25 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system time after Unix epoch")
             .as_nanos();
-        let identifier = format!(
-            "com.github.jiayanzeng.solar-sim-test-{}-{nonce}",
-            std::process::id()
-        );
         let temporary_home = std::env::temp_dir().join(format!(
             "solar-sim-settings-relaunch-test-{}-{nonce}",
             std::process::id(),
         ));
         std::fs::create_dir(&temporary_home).expect("create isolated settings HOME");
+        // Bevy's Windows settings store resolves LocalAppData through the Known
+        // Folders API, which deliberately ignores HOME/XDG-style test overrides.
+        // An absolute test-only application name makes PathBuf::join retain this
+        // nonce-scoped directory on every desktop platform. Do not reintroduce a
+        // relative identifier here: it silently writes outside temporary_home on
+        // Windows and makes separate child processes observe platform state.
+        let settings_directory = temporary_home.join("bevy-settings");
+        let identifier = settings_directory
+            .to_str()
+            .expect("isolated settings path must be valid Unicode")
+            .to_owned();
+        let preferences = bevy::platform::dirs::preferences_dir()
+            .expect("desktop settings persistence requires a preferences directory");
+        assert_eq!(preferences.join(&identifier), settings_directory);
         let executable = std::env::current_exe().expect("current test executable");
         for phase in [
             "write",
@@ -2058,13 +2068,6 @@ mod tests {
             assert!(status.success(), "settings {phase} process failed");
         }
         std::fs::remove_dir_all(&temporary_home).expect("remove isolated settings HOME");
-        if let Some(preferences) = bevy::platform::dirs::preferences_dir() {
-            let platform_path = preferences.join(&identifier);
-            if platform_path.exists() {
-                std::fs::remove_dir_all(platform_path)
-                    .expect("remove platform settings test directory");
-            }
-        }
     }
 
     #[test]

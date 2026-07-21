@@ -45,7 +45,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 11 | Layers quick panel, right rail, Icons layer, UI-off mode | **✅ done** |
 | 12 | Search (alias-aware) + Menu browse with live counts | **✅ done** |
 | 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | **✅ done** |
-| 14 | Settings screen + render-recovery policies | **✅ done** |
+| 14 | Settings screen + render-recovery policies | **in-progress** |
 | 15 | Texture pass (2K KTX2) + visual polish + golden screenshots | **✅ done** |
 | 16 | Steam: Steamworks init, overlay spike, packaging/signing/depots | deferred |
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
@@ -890,6 +890,22 @@ or a `Cargo.toml` edit. Integrate the accepted correction with WP14 epoch
 normalization after the WP5 and WP8 phases.
 
 ## Change log (append-only; newest first)
+
+- **2026-07-21** — Reopened WP14 as the sole in-progress package after the
+  human authorized correction of PR #5's reproducible hosted-Windows failure.
+  Both the original job and failed-job rerun at commit `18abfd0` fail only
+  `settings::tests::explicit_reset_paths_survive_full_process_relaunch`: the
+  synchronous `write` child passes, then `read-before` loads defaults. Linux,
+  macOS, lint, and invariant checks pass. Re-read ARCHITECTURE §8.5 and §4.2,
+  the WP14 brief, Q15/Q17 rulings, the Phase 3 persistence acceptance, and the
+  pinned Bevy 0.19 settings/platform source. The test's HOME/XDG/APPDATA
+  overrides do not isolate Bevy's Windows settings path because that path is
+  obtained from `SHGetKnownFolderPath(FOLDERID_LocalAppData)`. Scope is limited
+  to making the full process-relaunch persistence proof deterministic and
+  isolated on every supported desktop OS without weakening any assertion or
+  changing production persistence, settings behavior, dependencies, or
+  architecture. The exact PR head already passed all 345 workspace tests
+  locally before this correction.
 
 - **2026-07-18** — Completed a documentation-only review of the twelve newly
   reported UI/gameplay requests and a separate repository-wide status audit.
