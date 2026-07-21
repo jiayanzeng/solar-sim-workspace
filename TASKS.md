@@ -889,6 +889,20 @@ state. The Bevy UI node and window-title fallback are insufficient. Preserve
 or a `Cargo.toml` edit. Integrate the accepted correction with WP14 epoch
 normalization after the WP5 and WP8 phases.
 
+### Q18 — OPEN.
+
+The opt-in WP17 reference-machine command with exactly `--smoke 60
+--expect-backend metal --reject-software-adapter --assert-nonblack` reached
+120.1 fps on the Apple M2 Pro and passed the adapter/backend checks on
+2026-07-21, but its one-shot primary-window readback was entirely black. An
+immediate otherwise-identical `--smoke 120` run passed at 117.4 fps with a
+nonblack 3456×2168 readback. This does not block the WP9 projection correction,
+whose real-GPU render completed successfully, but the exact WP17 60-frame gate
+cannot be claimed. Before WP17, determine whether this is a reproducible
+startup/readback-readiness defect to fix, or whether the human-owned gate should
+specify a readiness condition while retaining a hard nonblack result. Do not
+silently add retries or weaken the assertion.
+
 ## Change log (append-only; newest first)
 
 - **2026-07-21** — Completed the WP14 Windows relaunch correction and returned
@@ -936,6 +950,57 @@ normalization after the WP5 and WP8 phases.
   architecture. The exact PR head already passed all 345 workspace tests
   locally before this correction.
 
+- **2026-07-21** — Completed the WP9 projection-integrity correction and
+  returned WP9 to **✅ done**. Non-primary reticles now live under independent
+  absolute projection anchors instead of the decluttered accessible text-button
+  roots. Reticle centers therefore remain on exact body projections while text
+  alone takes deterministic alternative slots; visible reticles are fixed
+  declutter obstacles rather than movable label content. Contextual moon and
+  Major/All filtering, Layers/UI/Icons visibility, high-rate alpha, focus
+  cleanup, analytic inflated-sphere picking, and the Q16 rule that the Sun and
+  planets remain text-only are preserved. Stable frames compare desired anchor
+  values before mutation.
+
+  Two new regressions raise the workspace suite to **347 tests** (53
+  `sim-core` · 243 `solar-sim` · 48 `xtask` library · 2 smoke · 1 active
+  spot-check). They prove text displacement cannot move or overlap its exact
+  reticle anchor and sweep all 32 moons in all seven modeled parent systems at
+  the 1800/2300 range endpoints and J2000, across two camera orientations and
+  three zoom levels. Every visible center stays within 0.001 logical pixel of
+  Bevy's `world_to_viewport`, and unchanged frames write zero anchor
+  components. The startup hierarchy test pins all 57 architecture-valid
+  reticles to non-label anchors. Existing ray/sphere, contextual visibility,
+  layer, emphasis, replay, orbit, and propagation tests remain green.
+
+  Evidence: `cargo test` passes 347 tests; `cargo test -p solar-sim --features
+  steam` passes 244; default workspace and Steam-feature clippy pass with
+  warnings denied; formatting, the 16-texture metadata audit, 66-body catalog
+  dry-run, and `git diff --check` pass. A 120-frame real Apple M2 Pro Metal run
+  passed the hardware/backend/nonblack gates at 117.4 fps with a 3456×2168
+  readback. The preceding exact 60-frame WP17 command produced a black one-shot
+  readback despite 120.1 fps; Q18 records that separate release-gate issue, and
+  no retry or assertion weakening was introduced. No simulation/replay state,
+  picking math, orbit geometry, dependency, catalog/generated/truth asset,
+  physics tolerance, Steam/WP16 source, architecture, or agent-rule file
+  changed.
+- **2026-07-21** — Reopened WP9 as the sole in-progress package for the
+  human-authorized projection-integrity correction from PR #5 head `18abfd0`.
+  Re-read `ARCHITECTURE.md`, the root `AGENTS.md`, the WP9 brief, and
+  `docs/ui-gameplay-request-architecture-review-2026-07-18.md` §3.4 before
+  source work; `crates/solar-sim` has no nested agent file. The source audit
+  confirms that every non-primary reticle is currently parented to the
+  decluttered text-button root, so a moved moon label also moves the apparent
+  body marker. The scoped correction will give each reticle an independent
+  absolute projection anchor while leaving text as the accessible/clickable
+  declutter surface. It will preserve f64 body/orbit truth, floating-origin
+  conversion, contextual and layer visibility, high-rate emphasis, analytic
+  sphere picking, stable retained updates, and the Q16 text-only planet rule.
+  Tests will cover exact reticle-to-`world_to_viewport` alignment across moon
+  systems and zoom/view cases, text-only displacement, unchanged pick truth,
+  and stable-frame component writes. Pre-change `cargo test` passes the full
+  **345-test** workspace baseline with zero failures or skips. PR #5 remains
+  isolated; Linux, lint, and invariants are hosted-green while its macOS and
+  Windows jobs continue.
 - **2026-07-18** — Completed a documentation-only review of the twelve newly
   reported UI/gameplay requests and a separate repository-wide status audit.
   `docs/ui-gameplay-request-architecture-review-2026-07-18.md` maps every
