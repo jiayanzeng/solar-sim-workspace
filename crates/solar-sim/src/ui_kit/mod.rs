@@ -68,6 +68,7 @@ impl Plugin for HudPlugin {
                 crate::layers::LayersPlugin,
                 crate::time_bar::TimeBarPlugin,
                 crate::left_panel::LeftPanelPlugin,
+                crate::help::HelpPlugin,
             ))
             .add_systems(Startup, hud::spawn_top_bar)
             .add_systems(

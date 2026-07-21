@@ -844,7 +844,7 @@ fn activate_body_label(
     ownership: InteractionOwnership,
     mut commands: ResMut<SimCommandQueue>,
 ) {
-    if ownership.blocks_gameplay() {
+    if ownership.blocks_primary_click() {
         return;
     }
     let Ok(label) = labels.get(activate.entity) else {
@@ -882,7 +882,7 @@ fn pick_inflated_body_sphere(
     ownership: InteractionOwnership,
     mut commands: ResMut<SimCommandQueue>,
 ) {
-    if ownership.blocks_gameplay() || click.button != PointerButton::Primary {
+    if ownership.blocks_primary_click() || click.button != PointerButton::Primary {
         return;
     }
     let Ok((camera, camera_transform, projection)) = cameras.single() else {
@@ -980,7 +980,7 @@ fn distance3(left: [f64; 3], right: [f64; 3]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::input_intent::{InteractionContext, InteractionState};
+    use crate::input_intent::{InteractionContext, InteractionState, PrimaryDragState};
     use crate::search::BrowseUiState;
     use crate::{
         load_catalog_text, propagate_catalog, MoonVisibilityMode, PresentationState,
@@ -2028,7 +2028,7 @@ mod tests {
     }
 
     #[test]
-    fn text_and_modal_contexts_block_label_activation_from_canonical_state() {
+    fn text_modals_and_primary_drag_block_label_activation_from_canonical_state() {
         let loaded = catalog();
         let jupiter = loaded.index_of("jupiter").unwrap();
         let mut app = App::new();
@@ -2068,6 +2068,19 @@ mod tests {
             .open_settings();
         app.world_mut().trigger(Activate { entity: label });
 
+        {
+            let mut presentation = app.world_mut().resource_mut::<PresentationState>();
+            presentation.close_settings();
+            presentation.open_help();
+        }
+        app.world_mut().trigger(Activate { entity: label });
+
+        app.world_mut()
+            .resource_mut::<PresentationState>()
+            .close_help();
+        app.insert_resource(PrimaryDragState::crossed());
+        app.world_mut().trigger(Activate { entity: label });
+
         assert_eq!(
             app.world_mut()
                 .resource_mut::<SimCommandQueue>()
@@ -2078,7 +2091,7 @@ mod tests {
     }
 
     #[test]
-    fn modal_state_blocks_viewport_click_before_camera_queries_run() {
+    fn modal_and_primary_drag_state_block_viewport_click_before_camera_queries_run() {
         let mut browse = BrowseUiState::default();
         crate::search::consume_search_command(&SimCommand::SetBrowseOpen(true), &mut browse);
         let mut app = App::new();
@@ -2123,6 +2136,29 @@ mod tests {
             &mut app.world_mut().resource_mut::<BrowseUiState>(),
         );
         app.insert_resource(InteractionState::for_context(InteractionContext::TextEdit));
+        app.world_mut()
+            .trigger(Pointer::new(PointerId::Mouse, location, click, surface));
+
+        app.insert_resource(InteractionState::for_context(InteractionContext::Gameplay));
+        app.insert_resource(PrimaryDragState::crossed());
+        let location = Location {
+            target: NormalizedRenderTarget::Window(
+                WindowRef::Entity(window).normalize(None).unwrap(),
+            ),
+            position: Vec2::ZERO,
+        };
+        let click = Click {
+            button: PointerButton::Primary,
+            hit: HitData {
+                camera: Entity::PLACEHOLDER,
+                depth: 0.0,
+                position: None,
+                normal: None,
+                extra: None,
+            },
+            duration: Duration::ZERO,
+            count: 1,
+        };
         app.world_mut()
             .trigger(Pointer::new(PointerId::Mouse, location, click, surface));
 

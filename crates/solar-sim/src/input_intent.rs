@@ -5,6 +5,7 @@
 //! keyboard or mouse state; future UI widgets join at the command queue seam.
 
 use crate::control::{SimCommand, SimCommandQueue};
+use crate::help::HelpModalRoot;
 use crate::layers::HudSurface;
 use crate::search::{BrowseMenuRoot, BrowseUiState, SearchDropdownRoot};
 use crate::settings::SettingsScreenRoot;
@@ -33,6 +34,10 @@ enum KeyIntent {
     Play,
     Pause,
     TogglePlay,
+    SetDayRate,
+    ResetView,
+    OpenHelp,
+    CloseHelp,
     CloseSettings,
     CloseBrowse,
     #[cfg(debug_assertions)]
@@ -74,8 +79,20 @@ const KEY_BINDINGS: &[KeyBinding] = &[
         intent: KeyIntent::StepRate(-1),
     },
     KeyBinding {
+        key: KeyCode::ArrowLeft,
+        intent: KeyIntent::StepRate(-1),
+    },
+    KeyBinding {
         key: KeyCode::BracketRight,
         intent: KeyIntent::StepRate(1),
+    },
+    KeyBinding {
+        key: KeyCode::ArrowRight,
+        intent: KeyIntent::StepRate(1),
+    },
+    KeyBinding {
+        key: KeyCode::ArrowDown,
+        intent: KeyIntent::SetDayRate,
     },
     KeyBinding {
         key: KeyCode::Digit1,
@@ -92,6 +109,10 @@ const KEY_BINDINGS: &[KeyBinding] = &[
     KeyBinding {
         key: KeyCode::Space,
         intent: KeyIntent::TogglePlay,
+    },
+    KeyBinding {
+        key: KeyCode::Home,
+        intent: KeyIntent::ResetView,
     },
     #[cfg(debug_assertions)]
     KeyBinding {
@@ -110,6 +131,7 @@ pub(crate) enum InteractionContext {
     TextEdit,
     BrowseModal,
     SettingsModal,
+    HelpModal,
 }
 
 #[derive(Resource, Debug, Default)]
@@ -126,6 +148,29 @@ struct PointerCaptureState {
     pointer_over_scroll_surface: bool,
     pointer_over_hud_surface: bool,
 }
+
+/// Primary-pointer gesture latch shared with label and viewport activation.
+/// Bevy emits `Click` before `DragEnd`, so the latch remains true precisely
+/// long enough to keep a threshold-crossing orbit gesture from also selecting.
+#[derive(Resource, Debug, Default)]
+pub(crate) struct PrimaryDragState {
+    crossed_threshold: bool,
+}
+
+impl PrimaryDragState {
+    pub(crate) const fn blocks_click(&self) -> bool {
+        self.crossed_threshold
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn crossed() -> Self {
+        Self {
+            crossed_threshold: true,
+        }
+    }
+}
+
+const PRIMARY_DRAG_THRESHOLD_PX: f32 = 5.0;
 
 #[cfg(test)]
 impl InteractionState {
@@ -163,6 +208,7 @@ impl InteractionInputs<'_, '_> {
             focused_editable || focused_search_dropdown,
             self.browse.is_open(),
             self.presentation.is_settings_open(),
+            self.presentation.is_help_open(),
         )
     }
 
@@ -177,6 +223,7 @@ impl InteractionInputs<'_, '_> {
 pub(crate) struct InteractionOwnership<'w, 's> {
     current: InteractionInputs<'w, 's>,
     state: Option<Res<'w, InteractionState>>,
+    primary_drag: Option<Res<'w, PrimaryDragState>>,
 }
 
 impl InteractionOwnership<'_, '_> {
@@ -194,6 +241,14 @@ impl InteractionOwnership<'_, '_> {
 
     pub(crate) fn blocks_gameplay(&self) -> bool {
         !matches!(self.context(), InteractionContext::Gameplay)
+    }
+
+    pub(crate) fn blocks_primary_click(&self) -> bool {
+        self.blocks_gameplay()
+            || self
+                .primary_drag
+                .as_deref()
+                .is_some_and(PrimaryDragState::blocks_click)
     }
 
     fn focused_widget_owns_activation(&self) -> bool {
@@ -232,6 +287,7 @@ impl Plugin for InputIntentPlugin {
         app.init_resource::<InputIntentQueue>()
             .init_resource::<InteractionState>()
             .init_resource::<PointerCaptureState>()
+            .init_resource::<PrimaryDragState>()
             .configure_sets(
                 Update,
                 (ModalSurfaceSet::Rebuild, ModalSurfaceSet::Focus)
@@ -258,7 +314,10 @@ impl Plugin for InputIntentPlugin {
                     .after(ModalSurfaceSet::Focus)
                     .in_set(SimulationSet::Render),
             )
-            .add_observer(scroll_registered_surface_into_view);
+            .add_observer(scroll_registered_surface_into_view)
+            .add_observer(begin_primary_drag)
+            .add_observer(collect_primary_drag)
+            .add_observer(finish_primary_drag);
     }
 }
 
@@ -281,6 +340,7 @@ struct ModalFocusParams<'w, 's> {
     restore_affordances: Query<'w, 's, Entity, With<UiRestoreAffordance>>,
     browse_roots: Query<'w, 's, Entity, With<BrowseMenuRoot>>,
     settings_roots: Query<'w, 's, Entity, With<SettingsScreenRoot>>,
+    help_roots: Query<'w, 's, Entity, With<HelpModalRoot>>,
     tab_indices: Query<'w, 's, (Entity, &'static TabIndex)>,
     parents: Query<'w, 's, &'static ChildOf>,
     focus: ResMut<'w, InputFocus>,
@@ -294,6 +354,7 @@ fn reconcile_modal_focus(params: ModalFocusParams) {
         restore_affordances,
         browse_roots,
         settings_roots,
+        help_roots,
         tab_indices,
         parents,
         mut focus,
@@ -318,6 +379,8 @@ fn reconcile_modal_focus(params: ModalFocusParams) {
         browse_roots.single().ok()
     } else if presentation.is_settings_open() {
         settings_roots.single().ok()
+    } else if presentation.is_help_open() {
+        help_roots.single().ok()
     } else {
         None
     };
@@ -450,6 +513,7 @@ const fn resolve_interaction_context(
     focused_editable: bool,
     browse_open: bool,
     settings_open: bool,
+    help_open: bool,
 ) -> InteractionContext {
     if focused_editable {
         InteractionContext::TextEdit
@@ -457,6 +521,8 @@ const fn resolve_interaction_context(
         InteractionContext::BrowseModal
     } else if settings_open {
         InteractionContext::SettingsModal
+    } else if help_open {
+        InteractionContext::HelpModal
     } else {
         InteractionContext::Gameplay
     }
@@ -489,6 +555,11 @@ fn collect_raw_intents(
     ownership: InteractionOwnership,
 ) {
     match ownership.context() {
+        InteractionContext::HelpModal => {
+            if keys.just_pressed(KeyCode::Escape) {
+                intents.0.push(InputIntent::Key(KeyIntent::CloseHelp));
+            }
+        }
         InteractionContext::SettingsModal => {
             if keys.just_pressed(KeyCode::Escape) {
                 intents.0.push(InputIntent::Key(KeyIntent::CloseSettings));
@@ -501,6 +572,9 @@ fn collect_raw_intents(
         }
         InteractionContext::TextEdit => {}
         InteractionContext::Gameplay => {
+            if keys.just_pressed(KeyCode::Escape) {
+                intents.0.push(InputIntent::Key(KeyIntent::OpenHelp));
+            }
             let focused_widget_owns_activation = ownership.focused_widget_owns_activation();
             for binding in KEY_BINDINGS {
                 if binding.key == KeyCode::Space && focused_widget_owns_activation {
@@ -541,6 +615,58 @@ fn collect_raw_intents(
     }
 }
 
+fn collect_primary_drag(
+    mut drag: On<Pointer<Drag>>,
+    hud_surfaces: Query<Entity, With<HudSurface>>,
+    parents: Query<&ChildOf>,
+    current: InteractionInputs,
+    interaction: Res<InteractionState>,
+    mut state: ResMut<PrimaryDragState>,
+    mut intents: ResMut<InputIntentQueue>,
+) {
+    let context = if interaction.context == InteractionContext::Gameplay {
+        current.context()
+    } else {
+        interaction.context
+    };
+    if drag.button != PointerButton::Primary
+        || context != InteractionContext::Gameplay
+        || hud_surfaces
+            .iter()
+            .any(|root| is_descendant_of(drag.entity, root, &parents))
+    {
+        return;
+    }
+    if drag.distance.length() < PRIMARY_DRAG_THRESHOLD_PX {
+        return;
+    }
+    let delta = if state.crossed_threshold {
+        drag.delta
+    } else {
+        state.crossed_threshold = true;
+        // Include movement accumulated before the threshold was crossed so
+        // primary and secondary viewport drags have the same final orbit.
+        drag.distance
+    };
+    intents.0.push(InputIntent::Orbit {
+        delta_yaw: f64::from(delta.x),
+        delta_pitch: f64::from(delta.y),
+    });
+    drag.propagate(false);
+}
+
+fn begin_primary_drag(press: On<Pointer<Press>>, mut state: ResMut<PrimaryDragState>) {
+    if press.button == PointerButton::Primary {
+        state.crossed_threshold = false;
+    }
+}
+
+fn finish_primary_drag(drag: On<Pointer<DragEnd>>, mut state: ResMut<PrimaryDragState>) {
+    if drag.button == PointerButton::Primary {
+        state.crossed_threshold = false;
+    }
+}
+
 fn translate_intents(
     mut intents: ResMut<InputIntentQueue>,
     settings: Res<AppSettings>,
@@ -563,6 +689,10 @@ fn intent_to_command(intent: InputIntent) -> SimCommand {
         InputIntent::Key(KeyIntent::Play) => SimCommand::Play,
         InputIntent::Key(KeyIntent::Pause) => SimCommand::Pause,
         InputIntent::Key(KeyIntent::TogglePlay) => SimCommand::TogglePlay,
+        InputIntent::Key(KeyIntent::SetDayRate) => SimCommand::SetRate(day_rate()),
+        InputIntent::Key(KeyIntent::ResetView) => SimCommand::ResetView,
+        InputIntent::Key(KeyIntent::OpenHelp) => SimCommand::OpenHelp,
+        InputIntent::Key(KeyIntent::CloseHelp) => SimCommand::CloseHelp,
         InputIntent::Key(KeyIntent::CloseSettings) => SimCommand::CloseSettings,
         InputIntent::Key(KeyIntent::CloseBrowse) => SimCommand::SetBrowseOpen(false),
         #[cfg(debug_assertions)]
@@ -576,6 +706,12 @@ fn intent_to_command(intent: InputIntent) -> SimCommand {
         },
         InputIntent::Dolly { delta } => dolly_command(delta),
     }
+}
+
+fn day_rate() -> RateIndex {
+    // Index 4 is frozen as +1 day/s by ARCHITECTURE §4.2. Avoid exposing a
+    // second time-ladder constant or panicking if that core contract changes.
+    RateIndex::new(4).unwrap_or(RateIndex::REAL)
 }
 
 fn apply_axis_inversion(
@@ -626,6 +762,7 @@ mod tests {
         ZOOM_OUT_DOLLY_DELTA,
     };
     use bevy::{
+        camera::NormalizedRenderTarget,
         color::Alpha,
         ecs::entity::EntityHashMap,
         gizmos::GizmoAsset,
@@ -634,8 +771,11 @@ mod tests {
             ButtonState, InputPlugin,
         },
         input_focus::{FocusCause, FocusedInput, InputDispatchPlugin, InputFocusPlugin},
-        picking::{backend::HitData, pointer::PointerId},
-        window::PrimaryWindow,
+        picking::{
+            backend::HitData,
+            pointer::{Location, PointerId},
+        },
+        window::{PrimaryWindow, WindowRef},
     };
     use sim_core::time::{SimClock, StartMode};
     use std::{collections::HashSet, time::Duration};
@@ -669,11 +809,192 @@ mod tests {
     }
 
     #[test]
+    fn new_camera_and_rate_aliases_match_the_existing_semantic_commands() {
+        let command_for = |key| {
+            let intent = KEY_BINDINGS
+                .iter()
+                .find_map(|binding| (binding.key == key).then_some(binding.intent))
+                .unwrap();
+            intent_to_command(InputIntent::Key(intent))
+        };
+
+        assert_eq!(
+            command_for(KeyCode::ArrowLeft),
+            command_for(KeyCode::BracketLeft)
+        );
+        assert_eq!(
+            command_for(KeyCode::ArrowRight),
+            command_for(KeyCode::BracketRight)
+        );
+        assert_eq!(
+            command_for(KeyCode::ArrowDown),
+            SimCommand::SetRate(day_rate())
+        );
+        assert_eq!(day_rate().label(), "1 DAY/S");
+        assert_eq!(command_for(KeyCode::Home), SimCommand::ResetView);
+    }
+
+    #[test]
+    fn escape_opens_help_only_from_gameplay_and_closes_it_as_the_modal_owner() {
+        let mut open = interaction_test_app(false, false);
+        open.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Escape);
+        open.update();
+        assert_eq!(
+            open.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .collect::<Vec<_>>(),
+            vec![SimCommand::OpenHelp]
+        );
+
+        let mut close = interaction_test_app(false, false);
+        close
+            .world_mut()
+            .resource_mut::<PresentationState>()
+            .open_help();
+        {
+            let mut keys = close.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            for key in [
+                KeyCode::Escape,
+                KeyCode::ArrowLeft,
+                KeyCode::ArrowRight,
+                KeyCode::ArrowDown,
+                KeyCode::Home,
+                KeyCode::Space,
+            ] {
+                keys.press(key);
+            }
+        }
+        close.update();
+        assert_eq!(
+            close
+                .world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .collect::<Vec<_>>(),
+            vec![SimCommand::CloseHelp]
+        );
+        assert_eq!(
+            close.world().resource::<InteractionState>().context(),
+            InteractionContext::HelpModal
+        );
+    }
+
+    #[test]
+    fn primary_drag_threshold_matches_right_drag_and_hud_ownership() {
+        fn location(window: Entity) -> Location {
+            Location {
+                target: NormalizedRenderTarget::Window(
+                    WindowRef::Entity(window).normalize(None).unwrap(),
+                ),
+                position: Vec2::new(100.0, 100.0),
+            }
+        }
+
+        let mut primary = interaction_test_app(false, false);
+        let window = primary.world_mut().spawn_empty().id();
+        let target = primary.world_mut().spawn_empty().id();
+        primary.world_mut().trigger(Pointer::new(
+            PointerId::Mouse,
+            location(window),
+            Drag {
+                button: PointerButton::Primary,
+                distance: Vec2::new(3.0, -2.0),
+                delta: Vec2::new(3.0, -2.0),
+            },
+            target,
+        ));
+        assert!(!primary
+            .world()
+            .resource::<PrimaryDragState>()
+            .blocks_click());
+        primary.world_mut().trigger(Pointer::new(
+            PointerId::Mouse,
+            location(window),
+            Drag {
+                button: PointerButton::Primary,
+                distance: Vec2::new(6.0, -4.0),
+                delta: Vec2::new(3.0, -2.0),
+            },
+            target,
+        ));
+        assert!(primary
+            .world()
+            .resource::<PrimaryDragState>()
+            .blocks_click());
+        primary.update();
+        let primary_command = primary
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .next()
+            .unwrap();
+
+        let mut secondary = interaction_test_app(false, false);
+        secondary
+            .world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Right);
+        secondary.world_mut().write_message(MouseMotion {
+            delta: Vec2::new(6.0, -4.0),
+        });
+        secondary.update();
+        let secondary_command = secondary
+            .world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .drain()
+            .next()
+            .unwrap();
+        assert_eq!(primary_command, secondary_command);
+
+        primary.world_mut().trigger(Pointer::new(
+            PointerId::Mouse,
+            location(window),
+            DragEnd {
+                button: PointerButton::Primary,
+                distance: Vec2::new(6.0, -4.0),
+            },
+            target,
+        ));
+        assert!(!primary
+            .world()
+            .resource::<PrimaryDragState>()
+            .blocks_click());
+
+        let mut hud = interaction_test_app(false, false);
+        let window = hud.world_mut().spawn_empty().id();
+        let root = hud.world_mut().spawn(HudSurface).id();
+        let target = hud.world_mut().spawn(ChildOf(root)).id();
+        hud.world_mut().trigger(Pointer::new(
+            PointerId::Mouse,
+            location(window),
+            Drag {
+                button: PointerButton::Primary,
+                distance: Vec2::new(20.0, 0.0),
+                delta: Vec2::new(20.0, 0.0),
+            },
+            target,
+        ));
+        hud.update();
+        assert_eq!(
+            hud.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .count(),
+            0
+        );
+        assert!(!hud.world().resource::<PrimaryDragState>().blocks_click());
+    }
+
+    #[test]
     fn modal_and_text_contexts_block_gameplay_and_escape_has_one_owner() {
         for context in [
             InteractionContext::TextEdit,
             InteractionContext::BrowseModal,
             InteractionContext::SettingsModal,
+            InteractionContext::HelpModal,
         ] {
             assert!(InteractionState {
                 context,
@@ -789,6 +1110,10 @@ mod tests {
             KeyCode::Digit1,
             KeyCode::BracketLeft,
             KeyCode::BracketRight,
+            KeyCode::ArrowLeft,
+            KeyCode::ArrowRight,
+            KeyCode::ArrowDown,
+            KeyCode::Home,
         ] {
             app.world_mut()
                 .resource_mut::<ButtonInput<KeyCode>>()
@@ -840,6 +1165,10 @@ mod tests {
             KeyCode::Digit1,
             KeyCode::BracketLeft,
             KeyCode::BracketRight,
+            KeyCode::ArrowLeft,
+            KeyCode::ArrowRight,
+            KeyCode::ArrowDown,
+            KeyCode::Home,
         ] {
             app.world_mut()
                 .resource_mut::<ButtonInput<KeyCode>>()
@@ -1166,19 +1495,23 @@ mod tests {
     #[test]
     fn defensive_context_priority_matches_escape_acceptance_order() {
         assert_eq!(
-            resolve_interaction_context(true, true, true),
+            resolve_interaction_context(true, true, true, true),
             InteractionContext::TextEdit
         );
         assert_eq!(
-            resolve_interaction_context(false, true, true),
+            resolve_interaction_context(false, true, true, true),
             InteractionContext::BrowseModal
         );
         assert_eq!(
-            resolve_interaction_context(false, false, true),
+            resolve_interaction_context(false, false, true, true),
             InteractionContext::SettingsModal
         );
         assert_eq!(
-            resolve_interaction_context(false, false, false),
+            resolve_interaction_context(false, false, false, true),
+            InteractionContext::HelpModal
+        );
+        assert_eq!(
+            resolve_interaction_context(false, false, false, false),
             InteractionContext::Gameplay
         );
     }
@@ -1186,6 +1519,9 @@ mod tests {
     #[test]
     fn malformed_overlapping_modals_escape_closes_only_browse() {
         let mut app = interaction_test_app(true, true);
+        app.world_mut()
+            .resource_mut::<PresentationState>()
+            .open_help();
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .press(KeyCode::Escape);
@@ -1280,6 +1616,11 @@ mod tests {
             .world_mut()
             .spawn((TabIndex(10), ChildOf(settings_root)))
             .id();
+        let help_root = app.world_mut().spawn(HelpModalRoot).id();
+        let help_button = app
+            .world_mut()
+            .spawn((TabIndex(10), ChildOf(help_root)))
+            .id();
         app.world_mut()
             .resource_mut::<InputFocus>()
             .set(settings_button, FocusCause::Navigated);
@@ -1307,6 +1648,22 @@ mod tests {
         assert_eq!(
             app.world().resource::<InputFocus>().get(),
             Some(settings_button)
+        );
+
+        {
+            let mut presentation = app.world_mut().resource_mut::<PresentationState>();
+            presentation.close_settings();
+            presentation.open_help();
+        }
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(settings_button, FocusCause::Navigated);
+
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<InputFocus>().get(),
+            Some(help_button)
         );
     }
 

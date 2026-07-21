@@ -223,6 +223,7 @@ impl LayerState {
 pub struct PresentationState {
     fullscreen: bool,
     settings_open: bool,
+    help_open: bool,
     layers_panel_open: bool,
 }
 
@@ -231,6 +232,7 @@ impl PresentationState {
         Self {
             fullscreen,
             settings_open: false,
+            help_open: false,
             layers_panel_open: false,
         }
     }
@@ -241,6 +243,10 @@ impl PresentationState {
 
     pub const fn is_settings_open(self) -> bool {
         self.settings_open
+    }
+
+    pub const fn is_help_open(self) -> bool {
+        self.help_open
     }
 
     pub const fn is_layers_panel_open(self) -> bool {
@@ -261,6 +267,14 @@ impl PresentationState {
 
     pub(crate) fn close_settings(&mut self) {
         self.settings_open = false;
+    }
+
+    pub(crate) fn open_help(&mut self) {
+        self.help_open = true;
+    }
+
+    pub(crate) fn close_help(&mut self) {
+        self.help_open = false;
     }
 
     pub(crate) fn set_layers_panel_open(&mut self, open: bool) {

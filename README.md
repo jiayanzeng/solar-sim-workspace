@@ -48,8 +48,9 @@ for smooth frame rates. The app starts at the configured 2026 epoch (JD
 
 ### In-app controls
 
-Mouse: drag to orbit the focused body, scroll to dolly (clamped between the
-body surface and Sedna's aphelion). On-screen UI: time bar (detented rate
+Mouse: left-drag or right-drag the scene to orbit the focused body; a short
+primary click still selects. Scroll to dolly (clamped between the body surface
+and Sedna's aphelion). On-screen UI: time bar (detented rate
 slider, editable date/clock, LIVE chip), search, breadcrumb, left panel
 (Info / collections / View Options), layers quick panel, and the right rail.
 
@@ -58,10 +59,12 @@ Keyboard (see `crates/solar-sim/src/input_intent.rs` for the source of truth):
 | Key | Action |
 |---|---|
 | `O` / `M` / `S` / `I` | travel to Sun / Mercury / Sedna / Io |
-| `[` / `]` | step time rate down / up the ladder |
+| `←` / `→` or `[` / `]` | step time rate down / up the signed ladder |
+| `↓` | select +1 day/s without changing play/pause state |
 | `1` | real-time rate |
 | `R` / `P` / `Space` | play / pause / toggle |
-| `Escape` | revert the active text edit, otherwise close Browse or Settings |
+| `Home` | reset to the Sun-focused startup angle and full-system framing |
+| `Escape` | revert text, close the active modal, or open the controls guide from the scene |
 | `F9` | simulate device loss (debug builds only; exercises render recovery) |
 
 Open Settings from the right rail. Its 39 controls accept pointer input, the

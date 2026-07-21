@@ -10,6 +10,7 @@
 mod control;
 mod formatting;
 mod golden;
+mod help;
 mod input_intent;
 mod labels;
 mod layers;
