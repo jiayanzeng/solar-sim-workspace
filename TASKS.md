@@ -45,7 +45,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 11 | Layers quick panel, right rail, Icons layer, UI-off mode | **✅ done** |
 | 12 | Search (alias-aware) + Menu browse with live counts | **✅ done** |
 | 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | **✅ done** |
-| 14 | Settings screen + render-recovery policies | **in-progress** |
+| 14 | Settings screen + render-recovery policies | **✅ done** |
 | 15 | Texture pass (2K KTX2) + visual polish + golden screenshots | **✅ done** |
 | 16 | Steam: Steamworks init, overlay spike, packaging/signing/depots | deferred |
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
@@ -890,6 +890,20 @@ or a `Cargo.toml` edit. Integrate the accepted correction with WP14 epoch
 normalization after the WP5 and WP8 phases.
 
 ## Change log (append-only; newest first)
+
+- **2026-07-21** — Completed the WP14 Windows relaunch correction and returned
+  WP14 to **✅ done**. Hosted run `29796611174` passed all five required checks;
+  Windows job `88529124172` passed the complete workspace test suite (including
+  the full-process settings relaunch proof), the Steam-feature release build,
+  the default release build, and the software-adapter smoke in 53m51s. The
+  regression test now uses an absolute nonce-scoped application identifier for
+  isolated storage while preserving the child's real platform profile
+  environment, so Windows Known Folder discovery succeeds without touching
+  production persistence behavior. Local evidence remains all 345 workspace
+  tests, all 242 Steam-feature tests, both zero-warning clippy configurations,
+  formatting, catalog dry-run, texture metadata, and diff checks green. No
+  production code, dependency, generated catalog, or architecture contract was
+  changed.
 
 - **2026-07-21** — Refined the WP14 Windows relaunch correction after hosted
   run `29794874441` showed that an absolute test application identifier alone
