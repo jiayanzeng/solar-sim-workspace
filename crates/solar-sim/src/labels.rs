@@ -48,6 +48,17 @@ struct LabelVisual {
 #[derive(Component, Debug, Clone, Copy)]
 pub(crate) struct BodyReticle;
 
+/// Exact viewport-space owner for a reticle. The visual reticle is deliberately
+/// not parented to the decluttered text button: moving text must never move the
+/// apparent body marker away from simulation truth.
+#[derive(Component, Debug, Clone, Copy)]
+struct BodyReticleAnchor {
+    body_index: usize,
+}
+
+type LabelRootFilter = (With<BodyLabel>, Without<BodyReticleAnchor>);
+type ReticleAnchorFilter = (With<BodyReticleAnchor>, Without<BodyLabel>);
+
 #[derive(Component, Debug, Clone, Copy)]
 pub(crate) struct BodyLabelText;
 
@@ -131,14 +142,24 @@ pub fn declutter_labels(candidates: &[DeclutterCandidate]) -> Vec<usize> {
     accepted_indices
 }
 
+#[cfg(test)]
 fn layout_projected_labels(
     candidates: &[DeclutterCandidate],
     viewport_bounds: ScreenRect,
 ) -> HashMap<usize, ScreenRect> {
+    layout_projected_labels_around(candidates, viewport_bounds, &[])
+}
+
+fn layout_projected_labels_around(
+    candidates: &[DeclutterCandidate],
+    viewport_bounds: ScreenRect,
+    fixed_obstacles: &[ScreenRect],
+) -> HashMap<usize, ScreenRect> {
     let mut ordered = candidates.to_vec();
     ordered.sort_by_key(|candidate| (candidate.priority, candidate.body_index));
 
-    let mut accepted_rects = Vec::with_capacity(ordered.len());
+    let mut accepted_rects = Vec::with_capacity(fixed_obstacles.len() + ordered.len());
+    accepted_rects.extend_from_slice(fixed_obstacles);
     let mut placements = HashMap::with_capacity(ordered.len());
     for candidate in ordered {
         let may_nudge = matches!(
@@ -279,11 +300,10 @@ fn spawn_labels(
                     position_type: PositionType::Absolute,
                     left: px(-10_000),
                     top: px(-10_000),
-                    width: px(visual.size(true, true).x),
+                    width: px(visual.text_size().x),
                     height: px(visual.height_px),
                     display: Display::None,
                     align_items: AlignItems::Center,
-                    column_gap: px(RETICLE_GAP_PX),
                     ..default()
                 },
                 BackgroundColor(Color::NONE),
@@ -294,6 +314,24 @@ fn spawn_labels(
 
         if !primary {
             let (red, green, blue) = body.color_srgb;
+            let reticle_anchor = commands
+                .spawn((
+                    Name::new(format!("{} reticle anchor", body.name)),
+                    BodyReticleAnchor { body_index: index },
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: px(-10_000),
+                        top: px(-10_000),
+                        width: px(RETICLE_SIZE_PX),
+                        height: px(RETICLE_SIZE_PX),
+                        display: Display::None,
+                        ..default()
+                    },
+                    BackgroundColor(Color::NONE),
+                    Pickable::IGNORE,
+                    GlobalZIndex(LABEL_Z_INDEX),
+                ))
+                .id();
             commands.spawn((
                 BodyReticle,
                 LabelEmphasisColor {
@@ -310,7 +348,7 @@ fn spawn_labels(
                 BorderColor::all(Color::srgb_u8(red, green, blue)),
                 BackgroundColor(Color::NONE),
                 Pickable::IGNORE,
-                ChildOf(root),
+                ChildOf(reticle_anchor),
             ));
         }
 
@@ -368,32 +406,29 @@ fn label_visual(text: &str, primary: bool, theme: UiTheme) -> LabelVisual {
 }
 
 impl LabelVisual {
-    fn size(self, labels_visible: bool, icons_visible: bool) -> Vec2 {
-        let width = if self.primary {
-            labels_visible.then_some(self.text_width_px)
-        } else {
-            match (labels_visible, icons_visible) {
-                (true, true) => Some(RETICLE_SIZE_PX + RETICLE_GAP_PX + self.text_width_px),
-                (true, false) => Some(self.text_width_px),
-                (false, true) => Some(RETICLE_SIZE_PX),
-                (false, false) => None,
-            }
-        }
-        .unwrap_or(0.0);
-        Vec2::new(width, self.height_px)
+    fn text_size(self) -> Vec2 {
+        Vec2::new(self.text_width_px, self.height_px)
     }
 
-    fn offset(self, labels_visible: bool, icons_visible: bool) -> Vec2 {
+    fn text_offset(self, icons_visible: bool) -> Vec2 {
         if self.primary {
             Vec2::new(LABEL_ANCHOR_GAP_PX, -self.height_px * 0.5)
         } else if icons_visible {
-            Vec2::new(-RETICLE_SIZE_PX * 0.5, -self.height_px * 0.5)
-        } else if labels_visible {
-            Vec2::new(LABEL_ANCHOR_GAP_PX, -self.height_px * 0.5)
+            Vec2::new(
+                RETICLE_SIZE_PX * 0.5 + RETICLE_GAP_PX,
+                -self.height_px * 0.5,
+            )
         } else {
-            Vec2::ZERO
+            Vec2::new(LABEL_ANCHOR_GAP_PX, -self.height_px * 0.5)
         }
     }
+}
+
+fn projected_reticle_rect(projected: Vec2) -> ScreenRect {
+    ScreenRect::from_min_size(
+        projected - Vec2::splat(RETICLE_SIZE_PX * 0.5),
+        Vec2::splat(RETICLE_SIZE_PX),
+    )
 }
 
 #[derive(SystemParam)]
@@ -475,7 +510,8 @@ fn sync_label_layer_children(
 fn project_and_declutter_labels(
     camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     resources: LabelRenderResources,
-    mut labels: Query<(Entity, &BodyLabel, &LabelVisual, &mut Node)>,
+    mut labels: Query<(Entity, &BodyLabel, &LabelVisual, &mut Node), LabelRootFilter>,
+    mut reticle_anchors: Query<(&BodyReticleAnchor, &mut Node), ReticleAnchorFilter>,
     mut focus: Option<ResMut<bevy::input_focus::InputFocus>>,
 ) {
     let (Some(loaded), Some(states), Some(controller), Some(extents)) = (
@@ -485,14 +521,17 @@ fn project_and_declutter_labels(
         resources.extents,
     ) else {
         hide_all_labels(&mut labels, focus.as_deref_mut());
+        hide_all_reticle_anchors(&mut reticle_anchors);
         return;
     };
     let Ok((camera, camera_transform)) = camera_query.single() else {
         hide_all_labels(&mut labels, focus.as_deref_mut());
+        hide_all_reticle_anchors(&mut reticle_anchors);
         return;
     };
     let Some(viewport_size) = camera.logical_viewport_size() else {
         hide_all_labels(&mut labels, focus.as_deref_mut());
+        hide_all_reticle_anchors(&mut reticle_anchors);
         return;
     };
 
@@ -531,6 +570,7 @@ fn project_and_declutter_labels(
         view_options: resources.view_options.as_deref(),
     };
     let mut candidates = Vec::with_capacity(loaded.catalog.bodies.len());
+    let mut reticle_placements = HashMap::with_capacity(loaded.catalog.bodies.len());
 
     for (_, label, visual, _) in &mut labels {
         let Some(body) = loaded.catalog.bodies.get(label.index) else {
@@ -542,7 +582,7 @@ fn project_and_declutter_labels(
         if !body_is_contextually_visible(label.index, &visibility_context) {
             continue;
         }
-        if (!icons_visible || visual.primary) && !labels_visible {
+        if !labels_visible && (!icons_visible || visual.primary) {
             continue;
         }
         let Some(state) = states.0.get(label.index) else {
@@ -559,26 +599,36 @@ fn project_and_declutter_labels(
         {
             continue;
         }
-        let rect = ScreenRect::from_min_size(
-            projected + visual.offset(labels_visible, icons_visible),
-            visual.size(labels_visible, icons_visible),
-        );
-        let priority = label_priority(body.category, label.index, selected, focus_system, &loaded);
-        candidates.push(DeclutterCandidate {
-            body_index: label.index,
-            priority,
-            rect,
-        });
+        if icons_visible && !visual.primary {
+            let reticle_rect = projected_reticle_rect(projected);
+            if reticle_rect.is_inside(viewport_bounds) {
+                reticle_placements.insert(label.index, reticle_rect);
+            }
+        }
+        if labels_visible {
+            let rect = ScreenRect::from_min_size(
+                projected + visual.text_offset(icons_visible),
+                visual.text_size(),
+            );
+            let priority =
+                label_priority(body.category, label.index, selected, focus_system, &loaded);
+            candidates.push(DeclutterCandidate {
+                body_index: label.index,
+                priority,
+                rect,
+            });
+        }
     }
 
     // Primary labels are nudged on the same deterministic greedy pass before
     // rejection. At the full-system scale the inner planets project into a
     // compact cluster; stable alternative slots preserve all eight without
     // allowing any lower-priority label to overlap them.
-    let placements = layout_projected_labels(&candidates, viewport_bounds);
+    let fixed_reticles: Vec<_> = reticle_placements.values().copied().collect();
+    let placements = layout_projected_labels_around(&candidates, viewport_bounds, &fixed_reticles);
     for (entity, label, visual, mut node) in &mut labels {
         if let Some(rect) = placements.get(&label.index) {
-            let size = visual.size(labels_visible, icons_visible);
+            let size = visual.text_size();
             let (left, top, width, height, display) = (
                 px(rect.min.x),
                 px(rect.min.y),
@@ -600,6 +650,31 @@ fn project_and_declutter_labels(
             }
         } else {
             hide_label_root(entity, node, focus.as_deref_mut());
+        }
+    }
+    for (anchor, mut node) in &mut reticle_anchors {
+        if let Some(rect) = reticle_placements.get(&anchor.body_index) {
+            let (left, top, width, height, display) = (
+                px(rect.min.x),
+                px(rect.min.y),
+                px(RETICLE_SIZE_PX),
+                px(RETICLE_SIZE_PX),
+                Display::Flex,
+            );
+            if node.left != left
+                || node.top != top
+                || node.width != width
+                || node.height != height
+                || node.display != display
+            {
+                node.left = left;
+                node.top = top;
+                node.width = width;
+                node.height = height;
+                node.display = display;
+            }
+        } else if node.display != Display::None {
+            node.display = Display::None;
         }
     }
 }
@@ -624,11 +699,21 @@ fn hide_label_root(
 }
 
 fn hide_all_labels(
-    labels: &mut Query<(Entity, &BodyLabel, &LabelVisual, &mut Node)>,
+    labels: &mut Query<(Entity, &BodyLabel, &LabelVisual, &mut Node), LabelRootFilter>,
     mut focus: Option<&mut bevy::input_focus::InputFocus>,
 ) {
     for (entity, _, _, node) in labels {
         hide_label_root(entity, node, focus.as_deref_mut());
+    }
+}
+
+fn hide_all_reticle_anchors(
+    reticle_anchors: &mut Query<(&BodyReticleAnchor, &mut Node), ReticleAnchorFilter>,
+) {
+    for (_, mut node) in reticle_anchors {
+        if node.display != Display::None {
+            node.display = Display::None;
+        }
     }
 }
 
@@ -904,7 +989,10 @@ mod tests {
     use bevy::{
         app::TaskPoolPlugin,
         asset::{AssetApp, AssetPlugin},
-        camera::NormalizedRenderTarget,
+        camera::{
+            CameraProjection, ComputedCameraValues, NormalizedRenderTarget, RenderTargetInfo,
+            Viewport,
+        },
         input_focus::InputFocus,
         picking::{
             backend::HitData,
@@ -914,7 +1002,7 @@ mod tests {
         time::TimeUpdateStrategy,
         window::WindowRef,
     };
-    use sim_core::time::RateIndex;
+    use sim_core::time::{RateIndex, T_MAX_S, T_MIN_S};
     use std::time::Duration;
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
@@ -1021,6 +1109,45 @@ mod tests {
                 .iter()
                 .all(|other| !rect.overlaps(*other)));
         }
+    }
+
+    #[test]
+    fn text_declutter_never_moves_the_exact_reticle_anchor() {
+        let bounds = ScreenRect {
+            min: Vec2::ZERO,
+            max: Vec2::new(800.0, 600.0),
+        };
+        let projected = Vec2::new(400.25, 300.75);
+        let reticle = projected_reticle_rect(projected);
+        assert_eq!((reticle.min + reticle.max) * 0.5, projected);
+
+        let visual = LabelVisual {
+            primary: false,
+            text_width_px: 68.0,
+            height_px: SECONDARY_LABEL_HEIGHT_PX,
+        };
+        let anchored_text =
+            ScreenRect::from_min_size(projected + visual.text_offset(true), visual.text_size());
+        let candidates: Vec<_> = (1..=4)
+            .map(|body_index| DeclutterCandidate {
+                body_index,
+                priority: LabelPriority::FocusedSystemMoon,
+                rect: anchored_text,
+            })
+            .collect();
+
+        let placements = layout_projected_labels_around(&candidates, bounds, &[reticle]);
+        assert_eq!(placements.len(), candidates.len());
+        assert_eq!((reticle.min + reticle.max) * 0.5, projected);
+        let rects: Vec<_> = placements.values().copied().collect();
+        assert!(rects.iter().all(|rect| !rect.overlaps(reticle)));
+        assert!(rects
+            .iter()
+            .enumerate()
+            .all(|(index, rect)| rects[index + 1..]
+                .iter()
+                .all(|other| !rect.overlaps(*other))));
+        assert!(rects.iter().any(|rect| *rect != anchored_text));
     }
 
     #[test]
@@ -1271,10 +1398,30 @@ mod tests {
             .query::<(&BodyLabel, &AccessibleLabel, &bevy::ui_widgets::Button)>()
             .iter(world)
             .count();
-        let reticle_indices: Vec<_> = world
-            .query::<(&BodyReticle, &LabelEmphasisColor)>()
+        let label_entities: HashMap<_, _> = world
+            .query::<(Entity, &BodyLabel)>()
             .iter(world)
-            .map(|(_, emphasis)| emphasis.body_index)
+            .map(|(entity, label)| (label.index, entity))
+            .collect();
+        let reticle_owners: Vec<_> = world
+            .query::<(&BodyReticle, &LabelEmphasisColor, &ChildOf)>()
+            .iter(world)
+            .map(|(_, emphasis, parent)| {
+                let anchor = world
+                    .get::<BodyReticleAnchor>(parent.parent())
+                    .expect("reticle visual must have an exact projection anchor");
+                assert_eq!(anchor.body_index, emphasis.body_index);
+                assert_ne!(
+                    Some(parent.parent()),
+                    label_entities.get(&emphasis.body_index).copied(),
+                    "reticle must not be parented to decluttered label text"
+                );
+                (emphasis.body_index, parent.parent())
+            })
+            .collect();
+        let reticle_indices: Vec<_> = reticle_owners
+            .iter()
+            .map(|(body_index, _)| *body_index)
             .collect();
         assert_eq!(labels, 66);
         assert_eq!(
@@ -1292,6 +1439,222 @@ mod tests {
             "Io is an actual Icons-layer reticle owner"
         );
         assert_eq!(world.resource::<MoonSystemExtents>().0.len(), 66);
+    }
+
+    #[derive(Resource, Default)]
+    struct ReticleAnchorWrites(usize);
+
+    fn count_reticle_anchor_writes(
+        changed: Query<(), (With<BodyReticleAnchor>, Changed<Node>)>,
+        mut writes: ResMut<ReticleAnchorWrites>,
+    ) {
+        writes.0 += changed.iter().count();
+    }
+
+    fn perspective_camera(
+        width: u32,
+        height: u32,
+        controller: &CameraController,
+    ) -> (Camera, GlobalTransform) {
+        let mut projection = PerspectiveProjection {
+            near: 0.1,
+            far: 1.0e9,
+            ..default()
+        };
+        projection.update(width as f32, height as f32);
+        let camera = Camera {
+            computed: ComputedCameraValues {
+                clip_from_view: projection.get_clip_from_view(),
+                target_info: Some(RenderTargetInfo {
+                    physical_size: UVec2::new(width, height),
+                    scale_factor: 1.0,
+                }),
+                ..default()
+            },
+            viewport: Some(Viewport {
+                physical_size: UVec2::new(width, height),
+                ..default()
+            }),
+            ..default()
+        };
+        let mut transform = Transform::from_translation(controller.render_translation());
+        transform.look_at(Vec3::ZERO, Vec3::Y);
+        (camera, GlobalTransform::from(transform))
+    }
+
+    fn node_px(value: Val) -> f32 {
+        match value {
+            Val::Px(value) => value,
+            other => panic!("expected pixel-valued reticle position, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn every_moon_reticle_tracks_world_projection_across_systems_views_and_zoom() {
+        const WIDTH: u32 = 960;
+        const HEIGHT: u32 = 600;
+        const SUBPIXEL_TOLERANCE_PX: f32 = 0.001;
+
+        let loaded = catalog();
+        let epoch_catalog = loaded.catalog.clone();
+        let states = propagate_catalog(&loaded.catalog, 0.0).unwrap();
+        let extents = MoonSystemExtents(moon_system_extents(&loaded));
+        let sun = loaded.index_of("sun").unwrap();
+        let controller = CameraController::new(sun, states.0[sun].position_km, 1.0e6);
+        let (camera, camera_transform) = perspective_camera(WIDTH, HEIGHT, &controller);
+
+        let mut app = App::new();
+        app.insert_resource(loaded)
+            .insert_resource(states)
+            .insert_resource(extents)
+            .insert_resource(controller)
+            .insert_resource(LayerState::default())
+            .init_resource::<ReticleAnchorWrites>()
+            .add_systems(
+                Update,
+                (project_and_declutter_labels, count_reticle_anchor_writes).chain(),
+            );
+        let camera_entity = app
+            .world_mut()
+            .spawn((Camera3d::default(), camera, camera_transform))
+            .id();
+
+        let body_specs: Vec<_> = app
+            .world()
+            .resource::<LoadedCatalog>()
+            .catalog
+            .bodies
+            .iter()
+            .enumerate()
+            .map(|(index, body)| (index, body.category, body.name.clone(), body.parent.clone()))
+            .collect();
+        let theme = UiTheme::default();
+        let mut anchors = HashMap::new();
+        for (index, category, name, _) in &body_specs {
+            let primary = matches!(category, Category::Star | Category::Planet);
+            let text = if primary {
+                name.to_uppercase()
+            } else {
+                name.clone()
+            };
+            let visual = label_visual(&text, primary, theme);
+            app.world_mut().spawn((
+                BodyLabel { index: *index },
+                visual,
+                Node {
+                    position_type: PositionType::Absolute,
+                    display: Display::None,
+                    ..default()
+                },
+            ));
+            if !primary {
+                let anchor = app
+                    .world_mut()
+                    .spawn((
+                        BodyReticleAnchor { body_index: *index },
+                        Node {
+                            position_type: PositionType::Absolute,
+                            display: Display::None,
+                            ..default()
+                        },
+                    ))
+                    .id();
+                anchors.insert(*index, anchor);
+            }
+        }
+
+        let parent_systems: Vec<_> = body_specs
+            .iter()
+            .filter_map(|(parent_index, _, _, _)| {
+                let moons: Vec<_> = body_specs
+                    .iter()
+                    .filter_map(|(index, category, _, parent)| {
+                        (*category == Category::Moon
+                            && parent.as_deref()
+                                == Some(
+                                    app.world().resource::<LoadedCatalog>().catalog.bodies
+                                        [*parent_index]
+                                        .id
+                                        .as_str(),
+                                ))
+                        .then_some(*index)
+                    })
+                    .collect();
+                (!moons.is_empty()).then_some((*parent_index, moons))
+            })
+            .collect();
+        let mut checked_moons = std::collections::BTreeSet::new();
+
+        for epoch_t_s in [T_MIN_S, 0.0, T_MAX_S] {
+            app.insert_resource(propagate_catalog(&epoch_catalog, epoch_t_s).unwrap());
+            for (parent_index, moons) in &parent_systems {
+                let parent_position =
+                    app.world().resource::<BodyStates>().0[*parent_index].position_km;
+                let system_extent_km = app.world().resource::<MoonSystemExtents>().0[*parent_index];
+                let base_distance_units =
+                    (system_extent_km / KM_PER_RENDER_UNIT * 4.0).max(10_000.0);
+                for (yaw, pitch) in [(0.0, 0.25), (1.2, -0.3)] {
+                    for zoom in [1.0, 8.0, 64.0] {
+                        let mut controller = CameraController::new(
+                            *parent_index,
+                            parent_position,
+                            base_distance_units * zoom,
+                        );
+                        controller.set_initial_pose(yaw, pitch, base_distance_units * zoom);
+                        let (camera, transform) = perspective_camera(WIDTH, HEIGHT, &controller);
+                        app.insert_resource(controller);
+                        app.world_mut()
+                            .entity_mut(camera_entity)
+                            .insert((camera, transform));
+                        app.world_mut().resource_mut::<ReticleAnchorWrites>().0 = 0;
+                        app.update();
+
+                        let world = app.world();
+                        let (camera, camera_transform) = world
+                            .entity(camera_entity)
+                            .get_components::<(&Camera, &GlobalTransform)>()
+                            .unwrap();
+                        let focus_position =
+                            world.resource::<CameraController>().focus_position_km();
+                        for moon in moons {
+                            let position = world.resource::<BodyStates>().0[*moon].position_km;
+                            let projected = camera
+                                .world_to_viewport(
+                                    camera_transform,
+                                    rebase_position(position, focus_position),
+                                )
+                                .unwrap();
+                            let node = world.entity(anchors[moon]).get::<Node>().unwrap();
+                            assert_eq!(node.display, Display::Flex, "{}", body_specs[*moon].2);
+                            let center = Vec2::new(
+                                node_px(node.left) + RETICLE_SIZE_PX * 0.5,
+                                node_px(node.top) + RETICLE_SIZE_PX * 0.5,
+                            );
+                            assert!(
+                                center.distance(projected) <= SUBPIXEL_TOLERANCE_PX,
+                                "{} at t={epoch_t_s}: reticle {center:?}, projection {projected:?}",
+                                body_specs[*moon].2
+                            );
+                            checked_moons.insert(*moon);
+                        }
+
+                        app.world_mut().resource_mut::<ReticleAnchorWrites>().0 = 0;
+                        app.update();
+                        assert_eq!(
+                            app.world().resource::<ReticleAnchorWrites>().0,
+                            0,
+                            "stable projection must not rewrite reticle anchors"
+                        );
+                    }
+                }
+            }
+        }
+
+        assert_eq!(
+            checked_moons.len(),
+            32,
+            "the projection sweep must cover every catalog moon"
+        );
     }
 
     #[test]
