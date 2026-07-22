@@ -15,6 +15,7 @@
 //! avoids time buckets and screen-space approximations.
 
 use crate::scene_polish::OrbitEmphasisSet;
+use crate::selection::{SelectionAccent, SelectionAccentSet, SELECTION_ACCENT_RGB};
 use crate::{
     left_panel::body_passes_moon_visibility, rebase_position, BodyStates, CameraController,
     LayerId, LayerState, LoadedCatalog, OrbitEmphasisState, SimulationClock, SimulationSet,
@@ -287,13 +288,53 @@ fn orbit_palette(body: &BodyRecord) -> OrbitPaletteEntry {
 }
 
 #[derive(Component)]
-struct OrbitLine {
+pub(crate) struct OrbitLine {
     body_index: usize,
     parent_index: usize,
     palette: OrbitPaletteEntry,
     path: OrbitPath,
     displayed_alpha: f32,
     displayed_brightness: f32,
+    displayed_selected: bool,
+}
+
+impl OrbitLine {
+    pub(crate) const fn body_index(&self) -> usize {
+        self.body_index
+    }
+
+    pub(crate) const fn is_pick_visible(&self) -> bool {
+        self.displayed_alpha > 0.0
+    }
+
+    pub(crate) fn render_vertices(&self) -> impl Iterator<Item = Vec3> + '_ {
+        self.path
+            .vertices_parent_km
+            .iter()
+            .copied()
+            .map(parent_relative_render_position)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_pick_test(
+        body_index: usize,
+        parent_index: usize,
+        path: OrbitPath,
+        displayed_alpha: f32,
+    ) -> Self {
+        Self {
+            body_index,
+            parent_index,
+            palette: OrbitPaletteEntry {
+                rgb: [255; 3],
+                base_alpha: 1.0,
+            },
+            path,
+            displayed_alpha,
+            displayed_brightness: 1.0,
+            displayed_selected: false,
+        }
+    }
 }
 
 #[derive(SystemParam)]
@@ -302,6 +343,7 @@ struct OrbitLineRenderOptions<'w> {
     emphasis: Option<Res<'w, OrbitEmphasisState>>,
     view_options: Option<Res<'w, ViewOptionsState>>,
     layers: Option<Res<'w, LayerState>>,
+    selection: Option<Res<'w, SelectionAccent>>,
 }
 
 impl OrbitLineRenderOptions<'_> {
@@ -311,6 +353,12 @@ impl OrbitLineRenderOptions<'_> {
                 .emphasis
                 .as_ref()
                 .map_or(1.0, |emphasis| emphasis.orbit_brightness(body_index))
+    }
+
+    fn body_is_selected(&self, loaded: &LoadedCatalog, body_index: usize) -> bool {
+        self.selection
+            .as_ref()
+            .is_some_and(|selection| selection.accents_orbit(loaded, body_index))
     }
 }
 
@@ -325,7 +373,8 @@ impl Plugin for OrbitLinesPlugin {
                 Update,
                 update_orbit_lines
                     .in_set(SimulationSet::Render)
-                    .after(OrbitEmphasisSet),
+                    .after(OrbitEmphasisSet)
+                    .after(SelectionAccentSet),
             );
     }
 }
@@ -376,11 +425,12 @@ fn spawn_orbit_lines(
             0.0
         };
         let brightness = options.body_brightness(body_index);
+        let selected = options.body_is_selected(&loaded, body_index);
         let mut asset = GizmoAsset::default();
         rebuild_asset(
             &mut asset,
             &path,
-            line_color(palette.rgb, displayed_alpha, brightness),
+            line_color(palette.rgb, displayed_alpha, brightness, selected),
         );
         let handle = gizmo_assets.add(asset);
 
@@ -393,6 +443,7 @@ fn spawn_orbit_lines(
                 path,
                 displayed_alpha,
                 displayed_brightness: brightness,
+                displayed_selected: selected,
             },
             Gizmo {
                 handle,
@@ -482,19 +533,24 @@ fn update_orbit_lines(
             0.0
         };
         let brightness = options.body_brightness(line.body_index);
-        let color_changed =
-            displayed_alpha != line.displayed_alpha || brightness != line.displayed_brightness;
+        let selected = options.body_is_selected(&loaded, line.body_index);
+        let color_changed = displayed_alpha != line.displayed_alpha
+            || brightness != line.displayed_brightness
+            || selected != line.displayed_selected;
         if displayed_alpha != line.displayed_alpha {
             line.displayed_alpha = displayed_alpha;
         }
         if brightness != line.displayed_brightness {
             line.displayed_brightness = brightness;
         }
+        if selected != line.displayed_selected {
+            line.displayed_selected = selected;
+        }
 
         if !rebuilt && !color_changed {
             continue;
         }
-        let color = line_color(line.palette.rgb, displayed_alpha, brightness);
+        let color = line_color(line.palette.rgb, displayed_alpha, brightness, selected);
         let Some(mut asset) = gizmo_assets.get_mut(&gizmo.handle) else {
             continue;
         };
@@ -534,7 +590,8 @@ fn parent_relative_render_position(position_km: [f64; 3]) -> Vec3 {
     rebase_position(position_km, [0.0; 3])
 }
 
-fn line_color(rgb: [u8; 3], alpha: f32, brightness: f32) -> LinearRgba {
+fn line_color(rgb: [u8; 3], alpha: f32, brightness: f32, selected: bool) -> LinearRgba {
+    let rgb = if selected { SELECTION_ACCENT_RGB } else { rgb };
     let mut color = LinearRgba::from(Color::srgba_u8(rgb[0], rgb[1], rgb[2], 255));
     color.red *= brightness;
     color.green *= brightness;
@@ -990,6 +1047,58 @@ mod tests {
         category_defaults.sort_unstable();
         category_defaults.dedup();
         assert_eq!(category_defaults.len(), 4);
+    }
+
+    #[test]
+    fn selection_accents_parent_and_child_orbits_without_rebuilding_paths() {
+        let mut app = emphasis_orbit_app();
+        let (jupiter, io, saturn) = {
+            let loaded = app.world().resource::<LoadedCatalog>();
+            (
+                loaded.index_of("jupiter").unwrap(),
+                loaded.index_of("io").unwrap(),
+                loaded.index_of("saturn").unwrap(),
+            )
+        };
+        let jupiter_base = rendered_orbit(&mut app, jupiter);
+        let io_base = rendered_orbit(&mut app, io);
+        let saturn_base = rendered_orbit(&mut app, saturn);
+
+        app.insert_resource(SelectionAccent::for_selected(jupiter));
+        app.update();
+        let jupiter_selected = rendered_orbit(&mut app, jupiter);
+        let io_selected = rendered_orbit(&mut app, io);
+        let saturn_unselected = rendered_orbit(&mut app, saturn);
+
+        for (base, selected) in [(&jupiter_base, &jupiter_selected), (&io_base, &io_selected)] {
+            assert_eq!(selected.handle, base.handle);
+            assert_eq!(selected.vertices_parent_km, base.vertices_parent_km);
+            assert_ne!(selected.colors, base.colors);
+        }
+        assert_eq!(saturn_unselected, saturn_base);
+        let accent = LinearRgba::from(Color::srgba_u8(
+            SELECTION_ACCENT_RGB[0],
+            SELECTION_ACCENT_RGB[1],
+            SELECTION_ACCENT_RGB[2],
+            255,
+        ));
+        for selected in [&jupiter_selected, &io_selected] {
+            assert!(selected.colors.iter().all(|color| {
+                color.red.to_bits() == accent.red.to_bits()
+                    && color.green.to_bits() == accent.green.to_bits()
+                    && color.blue.to_bits() == accent.blue.to_bits()
+            }));
+        }
+
+        app.insert_resource(SelectionAccent::for_selected(saturn));
+        app.update();
+        assert_eq!(rendered_orbit(&mut app, jupiter), jupiter_base);
+        assert_eq!(rendered_orbit(&mut app, io), io_base);
+        assert_ne!(rendered_orbit(&mut app, saturn), saturn_base);
+
+        let stable = rendered_orbit(&mut app, saturn);
+        app.update();
+        assert_eq!(rendered_orbit(&mut app, saturn), stable);
     }
 
     #[test]

@@ -20,6 +20,7 @@ mod orbit_lines;
 mod platform;
 mod scene_polish;
 mod search;
+mod selection;
 mod settings;
 mod starfield;
 #[cfg(any(feature = "steam", test))]

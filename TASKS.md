@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 357 passing** (53 `sim-core` · 253 `solar-sim` · 48 `xtask`
+**Test baseline: 364 passing** (53 `sim-core` · 260 `solar-sim` · 48 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -904,6 +904,62 @@ specify a readiness condition while retaining a hard nonblack result. Do not
 silently add retries or weaken the assertion.
 
 ## Change log (append-only; newest first)
+
+- **2026-07-21** — Completed the WP6/WP9 selection-interaction correction
+  and returned WP6 to **✅ done**. One render-only selection resource now
+  mirrors the canonical command-reduced camera selection without entering
+  simulation or replay truth. The selected body's sphere and optional ring,
+  its visible orbit, and visible child orbits receive one shared cyan accent;
+  selection changes restore the exact catalog/palette RGB values, retain the
+  existing visibility and high-rate alpha authorities, and do not rebuild
+  stable materials, meshes, or orbit vertex buffers. Primary viewport clicks
+  still prefer analytic body-sphere hits, then test the already displayed
+  nonzero-alpha orbit segments in logical screen space with an 8 px radius,
+  minimum point-to-segment distance, and catalog-index exact-tie breaker. One
+  hit queues exactly one existing `TravelToBody` command, while misses,
+  hidden paths, modal/text/HUD ownership, and primary drags queue none. Seven
+  new default tests cover selected parent/child topology, exact color
+  restoration, camera-pose change detection, sphere/ring alpha composition,
+  retained orbit handles and vertices, stable-frame asset identity, segment
+  seams/endpoints/overlaps/ties/degeneracy/nonfinite rejection, and command
+  routing against a zero-alpha overlap. Evidence: `cargo test` passes all
+  **364 tests** (53 `sim-core` · 260 `solar-sim` · 48 `xtask` library · 2
+  smoke · 1 active spot-check), and `cargo test --workspace --features steam`
+  passes all **365 tests** with zero failures, ignores, or skips.
+  `cargo fmt --all -- --check`, default and Steam-feature workspace clippy
+  with warnings denied, `git diff --check`, texture metadata audit (16 KTX2
+  assets), and catalog dry-run are green. The opt-in real-GPU `--smoke 120
+  --expect-backend metal --reject-software-adapter --assert-nonblack` run
+  passed on Apple M2 Pro/Metal at 92.2 fps with a nonblack 5120×2880 readback.
+  Q18's separate exact 60-frame WP17 gate remains open and was not retried or
+  weakened.
+
+- **2026-07-21** — Reopened WP6 as the sole **in-progress** package for the
+  next approved UI/gameplay phase: selection interaction. Read the root
+  `AGENTS.md` first, then the complete `ARCHITECTURE.md`, `TASKS.md`, the WP6
+  and WP9 briefs, and the complete
+  `docs/ui-gameplay-request-architecture-review-2026-07-18.md` before source
+  work; `crates/solar-sim` has no nested agent file or separate WP6/WP9 spec.
+  Scope is limited to one render-only selected-system accent and deterministic
+  orbit-path picking sharing the existing canonical camera selection and
+  `TravelToBody` command. Selecting a parent will accent its sphere/ring, its
+  own visible orbit, and visible child orbits; changing selection restores
+  exact catalog/palette colors. Orbit picking will project the retained
+  displayed segments, accept only nonzero-alpha visible paths within 8 logical
+  pixels, choose the smallest screen-space point-to-segment distance, and use
+  catalog index as the exact-tie breaker. A hit queues exactly one existing
+  travel command; a miss queues none. The implementation must compose with
+  global/local orbit visibility, Major/All moon filtering, high-rate emphasis,
+  HUD/modal/text-edit/primary-drag ownership, ellipse seams, hyperbolic
+  endpoints, and floating-origin changes without rebuilding stable geometry or
+  adding replay/simulation state. Tests will pin parent/child topology,
+  base-color restoration, zero stable-frame writes and retained handles/vertex
+  buffers, projected segment math, overlaps/ties/seams/endpoints, hidden and
+  zero-alpha rejection, single-command routing, ownership blocking, and
+  unchanged portable replay identity. This clean stacked branch begins at
+  verified PR #7 head `7a0d70d`; the required pre-change `cargo test` passes
+  all **357 tests** (53 `sim-core` · 253 `solar-sim` · 48 `xtask` library ·
+  2 smoke · 1 active spot-check) with zero failures, ignores, or skips.
 
 - **2026-07-21** — Completed the WP5 camera/discoverability correction and
   returned WP5 to **✅ done**. Primary-button viewport drag now crosses one
