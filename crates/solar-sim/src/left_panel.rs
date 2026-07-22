@@ -1135,7 +1135,7 @@ fn spawn_info_page(
     } else {
         theme.colors.text_muted.color()
     };
-    spawn_wrapped_text(
+    let description = spawn_wrapped_text(
         commands,
         content,
         font,
@@ -1143,6 +1143,9 @@ fn spawn_info_page(
         theme.type_scale.body_px,
         description_color,
     );
+    commands
+        .entity(description)
+        .insert(AccessibleLabel::new(model.description.text().to_string()));
 
     if let Some(collection) = &model.collection {
         spawn_action_button(
@@ -2030,6 +2033,7 @@ mod tests {
         let catalog = catalog();
         let lints = catalog.lint();
         assert_eq!(catalog.bodies.len(), 66);
+        assert!(lints.is_empty(), "committed catalog lints: {lints:?}");
 
         for (index, body) in catalog.bodies.iter().enumerate() {
             let model = body_info_view_model(&catalog, index)
@@ -2228,6 +2232,101 @@ mod tests {
             assert!(
                 layout_rect_contains(content_rect, last_rect),
                 "{width}×{height} scale {scale}: final left-panel action {last_rect:?} is not reachable inside {content_rect:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn longest_description_wraps_scrolls_and_remains_accessible_at_required_viewports() {
+        for (width, height, scale) in test_layout::required_viewports() {
+            let loaded = LoadedCatalog::new(catalog());
+            let longest = loaded
+                .catalog
+                .bodies
+                .iter()
+                .enumerate()
+                .max_by_key(|(_, body)| body.description.len())
+                .map(|(index, _)| index)
+                .unwrap();
+            let expected = loaded.catalog.bodies[longest].description.clone();
+            let mut app = test_layout::app(width, height, scale);
+            app.insert_resource(UiTheme::default())
+                .insert_resource(loaded)
+                .insert_resource(ViewOptionsState::default())
+                .insert_resource(AppSettings::default())
+                .init_resource::<InputFocus>()
+                .insert_resource(LeftPanelUiState {
+                    selected_body_index: Some(longest),
+                    page: ActivePanelPage::Info,
+                    dirty: true,
+                    scroll_y: 0.0,
+                    reset_scroll_on_rebuild: false,
+                    restore_focus: None,
+                    ..default()
+                })
+                .add_systems(Update, rebuild_left_panel);
+            test_layout::settle(&mut app);
+
+            let content = app
+                .world_mut()
+                .query_filtered::<Entity, With<LeftPanelContent>>()
+                .single(app.world())
+                .unwrap();
+            let description = app
+                .world_mut()
+                .query::<(Entity, &Text)>()
+                .iter(app.world())
+                .find_map(|(entity, text)| (text.0 == expected).then_some(entity))
+                .unwrap();
+            assert_eq!(
+                app.world()
+                    .get::<TextLayout>(description)
+                    .unwrap()
+                    .linebreak,
+                LineBreak::WordBoundary
+            );
+            assert_eq!(
+                app.world().get::<AccessibleLabel>(description).unwrap().0,
+                expected
+            );
+            assert!(
+                layout_node_rect(app.world(), description).height()
+                    > UiTheme::default().type_scale.body_px * scale * 1.5,
+                "{width}×{height} scale {scale}: longest description did not wrap"
+            );
+
+            let description_rect = layout_node_rect(app.world(), description);
+            let content_rect = layout_node_rect(app.world(), content);
+            app.world_mut()
+                .entity_mut(content)
+                .get_mut::<ScrollPosition>()
+                .unwrap()
+                .y += (description_rect.min.y - content_rect.min.y) / scale;
+            test_layout::settle(&mut app);
+            let description_top = layout_node_rect(app.world(), description);
+            let content_rect = layout_node_rect(app.world(), content);
+            assert!(
+                description_top.min.y >= content_rect.min.y - 1.0
+                    && description_top.min.y <= content_rect.max.y + 1.0
+                    && description_top.min.x >= content_rect.min.x - 1.0
+                    && description_top.max.x <= content_rect.max.x + 1.0,
+                "{width}×{height} scale {scale}: description top {description_top:?} is not scroll-reachable inside {content_rect:?}"
+            );
+
+            app.world_mut()
+                .entity_mut(content)
+                .get_mut::<ScrollPosition>()
+                .unwrap()
+                .y = f32::MAX;
+            test_layout::settle(&mut app);
+            let description_rect = layout_node_rect(app.world(), description);
+            let content_rect = layout_node_rect(app.world(), content);
+            assert!(
+                description_rect.max.y >= content_rect.min.y - 1.0
+                    && description_rect.max.y <= content_rect.max.y + 1.0
+                    && description_rect.min.x >= content_rect.min.x - 1.0
+                    && description_rect.max.x <= content_rect.max.x + 1.0,
+                "{width}×{height} scale {scale}: description bottom {description_rect:?} is not scroll-reachable inside {content_rect:?}"
             );
         }
     }

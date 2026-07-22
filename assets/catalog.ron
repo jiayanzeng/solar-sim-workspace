@@ -1,11 +1,11 @@
 // GENERATED FILE — do not edit by hand (Rev B §4.2).
-// Regenerate with: cargo run -p xtask --features online -- gen-catalog --online --epoch-jd 2461042
+// Regenerate with: cargo run -p xtask -- gen-catalog --fixtures xtask/fixtures/captured-2026-07 --epoch-jd 2461042
 // Frame: ECLIPJ2000. Units: km, degrees, Julian Date (TDB).
 // Per-body provenance is in each record's `source` field.
-// Generated: 2026-07-15T06:21:56Z
+// Generated: 2026-07-22T01:13:30Z
 Catalog(
   schema_version: 1,
-  generated_utc: "2026-07-15T06:21:56Z",
+  generated_utc: "2026-07-22T01:13:30Z",
   frame: "ECLIPJ2000",
   bodies: [
     BodyRecord(
@@ -22,9 +22,9 @@ Catalog(
       radius_km: 695700.0,
       color_srgb: (255, 214, 140),
       texture: Some("textures/sun.ktx2"),
-      description: "The star at the center of the solar system, holding 99.8% of its mass. Every orbit in this catalog ultimately answers to it.",
+      description: "The Sun is the star at the center of the solar system, and its gravity holds the system together. Its light and heat power most surface life on Earth and shape the space environment around every cataloged world.",
       orbit: None,
-      source: "no orbit (heliocentric anchor); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "no orbit (heliocentric anchor); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/sun/facts/",
     ),
     BodyRecord(
       id: "mercury",
@@ -38,7 +38,7 @@ Catalog(
       radius_km: 2439.7,
       color_srgb: (158, 158, 158),
       texture: Some("textures/mercury.ktx2"),
-      description: "The smallest planet and the closest to the Sun, racing through an 88-day year.",
+      description: "Mercury is the smallest planet and the closest planet to the Sun. Its cratered surface experiences extreme temperature changes while the planet completes an orbit in only 88 Earth days.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -58,7 +58,7 @@ Catalog(
         )),
         mean_motion_deg_per_day: Some(4.092308838481216),
       )),
-      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/mercury/facts/",
     ),
     BodyRecord(
       id: "venus",
@@ -72,7 +72,7 @@ Catalog(
       radius_km: 6051.8,
       color_srgb: (222, 184, 135),
       texture: Some("textures/venus.ktx2"),
-      description: "Earth\'s near-twin in size, wrapped in a crushing greenhouse atmosphere.",
+      description: "Venus is close to Earth in size but is wrapped in a dense carbon-dioxide atmosphere. A runaway greenhouse effect makes its surface hotter than Mercury\'s, while thick clouds hide the ground from visible light.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -92,7 +92,7 @@ Catalog(
         )),
         mean_motion_deg_per_day: Some(1.6009005300243189),
       )),
-      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/venus/facts/",
     ),
     BodyRecord(
       id: "earth",
@@ -106,7 +106,7 @@ Catalog(
       radius_km: 6371.0,
       color_srgb: (86, 141, 235),
       texture: Some("textures/earth.ktx2"),
-      description: "Our home planet — the only world known to harbor life.",
+      description: "Earth is a rocky planet with liquid surface oceans and an atmosphere rich in nitrogen and oxygen. It is the only world currently known to support life, and its active geology continually reshapes the surface.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -126,7 +126,7 @@ Catalog(
         )),
         mean_motion_deg_per_day: Some(1.3353946559960832),
       )),
-      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/earth/facts/",
     ),
     BodyRecord(
       id: "mars",
@@ -140,7 +140,7 @@ Catalog(
       radius_km: 3389.5,
       color_srgb: (204, 101, 66),
       texture: Some("textures/mars.ktx2"),
-      description: "The rusty desert world, home to the solar system\'s tallest volcano.",
+      description: "Mars is a cold desert planet whose iron-bearing surface gives it a reddish appearance. It preserves giant volcanoes, deep canyons, polar ice, and evidence that liquid water flowed across its surface in the past.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -160,7 +160,7 @@ Catalog(
         )),
         mean_motion_deg_per_day: Some(0.5240994723699828),
       )),
-      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/mars/facts/",
     ),
     BodyRecord(
       id: "jupiter",
@@ -174,7 +174,7 @@ Catalog(
       radius_km: 69911.0,
       color_srgb: (211, 177, 140),
       texture: Some("textures/jupiter.ktx2"),
-      description: "The giant of the solar system — more massive than every other planet combined.",
+      description: "Jupiter is the largest planet and a gas giant made mostly of hydrogen and helium. Its banded atmosphere hosts long-lived storms, while a powerful magnetic field governs an extensive system of rings and moons.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -194,7 +194,7 @@ Catalog(
         )),
         mean_motion_deg_per_day: Some(0.0830348711919271),
       )),
-      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/facts/",
     ),
     BodyRecord(
       id: "saturn",
@@ -208,7 +208,7 @@ Catalog(
       radius_km: 58232.0,
       color_srgb: (226, 205, 159),
       texture: Some("textures/saturn.ktx2"),
-      description: "The ringed gas giant, attended by a spectacular family of moons.",
+      description: "Saturn is a hydrogen-and-helium gas giant with the solar system\'s most conspicuous ring system. The rings are made of countless pieces of ice and rock, and the planet is accompanied by a diverse family of moons.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -228,7 +228,7 @@ Catalog(
         )),
         mean_motion_deg_per_day: Some(0.03026806673892679),
       )),
-      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/facts/",
     ),
     BodyRecord(
       id: "uranus",
@@ -242,7 +242,7 @@ Catalog(
       radius_km: 25362.0,
       color_srgb: (148, 207, 216),
       texture: Some("textures/uranus.ktx2"),
-      description: "An ice giant tipped on its side, orbiting the Sun once every 84 years.",
+      description: "Uranus is an ice giant whose rotation axis lies nearly in the plane of its orbit. This unusual tilt produces extreme seasons as the pale blue-green planet makes its long journey around the Sun.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -262,7 +262,7 @@ Catalog(
         )),
         mean_motion_deg_per_day: Some(0.008484267827100211),
       )),
-      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/uranus/facts/",
     ),
     BodyRecord(
       id: "neptune",
@@ -276,7 +276,7 @@ Catalog(
       radius_km: 24622.0,
       color_srgb: (99, 125, 222),
       texture: Some("textures/neptune.ktx2"),
-      description: "The outermost planet, a deep-blue ice giant with supersonic winds.",
+      description: "Neptune is the outermost planet and a cold, blue ice giant. Its atmosphere contains rapidly moving clouds and some of the fastest measured winds in the solar system.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -296,7 +296,7 @@ Catalog(
         )),
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/neptune/facts/",
     ),
     BodyRecord(
       id: "moon",
@@ -312,7 +312,7 @@ Catalog(
       radius_km: 1737.4,
       color_srgb: (198, 189, 175),
       texture: Some("textures/moon.ktx2"),
-      description: "Earth\'s constant companion and the only other world humans have walked on.",
+      description: "Earth\'s Moon is a rocky, airless world whose surface records billions of years of impacts. It stabilizes Earth\'s axial wobble, drives most ocean tides, and remains the only world beyond Earth visited by humans.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -326,7 +326,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/moon/facts/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "phobos",
@@ -340,7 +340,7 @@ Catalog(
       radius_km: 11.1,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Phobos is the larger and innermost of Mars\'s two small moons. It is an irregular, heavily cratered body that circles Mars faster than the planet rotates, so it appears to cross the Martian sky from west to east.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -354,7 +354,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/mars/moons/phobos/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "deimos",
@@ -368,7 +368,7 @@ Catalog(
       radius_km: 6.2,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Deimos is the smaller and more distant of Mars\'s two moons. Its irregular shape is softened in images by a thick layer of loose surface material that partly fills many craters.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -382,7 +382,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/mars/moons/deimos/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "io",
@@ -396,7 +396,7 @@ Catalog(
       radius_km: 1821.6,
       color_srgb: (198, 189, 175),
       texture: Some("textures/io.ktx2"),
-      description: "",
+      description: "Io is the innermost of Jupiter\'s four large Galilean moons. Tidal heating drives widespread volcanism, continually renewing a colorful surface marked by lava flows and sulfur compounds.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -410,7 +410,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/moons/io/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "europa",
@@ -424,7 +424,7 @@ Catalog(
       radius_km: 1560.8,
       color_srgb: (198, 189, 175),
       texture: Some("textures/europa.ktx2"),
-      description: "",
+      description: "Europa is an ice-covered Galilean moon with a young surface crossed by dark ridges and bands. Multiple lines of evidence indicate a salty liquid-water ocean beneath its shell, making it a major target for astrobiology.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -438,7 +438,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/moons/europa/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "ganymede",
@@ -452,7 +452,7 @@ Catalog(
       radius_km: 2634.1,
       color_srgb: (198, 189, 175),
       texture: Some("textures/ganymede.ktx2"),
-      description: "",
+      description: "Ganymede is Jupiter\'s largest moon and the largest moon in the solar system. It is the only moon known to generate its own magnetic field, and evidence points to a deep ocean beneath its icy crust.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -466,7 +466,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/moons/ganymede/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "callisto",
@@ -480,7 +480,7 @@ Catalog(
       radius_km: 2410.3,
       color_srgb: (198, 189, 175),
       texture: Some("textures/callisto.ktx2"),
-      description: "",
+      description: "Callisto is the outermost of Jupiter\'s four Galilean moons and has an ancient, densely cratered surface. Its interior is less differentiated than Ganymede\'s, although magnetic measurements suggest a subsurface salty ocean.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -494,7 +494,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/moons/callisto/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "amalthea",
@@ -508,7 +508,7 @@ Catalog(
       radius_km: 83.5,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Amalthea is a small, irregular moon orbiting inside the paths of Jupiter\'s Galilean moons. It is unusually red, heavily cratered, and contributes material to Jupiter\'s faint gossamer ring system.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -522,7 +522,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/jupiter-moons/amalthea/; display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "himalia",
@@ -536,7 +536,7 @@ Catalog(
       radius_km: 85.0,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Himalia is the largest member of a distant group of irregular moons orbiting Jupiter. Its inclined orbit and the similar paths of nearby moons are consistent with fragments of a captured parent body.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -550,7 +550,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; radius: JPL Planetary Satellite Physical Parameters 85 +/- 10 km; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; radius: JPL Planetary Satellite Physical Parameters 85 +/- 10 km; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/jupiter-moons/; display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "mimas",
@@ -564,7 +564,7 @@ Catalog(
       radius_km: 198.2,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Mimas is a small icy moon of Saturn dominated visually by the large Herschel impact crater. Despite its battered surface, measurements of its motion provide evidence for an ocean beneath the outer ice.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -578,7 +578,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/mimas/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "enceladus",
@@ -592,7 +592,7 @@ Catalog(
       radius_km: 252.1,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Enceladus is a small icy moon with a global ocean beneath its crust. Jets near its south pole spray water vapor and ice into space, supplying material to Saturn\'s E ring and allowing spacecraft to sample the ocean indirectly.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -606,7 +606,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/enceladus/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "tethys",
@@ -620,7 +620,7 @@ Catalog(
       radius_km: 531.1,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Tethys is an icy Saturnian moon with a low density and a bright, heavily cratered surface. The vast Odysseus crater and the long Ithaca Chasma canyon record major events in its geological history.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -634,7 +634,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/tethys/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "dione",
@@ -648,7 +648,7 @@ Catalog(
       radius_km: 561.4,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Dione is an icy moon of Saturn with a mixture of old cratered terrain and brighter tectonic fractures. Cassini observations also detected a tenuous oxygen-bearing exosphere around it.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -662,7 +662,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/dione/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "rhea",
@@ -676,7 +676,7 @@ Catalog(
       radius_km: 763.8,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Rhea is Saturn\'s second-largest moon and is composed largely of water ice. Its old, cratered surface is crossed by bright fractures, and a very thin atmosphere contains oxygen and carbon dioxide.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -690,7 +690,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/rhea/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "titan",
@@ -704,7 +704,7 @@ Catalog(
       radius_km: 2574.7,
       color_srgb: (198, 189, 175),
       texture: Some("textures/titan.ktx2"),
-      description: "",
+      description: "Titan is Saturn\'s largest moon and the only moon with a dense atmosphere. Methane and ethane form clouds, rain, rivers, lakes, and seas on its surface, while a water-rich ocean is thought to lie below the crust.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -718,7 +718,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/titan/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "hyperion",
@@ -732,7 +732,7 @@ Catalog(
       radius_km: 135.0,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Hyperion is an irregular, porous moon of Saturn with a deeply pitted, sponge-like surface. Its elongated shape and gravitational interactions with Titan contribute to a chaotic, unpredictable rotation.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -746,7 +746,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/hyperion/; display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "iapetus",
@@ -760,7 +760,7 @@ Catalog(
       radius_km: 734.5,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Iapetus is a large icy moon with one hemisphere much darker than the other. A prominent equatorial ridge gives the body a distinctive profile, while its distant orbit offers broad views of Saturn\'s system.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -774,7 +774,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/iapetus/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "phoebe",
@@ -788,7 +788,7 @@ Catalog(
       radius_km: 106.5,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "A captured outer moon on a retrograde path (i ≈ 175°) — one of the catalog\'s two retrograde stress tests.",
+      description: "Phoebe is a dark, irregular outer moon moving around Saturn on a retrograde orbit. Its distant, inclined path and surface composition support the interpretation that it was captured rather than formed with Saturn\'s regular moons.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -802,7 +802,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/phoebe/; display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "miranda",
@@ -816,7 +816,7 @@ Catalog(
       radius_km: 235.8,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Miranda is the smallest and innermost of Uranus\'s five major moons. Its patchwork surface combines old cratered terrain with enormous fault canyons and younger-looking regions shaped by past geological activity.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -830,7 +830,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/uranus/moons/miranda/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "ariel",
@@ -844,7 +844,7 @@ Catalog(
       radius_km: 578.9,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Ariel is one of Uranus\'s five major moons and has the brightest surface among them. Fault valleys and comparatively sparse large craters indicate that geological activity resurfaced substantial areas in the past.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -858,7 +858,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/uranus/moons/ariel/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "umbriel",
@@ -872,7 +872,7 @@ Catalog(
       radius_km: 584.7,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Umbriel is the darkest of Uranus\'s five major moons. Its ancient, heavily cratered surface includes a conspicuous bright ring associated with the crater Wunda.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -886,7 +886,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/uranus/moons/umbriel/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "titania",
@@ -900,7 +900,7 @@ Catalog(
       radius_km: 788.4,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Titania is the largest moon of Uranus. Its icy surface is cut by large canyons and fault scarps, evidence that the interior expanded and fractured the crust during its history.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -914,7 +914,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/uranus/moons/titania/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "oberon",
@@ -928,7 +928,7 @@ Catalog(
       radius_km: 761.4,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Oberon is the outermost of Uranus\'s five major moons and the second largest. Its old surface is heavily cratered, with dark material visible on the floors of several craters.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -942,7 +942,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/uranus/moons/oberon/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "triton",
@@ -956,7 +956,7 @@ Catalog(
       radius_km: 1353.4,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "Neptune\'s giant moon, orbiting backwards (i ≈ 157°) — almost certainly a captured Kuiper Belt object.",
+      description: "Triton is Neptune\'s largest moon and follows a retrograde orbit opposite the planet\'s rotation. Voyager 2 observed a young icy surface and active nitrogen geysers, while its orbit and Pluto-like properties point to capture from the Kuiper Belt.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -970,7 +970,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/neptune/moons/triton/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "nereid",
@@ -984,7 +984,7 @@ Catalog(
       radius_km: 170.0,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "One of the most eccentric moon orbits known (e ≈ 0.75) — the catalog\'s high-eccentricity ellipse stress test.",
+      description: "Nereid is a distant Neptunian moon with one of the most eccentric satellite orbits known. That unusual path may reflect capture or a major disturbance when Neptune acquired Triton.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -998,7 +998,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/neptune/moons/nereid/; display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "proteus",
@@ -1012,7 +1012,7 @@ Catalog(
       radius_km: 210.0,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Proteus is one of Neptune\'s largest moons but remained undiscovered until Voyager 2 imaged it in 1989. It is dark, heavily cratered, and irregularly shaped despite being close to the size at which gravity rounds many worlds.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -1026,7 +1026,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/neptune/moons/proteus/; display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "ceres",
@@ -1042,7 +1042,7 @@ Catalog(
       radius_km: 469.7,
       color_srgb: (186, 156, 255),
       texture: None,
-      description: "The largest object in the asteroid belt and the only dwarf planet of the inner solar system.",
+      description: "Ceres is the largest object in the main asteroid belt and the only dwarf planet in the inner solar system. Dawn found a mixture of rock and ice, widespread evidence of past water activity, and bright salt deposits in Occator Crater.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1056,7 +1056,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/ceres/facts/",
     ),
     BodyRecord(
       id: "pluto",
@@ -1072,7 +1072,7 @@ Catalog(
       radius_km: 1188.3,
       color_srgb: (186, 156, 255),
       texture: None,
-      description: "The best-loved dwarf planet, ruling a five-moon system in the Kuiper Belt.",
+      description: "Pluto is a dwarf planet in the Kuiper Belt with five known moons. New Horizons revealed a varied world of nitrogen-ice plains, mountains of water ice, layered haze, and ongoing surface change.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2457588.5,
         elements: Elements(
@@ -1086,7 +1086,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; parent GM: Pluto+Charon system 975.5 km^3/s^2 = 869.6 + 105.9 (Brozović et al. 2015); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; parent GM: Pluto+Charon system 975.5 km^3/s^2 = 869.6 + 105.9 (Brozović et al. 2015); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/pluto/facts/",
     ),
     BodyRecord(
       id: "eris",
@@ -1100,7 +1100,7 @@ Catalog(
       radius_km: 1163.0,
       color_srgb: (186, 156, 255),
       texture: None,
-      description: "The scattered-disc heavyweight whose discovery forced the definition of \'planet\'.",
+      description: "Eris is a distant dwarf planet in the scattered disc and is close to Pluto in size. Its discovery intensified debate over the meaning of planet and contributed to the adoption of the dwarf-planet category.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1114,7 +1114,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/eris/",
     ),
     BodyRecord(
       id: "haumea",
@@ -1128,7 +1128,7 @@ Catalog(
       radius_km: 780.0,
       color_srgb: (186, 156, 255),
       texture: None,
-      description: "A fast-spinning, egg-shaped Kuiper Belt dwarf with two moons and a ring.",
+      description: "Haumea is a rapidly rotating dwarf planet with an elongated shape, two moons, and a ring. Its water-ice-rich surface and associated family of small bodies point to a major collision early in its history.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1142,7 +1142,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/haumea/",
     ),
     BodyRecord(
       id: "makemake",
@@ -1156,7 +1156,7 @@ Catalog(
       radius_km: 715.0,
       color_srgb: (186, 156, 255),
       texture: None,
-      description: "",
+      description: "Makemake is a bright, methane-bearing dwarf planet in the Kuiper Belt. It is smaller than Pluto, has one known moon, and takes more than three centuries to complete an orbit around the Sun.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1170,7 +1170,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/makemake/",
     ),
     BodyRecord(
       id: "gonggong",
@@ -1184,7 +1184,7 @@ Catalog(
       radius_km: 615.0,
       color_srgb: (186, 156, 255),
       texture: None,
-      description: "",
+      description: "Gonggong is a large trans-Neptunian object on an elongated and inclined orbit beyond Neptune. It takes several centuries to circle the Sun and travels much farther away at aphelion than it comes at perihelion.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1198,7 +1198,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=Gonggong",
     ),
     BodyRecord(
       id: "quaoar",
@@ -1212,7 +1212,7 @@ Catalog(
       radius_km: 545.0,
       color_srgb: (186, 156, 255),
       texture: None,
-      description: "",
+      description: "Quaoar is a large Kuiper Belt object following a less elongated orbit than many distant catalog worlds. Its heliocentric journey still takes nearly three centuries and remains beyond Neptune throughout the orbit.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1226,7 +1226,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=Quaoar",
     ),
     BodyRecord(
       id: "orcus",
@@ -1240,7 +1240,7 @@ Catalog(
       radius_km: 458.0,
       color_srgb: (186, 156, 255),
       texture: None,
-      description: "",
+      description: "Orcus is a large Kuiper Belt object trapped in a two-to-three orbital resonance with Neptune. Its orbital period is close to Pluto\'s, but the two objects occupy different parts of their similarly shaped paths.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1254,7 +1254,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=Orcus",
     ),
     BodyRecord(
       id: "sedna",
@@ -1268,7 +1268,7 @@ Catalog(
       radius_km: 500.0,
       color_srgb: (186, 156, 255),
       texture: None,
-      description: "A distant world whose ~937 AU aphelion makes the sheer scale of the outer solar system visceral — the catalog\'s designated \'vastness\' shot.",
+      description: "Sedna follows an extremely elongated orbit that carries it far beyond the Kuiper Belt. Even near perihelion it remains distant from the Sun, making its orbit an important clue to the structure and early history of the outer solar system.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1282,7 +1282,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=Sedna",
     ),
     BodyRecord(
       id: "charon",
@@ -1296,7 +1296,7 @@ Catalog(
       radius_km: 606.0,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Charon is Pluto\'s largest moon and is about half Pluto\'s diameter. The two bodies are mutually tidally locked and orbit a common center of mass outside Pluto, giving the pair an unusually balanced relationship.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -1310,7 +1310,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/pluto/moons/charon/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "nix",
@@ -1324,7 +1324,7 @@ Catalog(
       radius_km: 18.0,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Nix is one of Pluto\'s four small outer moons and follows a nearly circular path around the Pluto-Charon pair. New Horizons found an elongated body with a bright surface and a conspicuous reddish impact crater.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -1338,7 +1338,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; radius: JPL Planetary Satellite Physical Parameters 18.0 +/- 1.0 km (Stern et al. 2018); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; radius: JPL Planetary Satellite Physical Parameters 18.0 +/- 1.0 km (Stern et al. 2018); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/pluto/moons/nix/; display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "hydra",
@@ -1352,7 +1352,7 @@ Catalog(
       radius_km: 18.5,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Hydra is the outermost of Pluto\'s known moons and circles the Pluto-Charon pair. New Horizons images show an irregular, highly reflective body whose water-ice surface includes two joined-looking lobes.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -1366,7 +1366,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; radius: JPL Planetary Satellite Physical Parameters 18.5 +/- 1.0 km (Stern et al. 2018); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; radius: JPL Planetary Satellite Physical Parameters 18.5 +/- 1.0 km (Stern et al. 2018); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/pluto/moons/hydra/; display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "dysnomia",
@@ -1380,7 +1380,7 @@ Catalog(
       radius_km: 350.0,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Dysnomia is the only known moon of the dwarf planet Eris. Tracking its orbit allowed astronomers to determine the mass of the Eris system, while the moon itself remains only sparsely resolved.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -1394,7 +1394,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/eris/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "hiiaka",
@@ -1410,7 +1410,7 @@ Catalog(
       radius_km: 185.0,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Hiʻiaka is the larger and outer moon of the dwarf planet Haumea. Its bright water-ice surface links it compositionally with Haumea and other members of the same collisional family.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -1424,7 +1424,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup); radius: volume-equivalent diameter 370 +/- 20 km / 2 (Fernandez-Valenzuela et al. 2025); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup); radius: volume-equivalent diameter 370 +/- 20 km / 2 (Fernandez-Valenzuela et al. 2025); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/haumea/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "namaka",
@@ -1438,7 +1438,7 @@ Catalog(
       radius_km: 75.0,
       color_srgb: (198, 189, 175),
       texture: None,
-      description: "",
+      description: "Namaka is the smaller and inner known moon of Haumea. Its orbit is dynamically influenced by Hiʻiaka, helping astronomers investigate the masses and shapes within the Haumea system.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -1452,7 +1452,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup); radius: adopted from thermal diameter about 150 +/- 50 km / 2 (Muller et al. 2019); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup); radius: adopted from thermal diameter about 150 +/- 50 km / 2 (Muller et al. 2019); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/haumea/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "pallas",
@@ -1468,7 +1468,7 @@ Catalog(
       radius_km: 256.0,
       color_srgb: (158, 163, 170),
       texture: None,
-      description: "",
+      description: "2 Pallas is one of the largest objects in the main asteroid belt. Its cataloged path is substantially inclined to the ecliptic, distinguishing its orbit from the flatter paths of many main-belt objects.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1482,7 +1482,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=2%20Pallas",
     ),
     BodyRecord(
       id: "juno",
@@ -1498,7 +1498,7 @@ Catalog(
       radius_km: 123.0,
       color_srgb: (158, 163, 170),
       texture: None,
-      description: "",
+      description: "3 Juno is a large asteroid orbiting within the main belt between Mars and Jupiter. Its heliocentric path is both more eccentric and more inclined than Earth\'s nearly circular orbit.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1512,7 +1512,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=3%20Juno",
     ),
     BodyRecord(
       id: "vesta",
@@ -1528,7 +1528,7 @@ Catalog(
       radius_km: 262.7,
       color_srgb: (158, 163, 170),
       texture: None,
-      description: "",
+      description: "4 Vesta is one of the largest bodies in the asteroid belt and has a differentiated rocky interior. Dawn mapped a giant south-polar impact basin whose ejecta supplied many meteorites later found on Earth.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1542,7 +1542,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/asteroids/4-vesta/",
     ),
     BodyRecord(
       id: "hygiea",
@@ -1558,7 +1558,7 @@ Catalog(
       radius_km: 203.56,
       color_srgb: (158, 163, 170),
       texture: None,
-      description: "",
+      description: "10 Hygiea is one of the largest objects in the main asteroid belt. Its reviewed effective diameter is about 407 kilometers, while its cataloged orbit remains entirely between Mars and Jupiter.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1572,7 +1572,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; radius: SBDB diameter 407.12 +/- 6.8 km / 2; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; radius: SBDB diameter 407.12 +/- 6.8 km / 2; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=10%20Hygiea",
     ),
     BodyRecord(
       id: "psyche",
@@ -1588,7 +1588,7 @@ Catalog(
       radius_km: 113.0,
       color_srgb: (158, 163, 170),
       texture: None,
-      description: "A metal-rich world thought to be the exposed core of a shattered protoplanet.",
+      description: "16 Psyche is a large main-belt asteroid containing a substantial mixture of metal and rock. Its composition may preserve evidence about collisions and the interiors of early planetesimals, which is why a dedicated spacecraft is traveling there.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1602,7 +1602,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/asteroids/16-psyche/",
     ),
     BodyRecord(
       id: "eros",
@@ -1618,7 +1618,7 @@ Catalog(
       radius_km: 8.4,
       color_srgb: (158, 163, 170),
       texture: None,
-      description: "",
+      description: "433 Eros is an elongated near-Earth asteroid with a heavily cratered and boulder-strewn surface. NEAR Shoemaker became the first spacecraft to orbit an asteroid there and later made a controlled touchdown.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1632,7 +1632,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/asteroids/433-eros/",
     ),
     BodyRecord(
       id: "bennu",
@@ -1648,7 +1648,7 @@ Catalog(
       radius_km: 0.245,
       color_srgb: (158, 163, 170),
       texture: None,
-      description: "",
+      description: "101955 Bennu is a carbon-rich near-Earth asteroid assembled as a loosely bound rubble pile. OSIRIS-REx mapped and sampled its unexpectedly boulder-covered surface, returning material to Earth in 2023.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2455562.5,
         elements: Elements(
@@ -1662,7 +1662,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/asteroids/101955-bennu/",
     ),
     BodyRecord(
       id: "apophis",
@@ -1678,7 +1678,7 @@ Catalog(
       radius_km: 0.17,
       color_srgb: (158, 163, 170),
       texture: None,
-      description: "",
+      description: "99942 Apophis is a stony near-Earth asteroid whose orbit will carry it exceptionally close to Earth in 2029. The encounter is not an impact threat, but Earth\'s gravity will alter the asteroid\'s orbit and rotation enough to create a valuable natural experiment.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1692,7 +1692,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/asteroids/apophis/",
     ),
     BodyRecord(
       id: "halley",
@@ -1708,7 +1708,7 @@ Catalog(
       radius_km: 5.5,
       color_srgb: (166, 216, 232),
       texture: None,
-      description: "The most famous comet of all, returning roughly every 76 years; its 1986 perihelion is a demo-script stop.",
+      description: "1P/Halley is a short-period comet that returns to the inner solar system roughly every 76 years. It is the source of the Eta Aquariid and Orionid meteor showers, and spacecraft imaged its dark nucleus during the 1986 passage.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2439875.5,
         elements: Elements(
@@ -1722,7 +1722,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/1p-halley/",
     ),
     BodyRecord(
       id: "encke",
@@ -1738,7 +1738,7 @@ Catalog(
       radius_km: 2.4,
       color_srgb: (166, 216, 232),
       texture: None,
-      description: "",
+      description: "2P/Encke has the shortest orbital period of any well-known periodic comet, returning about every 3.3 years. Dust released along its orbit contributes to the Taurid meteor complex.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2459847.5,
         elements: Elements(
@@ -1752,7 +1752,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/2p-encke/",
     ),
     BodyRecord(
       id: "tempel_1",
@@ -1768,7 +1768,7 @@ Catalog(
       radius_km: 3.0,
       color_srgb: (166, 216, 232),
       texture: None,
-      description: "",
+      description: "9P/Tempel 1 is a periodic Jupiter-family comet with a dark, irregular nucleus. NASA\'s Deep Impact mission struck it with a probe in 2005, and Stardust later revisited the comet to examine the altered surface.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2457470.5,
         elements: Elements(
@@ -1782,7 +1782,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/9p-tempel-1/",
     ),
     BodyRecord(
       id: "churyumov_gerasimenko",
@@ -1798,7 +1798,7 @@ Catalog(
       radius_km: 1.7,
       color_srgb: (166, 216, 232),
       texture: None,
-      description: "",
+      description: "67P/Churyumov-Gerasimenko is a Jupiter-family comet with a distinctive two-lobed nucleus. Rosetta orbited it through an active passage near the Sun and deployed the Philae lander, providing extended close-range observations of a comet.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2457305.5,
         elements: Elements(
@@ -1812,7 +1812,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; radius: SBDB diameter 3.4 +/- 0.1 km / 2 (Sierks et al. 2015); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; radius: SBDB diameter 3.4 +/- 0.1 km / 2 (Sierks et al. 2015); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/67p-churyumov-gerasimenko/",
     ),
     BodyRecord(
       id: "hartley_2",
@@ -1828,7 +1828,7 @@ Catalog(
       radius_km: 0.8,
       color_srgb: (166, 216, 232),
       texture: None,
-      description: "",
+      description: "103P/Hartley 2 is a small, highly active Jupiter-family comet with an elongated nucleus. The EPOXI flyby showed jets driven largely by carbon dioxide carrying icy particles away from the surface.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2457152.5,
         elements: Elements(
@@ -1842,7 +1842,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; radius: SBDB diameter 1.6 km / 2 (Lamy et al. 2004); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; radius: SBDB diameter 1.6 km / 2 (Lamy et al. 2004); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/103p-hartley-hartley-2/",
     ),
     BodyRecord(
       id: "hale_bopp",
@@ -1856,7 +1856,7 @@ Catalog(
       radius_km: 30.0,
       color_srgb: (166, 216, 232),
       texture: None,
-      description: "",
+      description: "C/1995 O1 Hale-Bopp is a long-period comet with a large nucleus. It remained bright to unaided observers for an unusually long interval during its 1997 passage and displayed prominent dust and ion tails.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2459837.5,
         elements: Elements(
@@ -1870,7 +1870,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/c-1995-o1-hale-bopp/",
     ),
     BodyRecord(
       id: "neowise",
@@ -1884,7 +1884,7 @@ Catalog(
       radius_km: 2.5,
       color_srgb: (166, 216, 232),
       texture: None,
-      description: "",
+      description: "C/2020 F3 NEOWISE is a long-period comet discovered by the NEOWISE space telescope in 2020. It survived a close solar passage and became a prominent northern-sky object with visible dust and ion tails.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2459036.5,
         elements: Elements(
@@ -1898,7 +1898,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/mission/neowise/",
     ),
     BodyRecord(
       id: "3i_atlas",
@@ -1914,7 +1914,7 @@ Catalog(
       radius_km: 0.5,
       color_srgb: (166, 216, 232),
       texture: None,
-      description: "The third known interstellar object, crossing the solar system on a hyperbolic path — the catalog\'s open-arc stress test.",
+      description: "3I/ATLAS is the third confirmed interstellar object observed passing through the solar system. Its hyperbolic path is not bound to the Sun, and cometary activity revealed an icy body surrounded by a coma.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461090.5,
         elements: Elements(
@@ -1928,7 +1928,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; nucleus radius adopted 0.5 km; HST constraint 0.16-2.8 km at pV=0.04 (NASA/HST 2025; arXiv:2512.22365); NGA-based estimates ~0.3 km; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; nucleus radius adopted 0.5 km; HST constraint 0.16-2.8 km at pV=0.04 (NASA/HST 2025; arXiv:2512.22365); NGA-based estimates ~0.3 km; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/3i-atlas/",
     ),
   ],
 )

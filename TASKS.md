@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 367 passing** (53 `sim-core` · 263 `solar-sim` · 48 `xtask`
+**Test baseline: 369 passing** (53 `sim-core` · 264 `solar-sim` · 49 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -914,6 +914,52 @@ machine and strengthens the existing Q18 question; no retry, delay, or
 assertion change was made, and the WP17 smoke gate is not claimed.
 
 ## Change log (append-only; newest first)
+
+- **2026-07-22** — Completed the WP10 66-body description/provenance pass and
+  returned WP10 to **✅ done**. The curated manifest now provides every frozen
+  catalog identity with a neutral two-sentence description and a body- or
+  system-specific NASA Science or JPL source; generated `source` fields retain
+  their existing orbit, GM, radius, and display provenance and append the
+  content citation. A manifest regression enforces all 66 identities, two to
+  four sentences, nonempty authoritative public sources, and exact emitted
+  provenance. The full Info-model regression now requires zero catalog lints,
+  description text is explicitly exposed through its accessibility label, and
+  a real-text layout regression proves the longest description wraps without
+  horizontal clipping and exposes both scroll extremes across the complete
+  800/960×600 × {0.75, 1.0, 1.5, 2.0} matrix. All citation URLs were audited;
+  six stale guessed routes were replaced with their live NASA pages before
+  generation. Both catalogs were regenerated only through offline `xtask`
+  fixture replay. Their diff is restricted to descriptions, per-record source
+  notes, generation timestamps, and the offline regeneration header; catalog
+  identity, composition, order, orbital elements, physical values, and
+  spot-check truth are unchanged.
+
+  Evidence: `cargo test` passes all **369 tests** (53 `sim-core` · 264
+  `solar-sim` · 49 `xtask` library · 2 smoke · 1 active spot-check), and
+  `cargo test --workspace --features steam` passes all **370 tests** with zero
+  failures, ignores, or skips. `cargo fmt --all -- --check`, default and
+  Steam-feature workspace clippy with warnings denied, the 66-body catalog
+  dry-run, 16-asset texture metadata audit, and `git diff --check` pass. No
+  dependency, catalog composition/order, simulation/replay behavior,
+  orbital/physical datum, protected architecture/agent file, or captured and
+  spot-check truth fixture changed.
+
+- **2026-07-22** — Reopened WP10 as the sole **in-progress** package for the
+  approved 66-body description/provenance pass. Read the root and `xtask`
+  `AGENTS.md` files, `ARCHITECTURE.md`, the WP10 brief,
+  `docs/wp3-gen-catalog-spec.md`, and
+  `docs/ui-gameplay-request-architecture-review-2026-07-18.md` §3.12 before
+  source work. Scope is limited to neutral 2–4 sentence Info descriptions for
+  the frozen 66-body manifest, auditable description sources in each emitted
+  record, generator-backed catalog regeneration from the checked-in complete
+  capture set, and tests for description completeness/provenance plus wrapped,
+  scroll-reachable accessible layout at every required viewport and UI scale.
+  Catalog identity, composition, order, orbital/physical values, generated
+  truth fixtures, dependencies, simulation behavior, and protected files will
+  not change. Evidence: clean branch `codex/body-descriptions` starts from HUD
+  commit `df7b3ea`; pre-change `cargo test` passes all **367 tests** (53
+  `sim-core` · 263 `solar-sim` · 48 `xtask` library · 2 smoke · 1 active
+  spot-check) with zero failures, ignores, or skips.
 
 - **2026-07-22** — Completed the integrated WP8/WP11 HUD-polish correction
   and returned WP8 to **✅ done**. The time surface is now a transparent,
