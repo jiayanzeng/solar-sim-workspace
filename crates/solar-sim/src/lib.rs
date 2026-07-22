@@ -614,6 +614,23 @@ impl LoadedCatalog {
     fn index_of(&self, id: &str) -> Option<usize> {
         self.indices.get(id).copied()
     }
+
+    /// Resolve the contextual system identity used by moon presentation.
+    ///
+    /// A primary body identifies itself; a moon identifies its catalog parent.
+    pub(crate) fn system_index_for_body(&self, body_index: usize) -> usize {
+        let Some(body) = self.catalog.bodies.get(body_index) else {
+            return body_index;
+        };
+        if body.category == Category::Moon {
+            body.parent
+                .as_deref()
+                .and_then(|parent| self.index_of(parent))
+                .unwrap_or(body_index)
+        } else {
+            body_index
+        }
+    }
 }
 
 #[derive(Resource)]

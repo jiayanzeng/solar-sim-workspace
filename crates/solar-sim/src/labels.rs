@@ -547,7 +547,7 @@ fn project_and_declutter_labels(
         ),
     };
     let selected = controller.selected_body_index();
-    let focus_system = focus_system_index(&loaded, controller.focus_body_index());
+    let focus_system = loaded.system_index_for_body(controller.focus_body_index());
     let camera_position_km = controller.camera_position_km();
     let focus_position_km = controller.focus_position_km();
     let ui_visible = resources
@@ -806,21 +806,6 @@ pub fn moon_label_is_contextually_visible(
         || (camera_parent_distance_km.is_finite()
             && system_extent_km > 0.0
             && camera_parent_distance_km <= system_extent_km)
-}
-
-fn focus_system_index(loaded: &LoadedCatalog, focus_index: usize) -> usize {
-    let Some(focus) = loaded.catalog.bodies.get(focus_index) else {
-        return focus_index;
-    };
-    if focus.category == Category::Moon {
-        focus
-            .parent
-            .as_deref()
-            .and_then(|parent| loaded.index_of(parent))
-            .unwrap_or(focus_index)
-    } else {
-        focus_index
-    }
 }
 
 fn moon_system_extents(loaded: &LoadedCatalog) -> Vec<f64> {

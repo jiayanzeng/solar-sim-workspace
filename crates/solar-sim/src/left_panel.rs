@@ -494,6 +494,23 @@ pub(crate) fn body_passes_moon_visibility(body: &BodyRecord, settings: &ViewOpti
     })
 }
 
+/// Apply the shared focus-system and per-system Major/All moon gates.
+pub(crate) fn body_passes_contextual_moon_visibility(
+    body_index: usize,
+    focus_body_index: usize,
+    loaded: &LoadedCatalog,
+    settings: Option<&ViewOptionsState>,
+) -> bool {
+    let Some(body) = loaded.catalog.bodies.get(body_index) else {
+        return false;
+    };
+    if body.category != Category::Moon {
+        return true;
+    }
+    loaded.system_index_for_body(body_index) == loaded.system_index_for_body(focus_body_index)
+        && settings.is_none_or(|settings| body_passes_moon_visibility(body, settings))
+}
+
 pub fn rendered_body_radius_units(radius_km: f64, scale: BodySizeScale) -> f32 {
     (radius_km / KM_PER_RENDER_UNIT) as f32 * scale.multiplier()
 }
@@ -1708,15 +1725,15 @@ fn apply_view_options(
     layers: Option<Res<LayerState>>,
     camera: Option<Res<CameraController>>,
     loaded: Option<Res<LoadedCatalog>>,
-    mut previous_selected: Local<Option<Option<usize>>>,
+    mut previous_focus: Local<Option<Option<usize>>>,
     mut bodies: Query<(&BodyVisual, Option<&mut Visibility>)>,
 ) {
-    let selected = camera.as_ref().map(|camera| camera.selected_body_index());
+    let focus = camera.as_ref().map(|camera| camera.focus_body_index());
     if !body_presentation_inputs_changed(
         settings.is_changed(),
         layers.as_ref().is_some_and(|layers| layers.is_changed()),
-        selected,
-        &mut previous_selected,
+        focus,
+        &mut previous_focus,
     ) {
         return;
     }
@@ -1729,8 +1746,15 @@ fn apply_view_options(
                 let category_visible = layers
                     .as_ref()
                     .is_none_or(|layers| layers.body_category_visible(body.category));
-                let moon_visible =
-                    selected == Some(visual.index) || body_passes_moon_visibility(body, &settings);
+                let moon_visible = body.category != Category::Moon
+                    || focus.is_some_and(|focus| {
+                        body_passes_contextual_moon_visibility(
+                            visual.index,
+                            focus,
+                            &loaded,
+                            Some(&settings),
+                        )
+                    });
                 let desired_visibility = if category_visible && moon_visible {
                     Visibility::Visible
                 } else {
@@ -1747,12 +1771,12 @@ fn apply_view_options(
 fn body_presentation_inputs_changed(
     settings_changed: bool,
     layers_changed: bool,
-    selected: Option<usize>,
-    previous_selected: &mut Option<Option<usize>>,
+    focus: Option<usize>,
+    previous_focus: &mut Option<Option<usize>>,
 ) -> bool {
-    let selection_changed = previous_selected.is_none_or(|previous| previous != selected);
-    *previous_selected = Some(selected);
-    settings_changed || layers_changed || selection_changed
+    let focus_changed = previous_focus.is_none_or(|previous| previous != focus);
+    *previous_focus = Some(focus);
+    settings_changed || layers_changed || focus_changed
 }
 
 #[cfg(test)]
@@ -1760,7 +1784,7 @@ mod tests {
     use super::*;
     use crate::labels::{inflated_pick_radius, ray_sphere_hit_distance};
     use crate::ui_kit::test_layout;
-    use crate::{load_catalog_text, propagate_catalog};
+    use crate::{load_catalog_text, propagate_catalog, HeadlessSimulation};
     use bevy::{
         app::TaskPoolPlugin,
         asset::{AssetApp, AssetPlugin},
@@ -1958,37 +1982,37 @@ mod tests {
     }
 
     #[test]
-    fn camera_pose_changes_do_not_rescan_body_presentation_without_a_selection_change() {
-        let mut previous_selected = None;
+    fn camera_pose_changes_do_not_rescan_body_presentation_without_a_focus_change() {
+        let mut previous_focus = None;
         assert!(body_presentation_inputs_changed(
             false,
             false,
             Some(3),
-            &mut previous_selected
+            &mut previous_focus
         ));
         assert!(!body_presentation_inputs_changed(
             false,
             false,
             Some(3),
-            &mut previous_selected
+            &mut previous_focus
         ));
         assert!(body_presentation_inputs_changed(
             false,
             false,
             Some(4),
-            &mut previous_selected
+            &mut previous_focus
         ));
         assert!(body_presentation_inputs_changed(
             true,
             false,
             Some(4),
-            &mut previous_selected
+            &mut previous_focus
         ));
         assert!(body_presentation_inputs_changed(
             false,
             true,
             Some(4),
-            &mut previous_selected
+            &mut previous_focus
         ));
     }
 
@@ -2696,6 +2720,11 @@ mod tests {
             .iter()
             .position(|body| body.id == "himalia")
             .unwrap();
+        let jupiter = catalog
+            .bodies
+            .iter()
+            .position(|body| body.id == "jupiter")
+            .unwrap();
         assert!(catalog.bodies[io].is_major_moon);
         assert!(!catalog.bodies[himalia].is_major_moon);
 
@@ -2704,6 +2733,7 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(LoadedCatalog::new(catalog))
             .insert_resource(settings)
+            .insert_resource(CameraController::new(jupiter, [0.0; 3], 10_000.0))
             .add_systems(Update, apply_view_options);
         let io_entity = app
             .world_mut()
@@ -2743,6 +2773,140 @@ mod tests {
     }
 
     #[test]
+    fn initial_full_system_view_hides_every_moon_sphere() {
+        let catalog = catalog();
+        let loaded = LoadedCatalog::new(catalog);
+        let sun = loaded.index_of("sun").unwrap();
+        let earth = loaded.index_of("earth").unwrap();
+        let moon_indices = loaded
+            .catalog
+            .bodies
+            .iter()
+            .enumerate()
+            .filter_map(|(index, body)| (body.category == Category::Moon).then_some(index))
+            .collect::<Vec<_>>();
+
+        let mut app = App::new();
+        app.insert_resource(loaded)
+            .insert_resource(ViewOptionsState::default())
+            .insert_resource(LayerState::default())
+            .insert_resource(CameraController::new(sun, [0.0; 3], 10_000.0))
+            .add_systems(Update, apply_view_options);
+        let moon_entities = moon_indices
+            .into_iter()
+            .map(|index| {
+                app.world_mut()
+                    .spawn((BodyVisual { index }, Visibility::Visible))
+                    .id()
+            })
+            .collect::<Vec<_>>();
+        let earth_entity = app
+            .world_mut()
+            .spawn((BodyVisual { index: earth }, Visibility::Visible))
+            .id();
+        app.update();
+
+        assert!(moon_entities.iter().all(|entity| {
+            app.world().entity(*entity).get::<Visibility>() == Some(&Visibility::Hidden)
+        }));
+        assert_eq!(
+            app.world().entity(earth_entity).get::<Visibility>(),
+            Some(&Visibility::Visible)
+        );
+    }
+
+    #[test]
+    fn focusing_a_moon_reveals_only_its_parent_system_and_moons_off_hides_it() {
+        let catalog = catalog();
+        let loaded = LoadedCatalog::new(catalog);
+        let io = loaded.index_of("io").unwrap();
+        let himalia = loaded.index_of("himalia").unwrap();
+        let nereid = loaded.index_of("nereid").unwrap();
+
+        let mut app = App::new();
+        app.insert_resource(loaded)
+            .insert_resource(ViewOptionsState::default())
+            .insert_resource(LayerState::default())
+            .insert_resource(CameraController::new(io, [0.0; 3], 10_000.0))
+            .add_systems(Update, apply_view_options);
+        let entities = [io, himalia, nereid].map(|index| {
+            app.world_mut()
+                .spawn((BodyVisual { index }, Visibility::Visible))
+                .id()
+        });
+        app.update();
+
+        assert_eq!(
+            app.world().entity(entities[0]).get::<Visibility>(),
+            Some(&Visibility::Visible)
+        );
+        assert_eq!(
+            app.world().entity(entities[1]).get::<Visibility>(),
+            Some(&Visibility::Visible)
+        );
+        assert_eq!(
+            app.world().entity(entities[2]).get::<Visibility>(),
+            Some(&Visibility::Hidden)
+        );
+
+        app.world_mut()
+            .resource_mut::<LayerState>()
+            .set_visible(crate::LayerId::Moons, false);
+        app.update();
+        assert!(entities.iter().all(|entity| {
+            app.world().entity(*entity).get::<Visibility>() == Some(&Visibility::Hidden)
+        }));
+    }
+
+    #[test]
+    fn search_travel_to_triton_reveals_the_neptune_system_on_arrival() {
+        let catalog = catalog();
+        let indices = catalog.id_index();
+        let triton = *indices.get("triton").unwrap();
+        let proteus = *indices.get("proteus").unwrap();
+        let io = *indices.get("io").unwrap();
+        let mut simulation = HeadlessSimulation::new(&catalog).unwrap();
+        simulation
+            .step(
+                1.0 / 60.0,
+                &[SimCommand::TravelToBody("triton".into())],
+                None,
+            )
+            .unwrap();
+        assert_ne!(simulation.camera().focus_body_index(), triton);
+        for _ in 0..75 {
+            simulation.step(1.0 / 60.0, &[], None).unwrap();
+        }
+        assert_eq!(simulation.camera().focus_body_index(), triton);
+
+        let mut app = App::new();
+        app.insert_resource(LoadedCatalog::new(catalog))
+            .insert_resource(ViewOptionsState::default())
+            .insert_resource(LayerState::default())
+            .insert_resource(simulation.camera().clone())
+            .add_systems(Update, apply_view_options);
+        let entities = [triton, proteus, io].map(|index| {
+            app.world_mut()
+                .spawn((BodyVisual { index }, Visibility::Hidden))
+                .id()
+        });
+        app.update();
+
+        assert_eq!(
+            app.world().entity(entities[0]).get::<Visibility>(),
+            Some(&Visibility::Visible)
+        );
+        assert_eq!(
+            app.world().entity(entities[1]).get::<Visibility>(),
+            Some(&Visibility::Visible)
+        );
+        assert_eq!(
+            app.world().entity(entities[2]).get::<Visibility>(),
+            Some(&Visibility::Hidden)
+        );
+    }
+
+    #[test]
     fn category_layers_hide_only_their_body_spheres_within_one_update() {
         let catalog = catalog();
         let earth = catalog
@@ -2755,6 +2919,11 @@ mod tests {
             .iter()
             .position(|body| body.id == "io")
             .unwrap();
+        let jupiter = catalog
+            .bodies
+            .iter()
+            .position(|body| body.id == "jupiter")
+            .unwrap();
         let mut layers = LayerState::default();
         layers.set_visible(crate::LayerId::Planets, false);
 
@@ -2762,6 +2931,7 @@ mod tests {
         app.insert_resource(LoadedCatalog::new(catalog))
             .insert_resource(ViewOptionsState::default())
             .insert_resource(layers)
+            .insert_resource(CameraController::new(jupiter, [0.0; 3], 10_000.0))
             .add_systems(Update, apply_view_options);
         let earth_entity = app
             .world_mut()

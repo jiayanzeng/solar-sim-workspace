@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 385 passing** (53 `sim-core` · 275 `solar-sim` · 54 `xtask`
+**Test baseline: 390 passing** (53 `sim-core` · 280 `solar-sim` · 54 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -926,7 +926,59 @@ for a fast baseline. Human decision required: revise the UIP-6 Ultra mapping
 or fallback policy, or explicitly revise the baseline matrix. Agents must not
 silently clamp Ultra or record timings from the failed render.
 
+### Q20 — OPEN.
+
+The additional `cargo clippy --workspace --all-targets --release -- -D
+warnings` probe does not compile two existing UIP-1 tests: the tests reference
+`DiagnosticsOverlayState`, while that debug overlay type is intentionally
+compiled only under `cfg(debug_assertions)`. Ordinary release builds, the
+required default and Steam test suites, and both warning-denied debug
+all-target clippy matrices pass. This is outside UIP-3; decide in UIP-1
+maintenance whether the debug-only assertions should be conditionally compiled
+so release all-target linting is also a supported gate.
+
 ## Change log (append-only; newest first)
+
+- **2026-07-22** — Completed **UIP-3 contextual Moons semantics**. One shared
+  catalog-derived system mapping now treats a focused moon as its parent
+  system, and both body-sphere visibility and orbit alpha require the Moons
+  layer, that focused system, and the persisted per-system Major/All choice;
+  orbit alpha additionally retains the existing per-body local-orbit gate.
+  Selection no longer bypasses those gates, so selecting a travel target does
+  not reveal it before camera focus arrives. Labels retain their existing
+  contextual distance/declutter behavior while reusing the shared system
+  mapping. No persistence key, replay slug, Layers row, settings or command
+  schema, orbit geometry, rendering default, or f64 simulation truth changed.
+
+  Five new regressions cover zero moon spheres and paths in the initial Sun
+  view, focused-system Major/All behavior, moon-to-parent focus mapping,
+  Moons-off and local-orbit gating, and search travel to Triton revealing only
+  Neptune's system on arrival. Existing settings round-trip, recorded layer
+  replay, and mixed-command state-hash tests remain green. Two independent M2
+  Pro/Metal captures produced all six canonical views on their first attempts;
+  comparison passed with p99 Delta-E 0.0000 for every view (mean 0.0050 only
+  for Jupiter/Sun and 0.0000 elsewhere), and visual review confirmed the
+  intended full-system removal and contextual Jupiter moons. The comparable
+  2560x1440 High/4x-MSAA frame-stats run measured 8.799 ms mean / 113.6 fps,
+  0.9% lower mean frame time than UIP-2's 8.882 ms reference.
+
+  Evidence: default `cargo test` passes **390 tests** (53 + 280 + 54 + 2 +
+  1); `cargo test --workspace --features steam` passes **391**; default and
+  Steam-feature warning-denied workspace/all-target clippy pass; release build,
+  release-mode warning-denied `solar-sim` library clippy, format check, `git
+  diff --check`, texture metadata audit, and catalog dry-run pass. Q19 remains
+  open for the unsupported Ultra baseline; the unrelated release-test clippy
+  configuration found by an extra probe is recorded as Q20. No dependency,
+  generated catalog, architecture, or agent-rule file changed.
+
+- **2026-07-22** — Opened **UIP-3 contextual Moons semantics** as the sole
+  in-progress phase under `docs/ui-performance-plan-2026-07-22.md`. Confirmed
+  that human commit `a7e5ddd` already placed the R2 contract in ARCHITECTURE
+  Rev D §§9.3/10. Scope is limited to sharing the settled focus-system
+  predicate across moon spheres and orbit alpha, with exact initial/Jupiter/
+  moon-focus/Moons-off/local-orbit/Triton-travel regressions. Label rules,
+  `LayerId::Moons`, its persisted key and replay slug, the Layers row, settings
+  schema, command schema, f64 truth, and orbit geometry remain unchanged.
 
 - **2026-07-22** — Completed **UIP-2 minimum apparent size clamp**. The new
   render-only body-visual system composes true radius with the existing
