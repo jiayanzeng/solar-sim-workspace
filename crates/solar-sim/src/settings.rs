@@ -20,6 +20,7 @@ use bevy::{
         tab_navigation::{TabGroup, TabIndex},
         FocusCause, InputFocus,
     },
+    post_process::bloom::Bloom,
     prelude::*,
     render::{
         error_handler::{ErrorType, RenderError, RenderErrorHandler, RenderErrorPolicy},
@@ -211,6 +212,22 @@ impl QualityPreset {
             Self::Ultra => Msaa::Sample8,
         }
     }
+
+    const fn bloom_enabled(self) -> bool {
+        !matches!(self, Self::Low)
+    }
+
+    const fn scale_factor_override(self, retina_rendering: bool) -> Option<f32> {
+        if matches!(self, Self::Low) || !retina_rendering {
+            Some(1.0)
+        } else {
+            None
+        }
+    }
+}
+
+const fn default_retina_rendering() -> bool {
+    true
 }
 
 #[derive(Reflect, Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -422,6 +439,8 @@ pub struct AppSettings {
     pub vsync: bool,
     pub frame_cap: FrameCap,
     pub quality: QualityPreset,
+    #[cfg_attr(test, serde(default = "default_retina_rendering"))]
+    pub retina_rendering: bool,
     pub ui_scale: f32,
     pub units: DistanceUnit,
     pub start_mode: StartModeSetting,
@@ -440,6 +459,7 @@ impl Default for AppSettings {
             vsync: true,
             frame_cap: FrameCap::default(),
             quality: QualityPreset::default(),
+            retina_rendering: default_retina_rendering(),
             ui_scale: 1.0,
             units: DistanceUnit::default(),
             start_mode: StartModeSetting::default(),
@@ -596,6 +616,7 @@ struct RuntimeSettingsKey {
     vsync: bool,
     frame_cap: FrameCap,
     quality: QualityPreset,
+    retina_rendering: bool,
     ui_scale_bits: u32,
 }
 
@@ -607,6 +628,7 @@ impl RuntimeSettingsKey {
             vsync: settings.vsync,
             frame_cap: settings.frame_cap,
             quality: settings.quality,
+            retina_rendering: settings.retina_rendering,
             ui_scale_bits: settings.ui_scale.to_bits(),
         }
     }
@@ -659,6 +681,7 @@ enum SettingAction {
     ToggleVsync,
     SetFrameCap(FrameCap),
     SetQuality(QualityPreset),
+    ToggleRetinaRendering,
     CycleUiScale,
     SetUnits(DistanceUnit),
     SetStartLive,
@@ -849,7 +872,8 @@ fn apply_settings_to_runtime(
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
     mut ui_scale: ResMut<UiScale>,
     mut winit: ResMut<WinitSettings>,
-    mut cameras: Query<&mut Msaa, With<Camera3d>>,
+    mut cameras: Query<(Entity, &mut Msaa, Has<Bloom>), With<Camera3d>>,
+    mut commands: Commands,
 ) {
     if !settings.is_changed() {
         return;
@@ -874,6 +898,14 @@ fn apply_settings_to_runtime(
             || window.resolution.height() != desired_height
         {
             window.resolution.set(desired_width, desired_height);
+        }
+        let desired_scale_factor = normalized
+            .quality
+            .scale_factor_override(normalized.retina_rendering);
+        if window.resolution.scale_factor_override() != desired_scale_factor {
+            window
+                .resolution
+                .set_scale_factor_override(desired_scale_factor);
         }
         let desired_present_mode = if normalized.vsync {
             PresentMode::AutoVsync
@@ -900,9 +932,19 @@ fn apply_settings_to_runtime(
         winit.unfocused_mode = update_mode;
     }
     let desired_msaa = normalized.quality.msaa();
-    for mut msaa in &mut cameras {
+    let desired_bloom = normalized.quality.bloom_enabled();
+    for (entity, mut msaa, has_bloom) in &mut cameras {
         if *msaa != desired_msaa {
             *msaa = desired_msaa;
+        }
+        match (desired_bloom, has_bloom) {
+            (true, false) => {
+                commands.entity(entity).insert(Bloom::NATURAL);
+            }
+            (false, true) => {
+                commands.entity(entity).remove::<Bloom>();
+            }
+            _ => {}
         }
     }
     applied.0 = Some(key);
@@ -1131,6 +1173,15 @@ fn rebuild_settings_screen(
         }),
         &mut next_tab_index,
     );
+    spawn_checkbox(
+        &mut commands,
+        content,
+        *theme,
+        "Retina rendering",
+        draft.retina_rendering,
+        SettingAction::ToggleRetinaRendering,
+        &mut next_tab_index,
+    );
     let ui_scale_tab_index = next_settings_tab_index(&mut next_tab_index);
     commands
         .spawn_scene(slider(
@@ -1271,7 +1322,7 @@ fn rebuild_settings_screen(
         ],
         &mut next_tab_index,
     );
-    debug_assert_eq!(next_tab_index, SETTINGS_FIRST_TAB_INDEX + 40);
+    debug_assert_eq!(next_tab_index, SETTINGS_FIRST_TAB_INDEX + 41);
     let action = screen.restore_focus.take().unwrap_or(SettingAction::Close);
     commands.queue(move |world: &mut World| {
         let focused = {
@@ -1459,6 +1510,9 @@ fn activate_setting_action(
         SettingAction::ToggleVsync => screen.draft.vsync = !screen.draft.vsync,
         SettingAction::SetFrameCap(value) => screen.draft.frame_cap = value,
         SettingAction::SetQuality(value) => screen.draft.quality = value,
+        SettingAction::ToggleRetinaRendering => {
+            screen.draft.retina_rendering = !screen.draft.retina_rendering;
+        }
         SettingAction::CycleUiScale => {
             screen.draft.ui_scale = next_ui_scale(screen.draft.ui_scale);
         }
@@ -1647,6 +1701,7 @@ mod tests {
             vsync: false,
             frame_cap: FrameCap::Fps240,
             quality: QualityPreset::Ultra,
+            retina_rendering: false,
             ui_scale: 1.5,
             units: DistanceUnit::AstronomicalUnits,
             start_mode: StartModeSetting::FixedEpoch {
@@ -1967,12 +2022,13 @@ mod tests {
     }
 
     fn expected_settings_tab_order() -> Vec<SettingAction> {
-        let mut actions = Vec::with_capacity(40);
+        let mut actions = Vec::with_capacity(41);
         actions.extend(DisplayModeSetting::ALL.map(SettingAction::SetDisplayMode));
         actions.extend(ResolutionSetting::PRESETS.map(SettingAction::SetResolution));
         actions.push(SettingAction::ToggleVsync);
         actions.extend(FrameCap::ALL.map(SettingAction::SetFrameCap));
         actions.extend(QualityPreset::ALL.map(SettingAction::SetQuality));
+        actions.push(SettingAction::ToggleRetinaRendering);
         actions.push(SettingAction::CycleUiScale);
         actions.extend(DistanceUnit::ALL.map(SettingAction::SetUnits));
         actions.extend([
@@ -2003,7 +2059,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_without_startup_rate_migrate_to_one_day_per_second() {
+    fn settings_without_gpu_toggle_or_startup_rate_migrate_to_defaults() {
         #[derive(serde::Serialize)]
         struct LegacyAppSettings {
             display_mode: DisplayModeSetting,
@@ -2038,6 +2094,7 @@ mod tests {
 
         assert_eq!(migrated.startup_rate, StartupRateSetting::default());
         assert_eq!(migrated.startup_rate.rate().label(), "1 DAY/S");
+        assert!(migrated.retina_rendering);
     }
 
     #[test]
@@ -2557,6 +2614,63 @@ mod tests {
     }
 
     #[test]
+    fn quality_presets_compose_msaa_bloom_and_retina_scale_through_runtime_apply() {
+        let defaults = AppSettings::default();
+        assert_eq!(defaults.quality, QualityPreset::High);
+        assert!(defaults.retina_rendering);
+
+        let mut app = App::new();
+        app.insert_resource(defaults)
+            .init_resource::<AppliedRuntimeSettings>()
+            .init_resource::<UiScale>()
+            .init_resource::<WinitSettings>()
+            .add_systems(Update, apply_settings_to_runtime);
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow))
+            .id();
+        let camera = app
+            .world_mut()
+            .spawn((Camera3d::default(), Msaa::Off, Bloom::NATURAL))
+            .id();
+
+        for (quality, retina_rendering, expected_msaa, bloom, scale_factor) in [
+            (QualityPreset::Low, true, Msaa::Off, false, Some(1.0)),
+            (QualityPreset::Medium, true, Msaa::Sample2, true, None),
+            (QualityPreset::High, false, Msaa::Sample4, true, Some(1.0)),
+            (QualityPreset::Ultra, true, Msaa::Sample8, true, None),
+        ] {
+            *app.world_mut().resource_mut::<AppSettings>() = AppSettings {
+                quality,
+                retina_rendering,
+                ..default()
+            };
+            app.update();
+
+            assert_eq!(
+                app.world().entity(camera).get::<Msaa>(),
+                Some(&expected_msaa),
+                "{quality:?} MSAA"
+            );
+            assert_eq!(
+                app.world().entity(camera).contains::<Bloom>(),
+                bloom,
+                "{quality:?} bloom"
+            );
+            assert_eq!(
+                app.world()
+                    .entity(window)
+                    .get::<Window>()
+                    .unwrap()
+                    .resolution
+                    .scale_factor_override(),
+                scale_factor,
+                "{quality:?} Retina composition"
+            );
+        }
+    }
+
+    #[test]
     fn stable_presentation_convergence_does_not_mark_settings_changed() {
         let mut app = App::new();
         app.insert_resource(AppSettings::default())
@@ -2818,10 +2932,10 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         controls.sort_by_key(|(index, _)| *index);
-        assert_eq!(controls.len(), 40);
+        assert_eq!(controls.len(), 41);
         assert_eq!(
             controls.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
-            (SETTINGS_FIRST_TAB_INDEX..SETTINGS_FIRST_TAB_INDEX + 40).collect::<Vec<_>>()
+            (SETTINGS_FIRST_TAB_INDEX..SETTINGS_FIRST_TAB_INDEX + 41).collect::<Vec<_>>()
         );
         assert_eq!(
             controls
@@ -3154,7 +3268,7 @@ mod tests {
                 &AccessibilityNode,
             )>();
             let controls: Vec<_> = controls.iter(world).collect();
-            assert_eq!(controls.len(), 40);
+            assert_eq!(controls.len(), 41);
             assert!(controls
                 .iter()
                 .all(|(_, _, _, label, _)| !label.0.trim().is_empty()));

@@ -1225,6 +1225,7 @@ fn hash_app_settings(hash: &mut Fnv1a, settings: &AppSettings) {
         crate::QualityPreset::High => 2,
         crate::QualityPreset::Ultra => 3,
     });
+    hash.u8(u8::from(settings.retina_rendering));
     hash.u64(u64::from(settings.ui_scale.to_bits()));
     hash.u8(match settings.units {
         crate::DistanceUnit::Kilometers => 0,
@@ -1455,7 +1456,7 @@ fn serialize_settings_command(prefix: &str, settings: &AppSettings) -> String {
         crate::StartModeSetting::Live => ("live", "-".to_string()),
     };
     format!(
-        "{prefix}|apply-settings|{display}|{}|{}|{}|{frame_cap}|{quality}|{:08x}|{units}|{start_kind}|{start_value}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+        "{prefix}|apply-settings|{display}|{}|{}|{}|{frame_cap}|{quality}|{:08x}|{units}|{start_kind}|{start_value}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
         settings.resolution.width,
         settings.resolution.height,
         u8::from(settings.vsync),
@@ -1472,11 +1473,12 @@ fn serialize_settings_command(prefix: &str, settings: &AppSettings) -> String {
         u8::from(settings.layers.labels),
         u8::from(settings.layers.icons),
         settings.startup_rate.rate().get(),
+        u8::from(settings.retina_rendering),
     )
 }
 
 fn parse_settings_command(fields: &[&str]) -> Result<AppSettings, String> {
-    if !matches!(fields.len(), 24 | 25) {
+    if !matches!(fields.len(), 24..=26) {
         return Err("apply-settings has the wrong field count".into());
     }
     let display_mode = match fields[3] {
@@ -1531,6 +1533,9 @@ fn parse_settings_command(fields: &[&str]) -> Result<AppSettings, String> {
         vsync,
         frame_cap,
         quality,
+        retina_rendering: fields
+            .get(25)
+            .map_or(Ok(true), |value| parse_bool(value, "Retina rendering"))?,
         ui_scale,
         units,
         start_mode,
@@ -1783,9 +1788,9 @@ mod tests {
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
     const FRAME_DT_S: f64 = 1.0 / 60.0;
-    // UIP-4 intentionally adds the persisted startup-rate identity to the
+    // UIP-6 intentionally adds the persisted Retina-rendering identity to the
     // deterministic settings hash; the mixed replay remains otherwise exact.
-    const PORTABLE_REPLAY_HASH: u64 = 13_840_042_804_535_984_476;
+    const PORTABLE_REPLAY_HASH: u64 = 17_908_512_438_397_036_261;
 
     fn catalog() -> Catalog {
         load_catalog_text(REAL_CATALOG).expect("committed catalog must load")
@@ -2419,18 +2424,31 @@ mod tests {
     }
 
     #[test]
-    fn legacy_apply_settings_rows_default_the_missing_startup_rate() {
+    fn legacy_apply_settings_rows_default_missing_gpu_and_startup_fields() {
         let prefix = "0|0000000000000000";
         let current = serialize_settings_command(prefix, &AppSettings::default());
-        let legacy = current
+        let without_retina = current
             .rsplit_once('|')
-            .expect("new settings row ends with startup rate")
+            .expect("new settings row ends with Retina rendering")
+            .0;
+        let parsed =
+            ReplayStream::from_text(&format!("solar-sim-replay-v2\n{without_retina}\n")).unwrap();
+        let SimCommand::ApplySettings(settings) = &parsed.entries()[0].command else {
+            panic!("expected apply-settings command");
+        };
+        assert_eq!(settings.startup_rate, crate::StartupRateSetting::default());
+        assert!(settings.retina_rendering);
+
+        let legacy = without_retina
+            .rsplit_once('|')
+            .expect("prior settings row ends with startup rate")
             .0;
         let parsed = ReplayStream::from_text(&format!("solar-sim-replay-v2\n{legacy}\n")).unwrap();
         let SimCommand::ApplySettings(settings) = &parsed.entries()[0].command else {
             panic!("expected apply-settings command");
         };
         assert_eq!(settings.startup_rate, crate::StartupRateSetting::default());
+        assert!(settings.retina_rendering);
 
         let invalid = format!("solar-sim-replay-v2\n{legacy}|0\n");
         let parsed = ReplayStream::from_text(&invalid).unwrap();
@@ -2442,6 +2460,10 @@ mod tests {
             ReplayStream::from_text(&format!("solar-sim-replay-v2\n{legacy}|not-a-rate\n"))
                 .is_err()
         );
+        assert!(ReplayStream::from_text(&format!(
+            "solar-sim-replay-v2\n{without_retina}|not-a-bool\n"
+        ))
+        .is_err());
     }
 
     #[test]

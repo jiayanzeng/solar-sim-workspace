@@ -962,6 +962,9 @@ fn build_app_with_platform<P: Plugin>(
             },
             vsync: false,
             frame_cap: FrameCap::Unlimited,
+            // WP15 goldens are a fixed 960x600, 1.0-scale matrix independent
+            // of the host display's native scale factor.
+            retina_rendering: false,
             // Canonical evidence must not depend on asset-loading duration.
             // This capture-only setting still crosses the startup command gate.
             startup_rate: StartupRateSetting::real_time(),

@@ -109,7 +109,7 @@ cargo run -p solar-sim --release -- --smoke 60 --expect-backend metal --reject-s
 ## Testing & verification
 
 ```
-cargo test                                       # 398 tests, fully offline
+cargo test                                       # 399 tests, fully offline
 cargo fmt --all -- --check                       # rustfmt defaults
 cargo clippy --workspace --all-targets -- -D warnings
 scripts/check-texture-metadata.sh                # texture license/hash audit

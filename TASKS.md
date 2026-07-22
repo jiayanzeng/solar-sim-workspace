@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 398 passing** (53 `sim-core` · 288 `solar-sim` · 54 `xtask`
+**Test baseline: 399 passing** (53 `sim-core` · 289 `solar-sim` · 54 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -937,7 +937,74 @@ all-target clippy matrices pass. This is outside UIP-3; decide in UIP-1
 maintenance whether the debug-only assertions should be conditionally compiled
 so release all-target linting is also a supported gate.
 
+### Q21 — OPEN.
+
+UIP-6 correctly sets Bevy's runtime window scale-factor override to 1.0 for
+Low and whenever the explicit Retina-rendering toggle is off. On the M2 Pro's
+macOS borderless-fullscreen path, however, winit keeps the swapchain at the
+monitor's native 5120x2880 physical size; the Low measurement still reported
+5120x2880 even though the override was active. This observation is specific to
+borderless fullscreen; windowed mode was not measured in this run.
+Decide whether the setting is intentionally windowed-only in effect, whether a
+restart/launch-time macOS high-DPI policy is acceptable, or whether the
+internal 3D render-scale chain currently excluded by UIP-6 should be revisited.
+Agents must not silently force windowed mode or add a render-scale target.
+
 ## Change log (append-only; newest first)
+
+- **2026-07-22** — Implemented **UIP-6 GPU quality-preset composition** and
+  completed every acceptance item not blocked by Q19. `QualityPreset` now
+  composes the existing exact MSAA ladder with bloom (Low off; Medium/High/
+  Ultra on) and the window scale-factor policy (Low always 1.0; all other
+  presets follow the new explicit Retina-rendering setting). The persisted
+  toggle defaults on, so High + Retina remains the unchanged product default;
+  missing settings and 24/25-field legacy replay rows migrate to on. Settings,
+  RESTORE DEFAULTS, `--reset-settings`, recording/replay, deterministic hashes,
+  and runtime application all converge through the existing `ApplySettings`
+  path. The fixed WP15 matrix remains High/4x/bloom-on at scale 1.0; Low's
+  intentional bloom-off behavior is excluded by the recorded matrix note and
+  covered by the exact runtime-composition regression.
+
+  The M2 Pro/Metal five-second full-system measurements are recorded below.
+  Low and Medium pre-UIP-6 rows are the UIP-1 2560x1440 baseline and therefore
+  are not presented as direct deltas against the new borderless 5K samples;
+  High uses UIP-5's comparable 5120x2880 measurement. The borderless Low run
+  exposed Q21: macOS retained a native 5K swapchain despite the active 1.0
+  override. Ultra again rejected 8x MSAA for `Rgba16Float` and `Depth32Float`,
+  entered `StoppedUnexpected`, and wrote no report, exactly as the evidence
+  guard requires; Q19 remains open and no fallback or invalid timing is
+  claimed.
+
+  | Preset | Before resolution | Before mean / fps | After resolution | After mean / fps | Result |
+  |---|---:|---:|---:|---:|---|
+  | Low | 2560x1440 | 9.498 ms / 105.3 | 5120x2880 | 11.344 ms / 88.2 | Valid; bloom off, MSAA off |
+  | Medium | 2560x1440 | 9.206 ms / 108.6 | 5120x2880 | 11.921 ms / 83.9 | Valid; bloom on, 2x MSAA |
+  | High | 5120x2880 | 9.563 ms / 104.6 | 5120x2880 | 9.914 ms / 100.9 | Valid; bloom on, 4x MSAA |
+  | Ultra | n/a | unsupported | n/a | unsupported | Blocked by Q19; no report written |
+
+  Two independent input-isolated Metal golden runs captured all six canonical
+  High views on their first attempt. Comparison passed with p99 Delta-E 0.0000
+  throughout; `inner-orbits` and `earth-texture` mean 0.0050 and the other four
+  views mean 0.0000. Evidence: default `cargo test` passes **399 tests** (53 +
+  289 + 54 + 2 + 1); `cargo test --workspace --features steam` passes **400**;
+  default and Steam-feature warning-denied workspace/all-target clippy pass;
+  release build, release-mode warning-denied `solar-sim` library clippy,
+  format check, `git diff --check`, 16-texture metadata audit, and catalog
+  dry-run pass. No dependency, generated catalog, architecture, agent-rule,
+  physical-truth, product-default, or internal render-scale file changed.
+  UIP-6 is handed back with only Q19's Ultra evidence and Q21's borderless-
+  Retina semantics awaiting human rulings.
+
+- **2026-07-22** — Opened **UIP-6 GPU quality-preset composition** as the sole
+  in-progress phase under `docs/ui-performance-plan-2026-07-22.md`. Scope is
+  limited to composing the existing Low/Medium/High/Ultra MSAA ladder with
+  Low-only bloom disablement, a persisted explicit Retina-rendering toggle,
+  and runtime application through the existing `ApplySettings` reducer. High
+  remains the default and ordinary Retina rendering remains enabled. Q19 stays
+  open: this M2 Pro/Metal adapter rejects the specified 8x-MSAA Ultra mapping,
+  so no fallback, silent clamp, or invalid Ultra timing will be invented.
+  Pre-change `cargo test` passes the recorded **398-test** baseline (53 + 288
+  + 54 + 2 + 1).
 
 - **2026-07-22** — Completed **UIP-5 region presets**. Added the public
   `RegionPreset::{Inner,Belt,Outer,Kuiper}` contract and exact named kilometre

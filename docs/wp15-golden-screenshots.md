@@ -9,6 +9,12 @@ camera renders to a fixed-size sRGB image target so capture does not depend on
 swapchain visibility or window-surface state; Metal/DX12 still render every
 pixel through their normal backend pipelines.
 
+The canonical matrix uses the unchanged default High preset (4x MSAA, bloom
+on) with the capture-only 1.0 scale-factor override above. Low is deliberately
+excluded from this six-view matrix: UIP-6 defines bloom-off as Low's intended
+quality behavior, covered by the preset-composition regression rather than by
+replacing the `sun-bloom` product-default reference.
+
 | View | Focus | Review target |
 | --- | --- | --- |
 | `full-system` | Sun | Product HUD, labels, category colors, orbit-line palette, and system framing |
