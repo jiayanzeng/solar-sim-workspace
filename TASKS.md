@@ -915,6 +915,26 @@ assertion change was made, and the WP17 smoke gate is not claimed.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-22** — Integrated the approved UI/gameplay follow-up stack into
+  `main` in dependency order: PR #7 camera/discoverability (`df6e0a2`), PR #8
+  selection interaction (`25e4a96`), PR #9 HUD polish (`ff1ef9f`), and PR #10
+  body descriptions/provenance (`25ca288`). Before each merge, the pull request
+  was based or retargeted directly onto the current `main`, reported `CLEAN`
+  and `MERGEABLE`, and retained successful lint, Linux, macOS, Windows, and
+  invariant checks. No open pull request remains from the stack.
+
+  A separate `codex/docs-status-cleanup` package reconciles README status with
+  this board and the current source: WP16 is deferred, the default workspace
+  baseline is 369 tests with its current crate split, CI runs on `main` pushes
+  and pull requests rather than every branch push, all 66 descriptions are
+  complete and provenance-checked, and Q18 is listed among the current open
+  questions. Evidence on the integrated `main` source plus this documentation
+  diff: `cargo test` passes all **369 tests** with zero failures, ignores, or
+  skips; `cargo fmt --all -- --check`, warning-denied workspace clippy, and
+  `git diff --check` pass. No application source, dependency, generated
+  catalog, truth fixture, architecture/agent file, WP16 status, or WP17 status
+  changed in the documentation package.
+
 - **2026-07-22** — Completed the WP10 66-body description/provenance pass and
   returned WP10 to **✅ done**. The curated manifest now provides every frozen
   catalog identity with a neutral two-sentence description and a body- or
