@@ -1,12 +1,13 @@
-# solar-sim — Rev C workspace (WP0–WP15 complete; WP16 in progress)
+# solar-sim — Rev C workspace (WP0–WP15 complete; WP16 deferred)
 
 Steam-targeted solar-system simulator per `ARCHITECTURE.md` (Rev C, the design
 of record). The full Bevy 0.19 application now runs: all 66 bodies propagate
 from the committed real-ephemeris catalog, with the Eyes-modeled UI (time bar,
 labels, left panel, search, layers), the BSC starfield, 2K KTX2 textures, the
 settings screen with render recovery, and the golden-screenshot harness.
-Remaining before beta: Steam release engineering (WP16, in progress) and the
-QA/release gates (WP17).
+Remaining before beta: deferred Steam release engineering (WP16) and the
+dependent QA/release gates (WP17). Q13 records the unresolved hardware,
+credentials, signing, and reference-machine prerequisites.
 
 ```
 crates/sim-core/      engine-agnostic core (ZERO Bevy deps — CI-enforced)
@@ -104,7 +105,7 @@ cargo run -p solar-sim --release -- --smoke 60 --expect-backend metal --reject-s
 ## Testing & verification
 
 ```
-cargo test                                       # 223 tests, fully offline
+cargo test                                       # 369 tests, fully offline
 cargo fmt --all -- --check                       # rustfmt defaults
 cargo clippy --workspace --all-targets -- -D warnings
 scripts/check-texture-metadata.sh                # texture license/hash audit
@@ -114,8 +115,8 @@ cargo run -p xtask -- gen-catalog \
     --out assets/catalog.sample.ron              # offline end-to-end (6 bodies; 60 skipped is expected)
 ```
 
-The authoritative test baseline lives in `TASKS.md` (currently **223
-passing**: 53 `sim-core` · 119 `solar-sim` · 48 `xtask` lib · 2 xtask smoke ·
+The authoritative test baseline lives in `TASKS.md` (currently **369
+passing**: 53 `sim-core` · 264 `solar-sim` · 49 `xtask` lib · 2 xtask smoke ·
 1 position spot-check gate, **active**). If this README and `TASKS.md`
 disagree, `TASKS.md` wins.
 
@@ -129,8 +130,8 @@ Q5 is closed and implemented: Mercury–Mars fetch geometric centers,
 Jupiter–Neptune fetch system barycenters, so the old `$$SOE` failure at
 Jupiter is gone. The 2026-07-13 live run captured all 66 bodies; the raw
 responses are committed under `xtask/fixtures/captured-2026-07/` for
-reproducibility. Regeneration currently re-lints ~45 bodies for empty
-`description` fields — a known content gap, not an error.
+reproducibility. All 66 bodies have curated descriptions and authoritative
+content provenance; manifest and application regressions enforce completeness.
 
 ### Other xtask tools
 
@@ -150,7 +151,7 @@ and depot preflights reject it.
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every push/PR:
+`.github/workflows/ci.yml` runs on pushes to `main` and on pull requests:
 
 - **lint** — fmt, clippy (deny warnings), texture metadata audit
 - **test-linux** — nextest full workspace + offline fixtures smoke
@@ -172,13 +173,14 @@ captures are non-blocking.
 | WP | State |
 |---|---|
 | 0–15 | ✅ done — see `TASKS.md → Done (evidence)` and the change log |
-| 16 | **in progress** — `PlatformServices`, the optional `steamworks` adapter, interim App ID 480 guardrails, and the default-build Steamworks CI guard are implemented. The macOS overlay observation is pending; Q13 remains open for real Windows/reference hardware. |
+| 16 | deferred — `PlatformServices`, the optional `steamworks` adapter, interim App ID 480 guardrails, and the default-build Steamworks CI guard are implemented. Q13 still blocks the remaining hardware, credentials, signing, packaging, and install evidence. |
 | 17 | todo — replay suite, perf gates, demo script, licensing audit |
 | 18 | deferred (Compare Size mode) |
 
 Open questions awaiting the human: **Q4** (constellation line-set licensing,
-fast-follow), **Q12** (CI-1…CI-6 brief scope), and **Q13**
-(Windows/reference hardware). Details in `TASKS.md → Open questions`.
+fast-follow), **Q12** (CI-1…CI-6 brief scope), **Q13**
+(Windows/reference hardware and credentials), and **Q18** (the exact WP17
+nonblack-readback gate). Details in `TASKS.md → Open questions`.
 
 ## Known limitations
 
@@ -186,8 +188,6 @@ fast-follow), **Q12** (CI-1…CI-6 brief scope), and **Q13**
   the dependency tree (CI-enforced). App ID 480 cannot pass release preflight.
 - Real-hardware Windows validation (launch, overlay, DX12 goldens, GTX 1650
   perf) is deferred to WP16/WP17 per Q10/Q13.
-- ~45 catalog `description` fields are still empty (generator lints them on
-  regeneration); the Info panel renders for all 66 bodies regardless.
 
 ## Non-negotiables carried from ARCHITECTURE §3
 
