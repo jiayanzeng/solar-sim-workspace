@@ -278,6 +278,16 @@ local runs) on the M2 Pro with a nonblack readback; a forced-timeout test
 proves the loud-failure path; no retry loop exists; Q18 is then closed in
 TASKS.md citing this evidence.
 
+**Execution note (2026-07-22).** The ruled gate, forced-timeout path, and
+one-shot behavior are implemented. Although the exact command produced an
+initial five-pass M2 Pro/Metal streak, two later runs of the same fresh release
+binary returned black after the shared readiness condition reported true at
+5.000 and 5.001 seconds. Q18 therefore remains open: Bevy 0.19 exposes an
+occluded-surface path that can leave the capture buffer unwritten, but D3 did
+not authorize adding surface availability to the readiness rule or imposing a
+foreground-window procedure. No retry, added delay, or assertion weakening is
+permitted without a human ruling.
+
 ---
 
 ## Part D — Required ARCHITECTURE Rev D edits (human pastes, commits, done)

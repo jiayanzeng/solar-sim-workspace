@@ -28,6 +28,15 @@ const RETRY_SETTLE_SECONDS: f64 = 2.0;
 const MAX_SETTLE_SECONDS: f64 = 30.0;
 const MAX_CAPTURE_ATTEMPTS: u8 = 3;
 
+fn readback_settle_complete(
+    settled_frames: u32,
+    settled_seconds: f64,
+    minimum_seconds: f64,
+    all_loaded: bool,
+) -> bool {
+    all_loaded && settled_frames >= MIN_SETTLE_FRAMES && settled_seconds >= minimum_seconds
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GoldenCaptureOptions {
     pub view: String,
@@ -168,10 +177,59 @@ struct GoldenCaptureState {
 }
 
 #[derive(SystemParam)]
-struct GoldenCaptureInputs<'w, 's> {
+pub(crate) struct ReferencedTextureInputs<'w, 's> {
     asset_server: Res<'w, AssetServer>,
     materials: Res<'w, Assets<StandardMaterial>>,
     material_handles: Query<'w, 's, &'static MeshMaterial3d<StandardMaterial>>,
+}
+
+impl ReferencedTextureInputs<'_, '_> {
+    /// The shared initial-readback condition: the render path has completed
+    /// its minimum settling window, each material entity exists, and every
+    /// referenced base-color image is loaded.
+    pub(crate) fn ready_for_initial_readback(
+        &self,
+        settled_frames: u32,
+        settled_seconds: f64,
+    ) -> Result<bool, String> {
+        self.ready_after_settle(settled_frames, settled_seconds, MIN_SETTLE_SECONDS)
+    }
+
+    fn ready_after_settle(
+        &self,
+        settled_frames: u32,
+        settled_seconds: f64,
+        minimum_seconds: f64,
+    ) -> Result<bool, String> {
+        let mut all_loaded = true;
+        for material_handle in &self.material_handles {
+            let Some(material) = self.materials.get(material_handle) else {
+                all_loaded = false;
+                continue;
+            };
+            let Some(texture) = material.base_color_texture.as_ref() else {
+                continue;
+            };
+            match self.asset_server.load_state(texture) {
+                LoadState::Failed(error) => {
+                    return Err(format!("referenced texture failed to load: {error}"));
+                }
+                LoadState::Loaded => {}
+                LoadState::NotLoaded | LoadState::Loading => all_loaded = false,
+            }
+        }
+        Ok(readback_settle_complete(
+            settled_frames,
+            settled_seconds,
+            minimum_seconds,
+            all_loaded,
+        ))
+    }
+}
+
+#[derive(SystemParam)]
+struct GoldenCaptureInputs<'w, 's> {
+    textures: ReferencedTextureInputs<'w, 's>,
     target: Res<'w, GoldenRenderTarget>,
     adapter: Option<Res<'w, RenderAdapterInfo>>,
 }
@@ -244,30 +302,26 @@ fn request_golden_capture(
     }
     let started = *state.started.get_or_insert_with(Instant::now);
     state.frames += 1;
-    let mut all_loaded = true;
-    for material_handle in &inputs.material_handles {
-        let Some(material) = inputs.materials.get(material_handle) else {
-            all_loaded = false;
-            continue;
-        };
-        let Some(texture) = material.base_color_texture.as_ref() else {
-            continue;
-        };
-        match inputs.asset_server.load_state(texture) {
-            LoadState::Failed(error) => {
-                error!(
-                    "golden '{}' texture failed to load: {error}",
-                    state.options.view
-                );
+    let settled_seconds = started.elapsed().as_secs_f64();
+    let settle_seconds = if state.attempts == 0 {
+        MIN_SETTLE_SECONDS
+    } else {
+        RETRY_SETTLE_SECONDS
+    };
+    let ready =
+        match inputs
+            .textures
+            .ready_after_settle(state.frames, settled_seconds, settle_seconds)
+        {
+            Ok(ready) => ready,
+            Err(error) => {
+                error!("golden '{}' {error}", state.options.view);
                 exit.write(AppExit::error());
                 state.requested = true;
                 return;
             }
-            LoadState::Loaded => {}
-            LoadState::NotLoaded | LoadState::Loading => all_loaded = false,
-        }
-    }
-    if started.elapsed().as_secs_f64() > MAX_SETTLE_SECONDS {
+        };
+    if settled_seconds > MAX_SETTLE_SECONDS {
         error!(
             "golden '{}' did not finish loading in {MAX_SETTLE_SECONDS:.0} seconds",
             state.options.view
@@ -276,15 +330,7 @@ fn request_golden_capture(
         state.requested = true;
         return;
     }
-    let settle_seconds = if state.attempts == 0 {
-        MIN_SETTLE_SECONDS
-    } else {
-        RETRY_SETTLE_SECONDS
-    };
-    if state.frames < MIN_SETTLE_FRAMES
-        || started.elapsed().as_secs_f64() < settle_seconds
-        || !all_loaded
-    {
+    if !ready {
         return;
     }
     info!(
@@ -409,6 +455,30 @@ mod tests {
             TextureFormat::Rgba8UnormSrgb
         );
         assert!(image.data.is_some());
+        assert!(!readback_settle_complete(
+            MIN_SETTLE_FRAMES - 1,
+            MIN_SETTLE_SECONDS,
+            MIN_SETTLE_SECONDS,
+            true,
+        ));
+        assert!(!readback_settle_complete(
+            MIN_SETTLE_FRAMES,
+            MIN_SETTLE_SECONDS - 0.001,
+            MIN_SETTLE_SECONDS,
+            true,
+        ));
+        assert!(!readback_settle_complete(
+            MIN_SETTLE_FRAMES,
+            MIN_SETTLE_SECONDS,
+            MIN_SETTLE_SECONDS,
+            false,
+        ));
+        assert!(readback_settle_complete(
+            MIN_SETTLE_FRAMES,
+            MIN_SETTLE_SECONDS,
+            MIN_SETTLE_SECONDS,
+            true,
+        ));
     }
 
     #[test]

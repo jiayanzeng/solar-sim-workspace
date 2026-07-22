@@ -82,8 +82,18 @@ DX12 machine must pass `cargo run -p solar-sim --release -- --smoke 60
 --expect-backend dx12 --reject-software-adapter` before its golden captures
 mean anything. The Windows hosted smoke deliberately omits this check because
 its WARP adapter is an expected compile/launch probe, not a golden GPU gate.
-`--assert-nonblack` reads the primary window render target and fails if every
-RGB channel is zero. The nonblack assertion is intentionally not a hosted-CI
-gate: a hosted window surface may read back black even when the fixed offscreen
-golden target is valid. WP17 runs this opt-in check on both real reference
-machines before release closeout.
+After the requested smoke-frame measurement completes, `--assert-nonblack`
+uses the golden harness's same referenced-texture readiness condition. It
+prints the readiness wait duration, fails with a distinct nonzero-exit message
+if readiness does not arrive within 10 seconds, and then requests exactly one
+primary-window readback. It never retries that readback and still fails if
+every RGB channel is zero. The nonblack assertion is intentionally not a
+hosted-CI gate: a hosted window surface may read back black even when the fixed
+offscreen golden target is valid. WP17 runs this opt-in check on both real
+reference machines before release closeout.
+
+The UIP-8 implementation satisfies this procedure, but its 2026-07-22 M2 Pro
+evidence is not yet repeatable: an initial five-pass streak was followed by two
+black readbacks after readiness reported true. `TASKS.md` Q18 remains open for
+a human decision on explicit primary-surface readiness versus a controlled
+foreground-window gate procedure.

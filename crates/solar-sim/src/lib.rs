@@ -134,6 +134,9 @@ pub const DEFAULT_CATALOG_PATH: &str = "assets/catalog.ron";
 const DEFAULT_BEVY_ASSET_ROOT: &str = "../../assets";
 pub const KM_PER_RENDER_UNIT: f64 = 1_000.0;
 const DEFAULT_SMOKE_FRAMES: u32 = 60;
+const SMOKE_READINESS_TIMEOUT_S: f64 = 10.0;
+const SMOKE_READINESS_TIMEOUT_ERROR: &str =
+    "referenced textures were not ready within 10 seconds after the smoke frame-count measurement";
 pub const DEFAULT_CAMERA_DISTANCE_UNITS: f64 = 250_000.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -681,6 +684,7 @@ struct SmokeFrames {
     assert_nonblack: bool,
     seen: u32,
     started: Option<Instant>,
+    readiness_started: Option<Instant>,
     screenshot_requested: bool,
     completed: bool,
 }
@@ -699,6 +703,7 @@ impl SmokeFrames {
             assert_nonblack,
             seen: 0,
             started: None,
+            readiness_started: None,
             screenshot_requested: false,
             completed: false,
         }
@@ -1518,6 +1523,7 @@ fn smoke_exit(
     mut commands: Commands,
     mut smoke: ResMut<SmokeFrames>,
     adapter: Option<Res<RenderAdapterInfo>>,
+    textures: golden::ReferencedTextureInputs,
     mut exit: MessageWriter<AppExit>,
 ) {
     let Some(target) = smoke.target else {
@@ -1531,7 +1537,7 @@ fn smoke_exit(
     if smoke.started.is_none() && smoke.seen >= warmup_frames {
         smoke.started = Some(Instant::now());
     }
-    if smoke.seen >= target {
+    if smoke.seen >= target && smoke.readiness_started.is_none() {
         let started = match smoke.started {
             Some(started) => started,
             None => Instant::now(),
@@ -1583,15 +1589,51 @@ fn smoke_exit(
             }
         }
         if smoke.assert_nonblack {
-            println!("smoke: requesting primary window readback");
+            smoke.readiness_started = Some(Instant::now());
+        } else {
+            smoke.completed = true;
+            exit.write(AppExit::Success);
+            return;
+        }
+    }
+    let Some(readiness_started) = smoke.readiness_started else {
+        return;
+    };
+    let readiness_wait_s = readiness_started.elapsed().as_secs_f64();
+    let readiness_frames = smoke.seen.saturating_sub(target);
+    // Do not reintroduce an assets-only gate: on the M2 Pro, all textures were
+    // loaded at frame 60 but that immediate one-shot readback was still black.
+    // The complete golden initial-readback condition passed after five seconds.
+    match smoke_readiness_gate(
+        textures.ready_for_initial_readback(readiness_frames, readiness_wait_s),
+        readiness_wait_s,
+    ) {
+        Ok(false) => {}
+        Ok(true) => {
+            println!(
+                "smoke: referenced textures ready after {readiness_wait_s:.3}s; requesting primary window readback"
+            );
             smoke.screenshot_requested = true;
             commands
                 .spawn(Screenshot::primary_window())
                 .observe(assert_window_nonblack_and_exit);
-        } else {
-            smoke.completed = true;
-            exit.write(AppExit::Success);
         }
+        Err(error) => {
+            eprintln!("smoke: {error}");
+            smoke.completed = true;
+            exit.write(AppExit::error());
+        }
+    }
+}
+
+fn smoke_readiness_gate(all_loaded: Result<bool, String>, elapsed_s: f64) -> Result<bool, String> {
+    match all_loaded {
+        Err(error) => Err(format!("referenced-texture readiness failed: {error}")),
+        Ok(true) => Ok(true),
+        Ok(false) if elapsed_s >= SMOKE_READINESS_TIMEOUT_S => {
+            Err(SMOKE_READINESS_TIMEOUT_ERROR.into())
+        }
+        Ok(false) => Ok(false),
     }
 }
 
@@ -1810,6 +1852,27 @@ mod tests {
         assert_eq!(
             nonblack_rgb_dimensions(1, 1, &[0, 0, 0]),
             Err("primary window readback is entirely black".into())
+        );
+    }
+
+    #[test]
+    fn smoke_readiness_timeout_fails_loudly_before_any_readback_request() {
+        assert_eq!(
+            smoke_readiness_gate(Ok(false), SMOKE_READINESS_TIMEOUT_S - 0.001),
+            Ok(false)
+        );
+        assert_eq!(
+            smoke_readiness_gate(Ok(false), SMOKE_READINESS_TIMEOUT_S),
+            Err(SMOKE_READINESS_TIMEOUT_ERROR.into())
+        );
+        assert_eq!(
+            smoke_readiness_gate(Err("fixture load failure".into()), 0.0),
+            Err("referenced-texture readiness failed: fixture load failure".into())
+        );
+        assert_eq!(
+            smoke_readiness_gate(Ok(true), SMOKE_READINESS_TIMEOUT_S),
+            Ok(true),
+            "a ready frame remains a single readback request, not a timeout or retry"
         );
     }
 

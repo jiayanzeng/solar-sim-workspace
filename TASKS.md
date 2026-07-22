@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 401 passing** (53 `sim-core` · 291 `solar-sim` · 54 `xtask`
+**Test baseline: 402 passing** (53 `sim-core` · 292 `solar-sim` · 54 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -889,7 +889,7 @@ state. The Bevy UI node and window-title fallback are insufficient. Preserve
 or a `Cargo.toml` edit. Integrate the accepted correction with WP14 epoch
 normalization after the WP5 and WP8 phases.
 
-### Q18 — OPEN.
+### Q18 — OPEN (D3 implemented; UIP-8 acceptance remains intermittent).
 
 The opt-in WP17 reference-machine command with exactly `--smoke 60
 --expect-backend metal --reject-software-adapter --assert-nonblack` reached
@@ -912,6 +912,26 @@ its earlier primary-window readback was entirely black. This shows that 120
 update frames are not themselves a reliable readiness condition on this
 machine and strengthens the existing Q18 question; no retry, delay, or
 assertion change was made, and the WP17 smoke gate is not claimed.
+
+The human ruling in `docs/decision-record-2026-07-22.md` D3 selected the
+golden-harness readiness precondition, a hard 10-second timeout, and one
+unchanged nonblack readback with no retries. UIP-8 implements that ruling. The
+exact 60-frame WP17 command initially passed five consecutive Apple M2
+Pro/Metal runs with nonblack 5120x2880 readbacks after reported readiness waits
+of 5.000–5.008 seconds, and the forced-timeout regression asserts the distinct
+nonzero-exit error before any readback request. Two subsequent runs of the same
+fresh release binary nevertheless returned an entirely black primary-window
+readback after the shared condition reported ready at 5.000 and 5.001 seconds.
+
+The approved condition is therefore not sufficient to make the one-shot
+primary-window capture repeatable, so Q18 and the WP17 smoke gate remain open.
+The local Bevy 0.19 renderer explains a plausible additional race: an occluded
+surface acquires no swap-chain texture, while screenshot collection can still
+return the zero-initialized dedicated capture buffer. Decide whether UIP-8 may
+also wait on an explicit primary-surface availability/occlusion signal, or
+whether the gate instead requires a controlled foreground-window procedure.
+Neither option is authorized by D3's texture-readiness ruling; agents must not
+add a retry, invent another delay, or weaken the nonblack assertion.
 
 ### Q19 — OPEN.
 
@@ -951,6 +971,53 @@ internal 3D render-scale chain currently excluded by UIP-6 should be revisited.
 Agents must not silently force windowed mode or add a render-scale target.
 
 ## Change log (append-only; newest first)
+
+- **2026-07-22** — Implemented the ruled **UIP-8 smoke readback readiness**
+  gate; hardware acceptance remains blocked by open Q18. Golden capture and
+  `--assert-nonblack` now share one
+  initial-readback readiness implementation: at least 30 settled render frames,
+  five settled seconds, every referenced material present, and every referenced
+  base-color texture loaded. The smoke measurement and adapter/backend gates
+  complete first; readiness then has a hard 10-second deadline, prints its wait
+  duration, and issues exactly one unchanged primary-window readback. A failed
+  texture and the readiness timeout exit nonzero with distinct messages. No
+  retry loop, ordinary-launch delay, assertion weakening, or renderer-default
+  change was introduced.
+
+  An initial assets-only probe reproduced the ruled defect—textures reported
+  ready at 0.000 seconds after frame 60, but the readback was black—confirming
+  that the complete golden initial-settle condition must remain shared. With
+  that condition, the exact command `target/release/solar-sim --smoke 60
+  --expect-backend metal --reject-software-adapter --assert-nonblack` passed
+  **five consecutive** Apple M2 Pro/Metal runs; all readbacks were nonblack at
+  5120x2880 and readiness waits were 5.000–5.008 seconds. A Metal golden capture
+  completed all six views on the first attempt and compared at p99 Delta-E
+  0.0000 with mean Delta-E no greater than 0.0050. Two later executions of the
+  same fresh release binary failed the unchanged assertion after the shared
+  condition reported ready at 5.000 and 5.001 seconds. Bevy's renderer can
+  leave the screenshot capture buffer unwritten when the primary surface is
+  occluded, but D3 does not authorize adding surface state to the readiness
+  rule; the decision is recorded under Q18 rather than improvised here.
+
+  Evidence: the forced-timeout regression proves the exact loud-failure string
+  at 10 seconds and the separate texture-failure path; default `cargo test`
+  passes **402 tests** (53 + 292 + 54 + 2 + 1), and Steam-feature tests pass
+  **403**. Default/Steam warning-denied workspace/all-target clippy, release
+  build and release warning-denied library clippy, format and diff checks,
+  texture metadata audit, and catalog dry-run pass. The code and deterministic
+  acceptance paths are complete, but Q18 and WP17 cannot be closed on the
+  inconsistent hardware evidence.
+
+- **2026-07-22** — Opened **UIP-8 smoke readback readiness** as the sole
+  in-progress phase under `docs/ui-performance-plan-2026-07-22.md`, implementing
+  the human Q18 ruling in `docs/decision-record-2026-07-22.md` D3. Scope is the
+  opt-in `--assert-nonblack` sequence only: preserve the completed smoke-frame
+  measurement and adapter gates, reuse the golden harness's referenced-texture
+  readiness condition, wait at most 10 seconds with a distinct loud failure,
+  print the readiness duration, then perform the unchanged one-shot readback.
+  No retry, assertion weakening, renderer-default change, or ordinary-launch
+  delay is authorized. Pre-change verification uses the green **401-test**
+  baseline from UIP-7.
 
 - **2026-07-22** — Completed **UIP-7 bounded-error temporal reuse for secular
   orbit paths**. The retained-path key remains exact for non-secular orbits,
