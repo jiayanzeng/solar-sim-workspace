@@ -1,4 +1,4 @@
-# Solar System Simulator — Architecture Specification, Revision C
+# Solar System Simulator — Architecture Specification, Revision D
 
 **NORMATIVE · HUMAN-CHANGE-CONTROLLED.** This file is the design of record.
 AI coding agents MUST treat it as **read-only**: propose changes as an entry
@@ -6,7 +6,7 @@ in `TASKS.md → Open questions`, never as an edit here. Only the human
 maintainer revises this document. On any conflict, precedence is:
 **this file → `TASKS.md` → `AGENTS.md` → code comments**.
 
-Revision C supersedes Rev B in full. It is self-contained — no other design
+Revision D supersedes Rev C in full. It is self-contained — no other design
 document is required to execute it — and it freezes the contracts that
 WP1–WP3 turned from plan into shipped, tested code. Sections marked
 **[AS BUILT]** describe code that exists and passes CI; changing those
@@ -307,6 +307,11 @@ period at catalog load via `Orbit::period_s`. At 100 yr/s the inner system
 correctly reads as a diagram of glowing orbits while outer dwarfs and
 comets still crawl.
 
+A settings-owned startup rate (factory default +1 day/s) is applied at
+session start through one recorded SetRate command. StartMode::Live seeding,
+the LIVE predicate, and LIVE snap remain exactly +REAL; a default boot
+therefore starts near, but not at, LIVE.
+
 ## 8. Bevy application **[TO BUILD]**
 
 ### 8.1 Engine pinning
@@ -381,12 +386,19 @@ pixel-perfection beyond it is out of scope for beta.
    Groups with separators: User Interface · Planets, Dwarf Planets,
    Asteroids, Comets · Moons · Orbits, Labels, Icons. UI-off yields a clean
    presentation mode with a small restore affordance. State persists via
-   settings.
+   settings. Moons (default on) gates contextual moon presentation: moon
+   spheres and orbits render only for the focused system, subject to the
+   per-system Major/All option; off hides all moons. The persisted key,
+   replay slug, and panel row are unchanged from Rev C.
 4. **Right rail.** Zoom +/−, fullscreen, settings.
 5. **Time bar.** Per §7.
 6. **Toasts.** Non-blocking, bottom-left, auto-dismiss (delayed commands):
    extrapolation notice, range clamp, orbit-emphasis onset ("Inner orbits
    shown as paths at this speed").
+
+Four region presets — Inner, Belt, Outer, Kuiper — are semantic travel
+commands (focus Sun, canonical pose, fixed framing distances of
+1.8/3.6/35/55 AU), surfaced as keys 1–4, Help entries, and Menu rows.
 
 ## 10. Rendering **[TO BUILD]**
 
@@ -395,12 +407,18 @@ pixel-perfection beyond it is out of scope for beta.
    point light + bloom; low ambient for night-side legibility; translucent
    disc for Saturn's rings. 2K public-domain textures (NASA SVS/USGS),
    KTX2; every body renders with its catalog color untextured, so
-   texturing is polish, not a dependency.
+   texturing is polish, not a dependency. Render-only minimum apparent size:
+   every non-Sun sphere is scaled so its projected diameter is at least 3
+   logical px, applied after the optional ×10/×50 exaggeration; physical
+   truth, picking, and orbits are unaffected. Comet tails are a specified
+   post-beta fast-follow (see the 2026-07-22 plan, R3c).
 2. **Orbit paths.** Ellipses sampled adaptively (denser near perihelion,
    256–768 points by eccentricity) in the **parent frame**; per-category
    color LUT (planets individually colored); distance/angle alpha fade.
    Hyperbolic (3I/ATLAS): open arc sampled over **±25 years around
-   perihelion** (`Elements::is_hyperbolic` selects the branch).
+   perihelion** (`Elements::is_hyperbolic` selects the branch). Secular paths
+   may reuse retained geometry under a conservative sub-quarter-pixel
+   screen-space drift bound; non-secular paths reuse exactly.
 3. **Labels, icons, picking.** Labels are Bevy UI nodes repositioned each
    frame from `world_to_viewport`: wide-tracked uppercase for Sun +
    planets; small mixed-case beside a circular reticle (the Icons layer)
