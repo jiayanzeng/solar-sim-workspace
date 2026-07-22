@@ -7,6 +7,7 @@
 //! `input_intent`; camera/control state is private to `control`, which also
 //! supplies the headless replay gate.
 
+mod apparent_size;
 mod control;
 mod formatting;
 mod frame_stats;
@@ -30,6 +31,9 @@ mod surface_textures;
 mod time_bar;
 mod ui_kit;
 
+pub use apparent_size::{
+    clamped_body_radius_units, projected_body_diameter_logical_px, MIN_BODY_DIAMETER_LOGICAL_PX,
+};
 pub use control::{
     replay_headless, CameraController, CommandRecording, HeadlessSimulation, ReplayFrameInput,
     ReplayParseError, ReplayRunError, ReplayStream, ReplayVersion, SimCommand, StampedCommand,
@@ -807,7 +811,11 @@ impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
         record_architecture_plugin(app, "ScenePlugin");
         app.add_plugins((ScenePolishPlugin, StarfieldPlugin))
-            .add_systems(Startup, (spawn_body_spheres, spawn_catalog_error));
+            .add_systems(Startup, (spawn_body_spheres, spawn_catalog_error))
+            .add_systems(
+                Update,
+                apparent_size::apply_minimum_apparent_body_size.in_set(SimulationSet::Render),
+            );
     }
 }
 

@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 380 passing** (53 `sim-core` · 270 `solar-sim` · 54 `xtask`
+**Test baseline: 385 passing** (53 `sim-core` · 275 `solar-sim` · 54 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -927,6 +927,45 @@ or fallback policy, or explicitly revise the baseline matrix. Agents must not
 silently clamp Ultra or record timings from the failed render.
 
 ## Change log (append-only; newest first)
+
+- **2026-07-22** — Completed **UIP-2 minimum apparent size clamp**. The new
+  render-only body-visual system composes true radius with the existing
+  ×1/×10/×50 exaggeration, then applies a continuous perspective-derived floor
+  of 3 logical px to every non-Sun sphere. The system reads only render-space
+  camera/body transforms and writes only `Transform::scale`; the Sun, f64 body
+  states, physical radii, picking's independent 10-px inflated target, replay
+  hash, orbit geometry, and Saturn's existing ring parenting remain unchanged.
+  Five new tests cover the exact clamp boundary, ×10/×50 composition, the
+  live-system Sun exclusion, unchanged picking/replay truth, and all 65 non-Sun
+  catalog bodies at ≥3 px in the canonical 960×600 full-system camera.
+
+  Two independent M2 Pro/Metal re-baseline captures produced all six canonical
+  views on their first attempts. Their comparison passes the perceptual gate:
+  mean ΔE is 0.0050 for `full-system` and `saturn-rings`, 0.0000 for the other
+  four views, and p99 ΔE is 0.0000 for all six. Visual review confirms the
+  intended small silhouettes in the system/orbit views while the close-up
+  Earth, Jupiter, Saturn, and Sun framing remains intact. A comparable
+  2560×1440 High/4×-MSAA `full-system` frame-stats run changed from the UIP-1
+  baseline's 8.776 ms mean / 114.0 fps to 8.882 ms / 112.6 fps (+1.2% mean
+  frame time). Q19 remains open solely for UIP-1's unsupported Ultra baseline.
+
+  Evidence: default `cargo test` passes **385 tests** (53 + 275 + 54 + 2 +
+  1); `cargo test --workspace --features steam` passes **386**; default and
+  Steam-feature warning-denied workspace/all-target clippy pass; release-mode
+  warning-denied `solar-sim` clippy passes; format check, `git diff --check`,
+  texture metadata audit, and catalog dry-run pass. No dependency, generated
+  catalog, architecture, agent-rule, settings/default, or command-schema file
+  changed.
+
+- **2026-07-22** — Opened **UIP-2 minimum apparent size clamp** as the sole
+  in-progress phase under `docs/ui-performance-plan-2026-07-22.md`. Q19 remains
+  the recorded UIP-1 Ultra-baseline issue: Metal on the M2 Pro rejects the
+  current 8×-MSAA Ultra mapping for the HDR and depth formats, so no invalid
+  Ultra evidence is claimed. Confirmed that human commit `a7e5ddd` already
+  placed the R3a contract in ARCHITECTURE Rev D §10.1. UIP-2 is limited to a
+  continuous render-transform clamp for non-Sun spheres plus the required
+  math, truth-isolation, catalog-wide, and golden regressions; physical state,
+  picking, replay hashes, orbits, rings, and the Sun remain unchanged.
 
 - **2026-07-22** — Implemented **UIP-1 frame-time instrumentation** and
   completed every unblocked acceptance item. `--frame-stats SECONDS` installs

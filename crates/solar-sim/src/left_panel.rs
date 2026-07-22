@@ -1,8 +1,9 @@
 //! WP10 contextual body panel and render-only view options — Rev C §§4.1 and 9.2.
 //!
 //! The view model is derived exclusively from the validated catalog. UI state
-//! is local and snapshot-ready for WP14; body-size exaggeration touches only
-//! render transforms, while travel continues through `SimCommand`.
+//! is local and snapshot-ready for WP14; body-size exaggeration is consumed by
+//! UIP-2's render-only apparent-size system, while travel continues through
+//! `SimCommand`.
 
 use crate::control::{CameraController, SimCommand, SimCommandQueue};
 use crate::input_intent::UiScrollSurface;
@@ -1708,7 +1709,7 @@ fn apply_view_options(
     camera: Option<Res<CameraController>>,
     loaded: Option<Res<LoadedCatalog>>,
     mut previous_selected: Local<Option<Option<usize>>>,
-    mut bodies: Query<(&BodyVisual, &mut Transform, Option<&mut Visibility>)>,
+    mut bodies: Query<(&BodyVisual, Option<&mut Visibility>)>,
 ) {
     let selected = camera.as_ref().map(|camera| camera.selected_body_index());
     if !body_presentation_inputs_changed(
@@ -1722,15 +1723,8 @@ fn apply_view_options(
     let Some(loaded) = loaded else {
         return;
     };
-    for (visual, mut transform, visibility) in &mut bodies {
+    for (visual, visibility) in &mut bodies {
         if let Some(body) = loaded.catalog.bodies.get(visual.index) {
-            let desired_scale = Vec3::splat(rendered_body_radius_units(
-                body.radius_km,
-                settings.body_size(),
-            ));
-            if transform.scale != desired_scale {
-                transform.scale = desired_scale;
-            }
             if let Some(mut visibility) = visibility {
                 let category_visible = layers
                     .as_ref()
@@ -1766,7 +1760,7 @@ mod tests {
     use super::*;
     use crate::labels::{inflated_pick_radius, ray_sphere_hit_distance};
     use crate::ui_kit::test_layout;
-    use crate::{load_catalog_text, propagate_catalog, BodyStates};
+    use crate::{load_catalog_text, propagate_catalog};
     use bevy::{
         app::TaskPoolPlugin,
         asset::{AssetApp, AssetPlugin},
@@ -2666,25 +2660,11 @@ mod tests {
         let truth_before = states.0.clone();
         let true_radius_units = catalog.bodies[earth].radius_km / KM_PER_RENDER_UNIT;
 
-        let mut app = App::new();
-        let mut settings = ViewOptionsState::default();
-        settings.set_body_size(BodySizeScale::X50);
-        app.insert_resource(LoadedCatalog::new(catalog))
-            .insert_resource(states)
-            .insert_resource(settings)
-            .add_systems(Update, apply_view_options);
-        let entity = app
-            .world_mut()
-            .spawn((BodyVisual { index: earth }, Transform::default()))
-            .id();
-        app.update();
-
-        let transform = app.world().entity(entity).get::<Transform>().unwrap();
         assert_eq!(
-            transform.scale,
-            Vec3::splat((true_radius_units * 50.0) as f32)
+            rendered_body_radius_units(catalog.bodies[earth].radius_km, BodySizeScale::X50),
+            (true_radius_units * 50.0) as f32
         );
-        assert_eq!(app.world().resource::<BodyStates>().0, truth_before);
+        assert_eq!(states.0, truth_before);
 
         let projection = Projection::Perspective(PerspectiveProjection::default());
         let pick_radius = inflated_pick_radius(true_radius_units, 100.0, &projection, 720.0);
