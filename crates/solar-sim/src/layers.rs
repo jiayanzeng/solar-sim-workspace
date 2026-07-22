@@ -10,7 +10,8 @@ use crate::input_intent::{dolly_command, ModalSurfaceSet, UiScrollSurface};
 use crate::search::{BrowseMenuRoot, BrowseUiState, SEARCH_DROPDOWN_Z_INDEX};
 use crate::settings::SettingsScreenRoot;
 use crate::ui_kit::{
-    checkbox_row, UiTheme, WidgetSpec, WidgetVisualState, INTER_FONT_ASSET, TOP_BAR_HEIGHT_PX,
+    checkbox_row, UiColorToken, UiTheme, WidgetSpec, WidgetVisualState, INTER_FONT_ASSET,
+    TOP_BAR_HEIGHT_PX,
 };
 use crate::{SimulationSet, TIME_BAR_HEIGHT_PX};
 #[cfg(test)]
@@ -22,9 +23,10 @@ use bevy::{
         tab_navigation::{TabGroup, TabIndex},
         FocusCause, InputFocus,
     },
+    picking::hover::HoverMap,
     prelude::*,
     text::LetterSpacing,
-    ui::UiSystems,
+    ui::{InteractionDisabled, Pressed, UiSystems},
     ui_widgets::Activate,
 };
 use sim_core::catalog::Category;
@@ -36,6 +38,7 @@ const RESTORE_Z_INDEX: i32 = 120;
 // transient Search or modal surfaces for either pixels or pointer ownership.
 const CUE_RECOVERY_Z_INDEX: i32 = SEARCH_DROPDOWN_Z_INDEX - 1;
 const RAIL_BUTTON_SIZE_PX: f32 = 42.0;
+const RAIL_ICON_SIZE_PX: f32 = 24.0;
 const LAYERS_PANEL_WIDTH_PX: f32 = 280.0;
 const RAIL_TAB_GROUP_ORDER: i32 = 30;
 const LAYERS_PANEL_TAB_GROUP_ORDER: i32 = 31;
@@ -314,6 +317,35 @@ enum RailAction {
     OpenSettings,
 }
 
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+enum RailIcon {
+    ZoomIn,
+    ZoomOut,
+    Layers,
+    EnterFullscreen,
+    ExitFullscreen,
+    Settings,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+struct RailIconPaint;
+
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+enum RailVisualState {
+    Default,
+    Hovered,
+    Focused,
+    Active,
+    Disabled,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RailPalette {
+    background: Color,
+    border: Color,
+    icon: Color,
+}
+
 #[derive(Resource, Debug, Clone, Copy)]
 struct RailUiState {
     rail_scroll_y: f32,
@@ -344,11 +376,50 @@ struct RailRenderParams<'w, 's> {
     layer_toggles: Query<'w, 's, &'static LayerToggle>,
 }
 
+type RailVisualButtons<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static RailAction,
+        &'static mut RailVisualState,
+        Has<Pressed>,
+        Has<InteractionDisabled>,
+        &'static mut BackgroundColor,
+        &'static mut BorderColor,
+    ),
+>;
+
+#[derive(SystemParam)]
+struct RailVisualParams<'w, 's> {
+    theme: Res<'w, UiTheme>,
+    presentation: Res<'w, PresentationState>,
+    hover_map: Option<Res<'w, HoverMap>>,
+    focus: Res<'w, InputFocus>,
+    children: Query<'w, 's, &'static Children>,
+    buttons: RailVisualButtons<'w, 's>,
+    icon_backgrounds:
+        Query<'w, 's, &'static mut BackgroundColor, (With<RailIconPaint>, Without<RailAction>)>,
+    icon_borders:
+        Query<'w, 's, &'static mut BorderColor, (With<RailIconPaint>, Without<RailAction>)>,
+    icon_text: Query<'w, 's, &'static mut TextColor, (With<RailIconPaint>, Without<RailAction>)>,
+}
+
 struct RailButtonSpec<'a> {
-    glyph: &'a str,
+    icon: RailIcon,
     accessible_label: &'a str,
     action: RailAction,
     tab_index: i32,
+    active: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RailIconBox {
+    left: f32,
+    top: f32,
+    width: f32,
+    height: f32,
+    border: f32,
 }
 
 #[derive(SystemParam)]
@@ -391,7 +462,11 @@ impl Plugin for LayersPlugin {
             .add_systems(Startup, spawn_restore_affordance)
             .add_systems(
                 Update,
-                (sync_visual_cue_recovery, rebuild_right_rail)
+                (
+                    sync_visual_cue_recovery,
+                    rebuild_right_rail,
+                    sync_rail_button_visuals,
+                )
                     .chain()
                     .after(ModalSurfaceSet::Rebuild)
                     .before(ModalSurfaceSet::Focus)
@@ -676,10 +751,11 @@ fn rebuild_right_rail(mut commands: Commands, params: RailRenderParams) {
         *theme,
         &asset_server,
         RailButtonSpec {
-            glyph: "+",
+            icon: RailIcon::ZoomIn,
             accessible_label: "Zoom in",
             action: RailAction::Zoom(ZOOM_IN_DOLLY_DELTA),
             tab_index: 0,
+            active: false,
         },
     );
     spawn_rail_button(
@@ -688,10 +764,11 @@ fn rebuild_right_rail(mut commands: Commands, params: RailRenderParams) {
         *theme,
         &asset_server,
         RailButtonSpec {
-            glyph: "-",
+            icon: RailIcon::ZoomOut,
             accessible_label: "Zoom out",
             action: RailAction::Zoom(ZOOM_OUT_DOLLY_DELTA),
             tab_index: 1,
+            active: false,
         },
     );
     spawn_rail_button(
@@ -700,10 +777,11 @@ fn rebuild_right_rail(mut commands: Commands, params: RailRenderParams) {
         *theme,
         &asset_server,
         RailButtonSpec {
-            glyph: "L",
+            icon: RailIcon::Layers,
             accessible_label: "Toggle layers panel",
             action: RailAction::ToggleLayersPanel,
             tab_index: 2,
+            active: presentation.is_layers_panel_open(),
         },
     );
     spawn_rail_button(
@@ -712,10 +790,10 @@ fn rebuild_right_rail(mut commands: Commands, params: RailRenderParams) {
         *theme,
         &asset_server,
         RailButtonSpec {
-            glyph: if presentation.is_fullscreen() {
-                "EX"
+            icon: if presentation.is_fullscreen() {
+                RailIcon::ExitFullscreen
             } else {
-                "FS"
+                RailIcon::EnterFullscreen
             },
             accessible_label: if presentation.is_fullscreen() {
                 "Exit fullscreen"
@@ -724,6 +802,7 @@ fn rebuild_right_rail(mut commands: Commands, params: RailRenderParams) {
             },
             action: RailAction::ToggleFullscreen,
             tab_index: 3,
+            active: presentation.is_fullscreen(),
         },
     );
     spawn_rail_button(
@@ -732,10 +811,11 @@ fn rebuild_right_rail(mut commands: Commands, params: RailRenderParams) {
         *theme,
         &asset_server,
         RailButtonSpec {
-            glyph: "S",
+            icon: RailIcon::Settings,
             accessible_label: "Open settings",
             action: RailAction::OpenSettings,
             tab_index: 4,
+            active: presentation.is_settings_open(),
         },
     );
 
@@ -792,10 +872,17 @@ fn spawn_rail_button(
     asset_server: &AssetServer,
     spec: RailButtonSpec<'_>,
 ) {
+    let visual_state = if spec.active {
+        RailVisualState::Active
+    } else {
+        RailVisualState::Default
+    };
+    let palette = rail_palette(theme, visual_state);
     let button = commands
         .spawn((
             bevy::ui_widgets::Button,
             spec.action,
+            visual_state,
             AccessibleLabel::new(spec.accessible_label),
             TabIndex(spec.tab_index),
             Node {
@@ -807,23 +894,282 @@ fn spawn_rail_button(
                 justify_content: JustifyContent::Center,
                 ..default()
             },
-            BackgroundColor(theme.colors.panel.color()),
-            BorderColor::all(theme.colors.separator.color()),
+            BackgroundColor(palette.background),
+            BorderColor::all(palette.border),
             ChildOf(parent),
         ))
         .observe(activate_rail_action)
         .id();
+    spawn_rail_icon(
+        commands,
+        button,
+        theme,
+        asset_server,
+        spec.icon,
+        palette.icon,
+    );
+}
+
+fn rail_palette(theme: UiTheme, state: RailVisualState) -> RailPalette {
+    match state {
+        RailVisualState::Default => RailPalette {
+            background: theme.colors.panel.color(),
+            border: theme.colors.separator.color(),
+            icon: theme.colors.text_primary.color(),
+        },
+        RailVisualState::Hovered => RailPalette {
+            background: theme.colors.panel_elevated.color(),
+            border: token_alpha(theme.colors.accent, 190),
+            icon: theme.colors.text_primary.color(),
+        },
+        RailVisualState::Focused => RailPalette {
+            background: theme.colors.panel_elevated.color(),
+            border: theme.colors.accent.color(),
+            icon: theme.colors.text_primary.color(),
+        },
+        RailVisualState::Active => RailPalette {
+            background: token_alpha(theme.colors.accent, 42),
+            border: theme.colors.accent.color(),
+            icon: theme.colors.text_primary.color(),
+        },
+        RailVisualState::Disabled => RailPalette {
+            background: token_alpha(theme.colors.background, 220),
+            border: token_alpha(theme.colors.separator, 80),
+            icon: theme.colors.text_disabled.color(),
+        },
+    }
+}
+
+fn token_alpha(token: UiColorToken, alpha: u8) -> Color {
+    Color::srgba_u8(token.0[0], token.0[1], token.0[2], alpha)
+}
+
+fn rail_action_is_active(action: RailAction, presentation: &PresentationState) -> bool {
+    match action {
+        RailAction::Zoom(_) => false,
+        RailAction::ToggleLayersPanel => presentation.is_layers_panel_open(),
+        RailAction::ToggleFullscreen => presentation.is_fullscreen(),
+        RailAction::OpenSettings => presentation.is_settings_open(),
+    }
+}
+
+fn sync_rail_button_visuals(params: RailVisualParams) {
+    let RailVisualParams {
+        theme,
+        presentation,
+        hover_map,
+        focus,
+        children,
+        mut buttons,
+        mut icon_backgrounds,
+        mut icon_borders,
+        mut icon_text,
+    } = params;
+    for (entity, action, mut state, pressed, disabled, mut background, mut border) in &mut buttons {
+        let hovered = hover_map
+            .as_deref()
+            .is_some_and(|hovered| hovered.values().any(|hits| hits.contains_key(&entity)));
+        let desired = if disabled {
+            RailVisualState::Disabled
+        } else if pressed || rail_action_is_active(*action, &presentation) {
+            RailVisualState::Active
+        } else if focus.get() == Some(entity) {
+            RailVisualState::Focused
+        } else if hovered {
+            RailVisualState::Hovered
+        } else {
+            RailVisualState::Default
+        };
+        if *state == desired {
+            continue;
+        }
+        *state = desired;
+        let palette = rail_palette(*theme, desired);
+        background.0 = palette.background;
+        *border = BorderColor::all(palette.border);
+        for descendant in children.iter_descendants(entity) {
+            if let Ok(mut paint) = icon_backgrounds.get_mut(descendant) {
+                paint.0 = palette.icon;
+            }
+            if let Ok(mut paint) = icon_borders.get_mut(descendant) {
+                *paint = BorderColor::all(palette.icon);
+            }
+            if let Ok(mut paint) = icon_text.get_mut(descendant) {
+                paint.0 = palette.icon;
+            }
+        }
+    }
+}
+
+fn spawn_rail_icon(
+    commands: &mut Commands,
+    button: Entity,
+    theme: UiTheme,
+    asset_server: &AssetServer,
+    icon: RailIcon,
+    color: Color,
+) {
+    // Keep semantic rail art deterministic and font-independent. The zoom
+    // signs remain text; the three product icons are retained UI geometry.
+    if matches!(icon, RailIcon::ZoomIn | RailIcon::ZoomOut) {
+        commands.spawn((
+            Text::new(if icon == RailIcon::ZoomIn { "+" } else { "-" }),
+            TextFont {
+                font: asset_server.load(INTER_FONT_ASSET).into(),
+                font_size: theme.type_scale.title_px.into(),
+                ..default()
+            },
+            TextColor(color),
+            icon,
+            RailIconPaint,
+            Pickable::IGNORE,
+            ChildOf(button),
+        ));
+        return;
+    }
+
+    let root = commands
+        .spawn((
+            Node {
+                width: px(RAIL_ICON_SIZE_PX),
+                height: px(RAIL_ICON_SIZE_PX),
+                position_type: PositionType::Relative,
+                ..default()
+            },
+            icon,
+            Pickable::IGNORE,
+            ChildOf(button),
+        ))
+        .id();
+    match icon {
+        RailIcon::Layers => {
+            for (left, top) in [(1.0, 2.0), (5.0, 7.0), (9.0, 12.0)] {
+                spawn_rail_icon_box(
+                    commands,
+                    root,
+                    color,
+                    RailIconBox {
+                        left,
+                        top,
+                        width: 14.0,
+                        height: 10.0,
+                        border: 1.0,
+                    },
+                );
+            }
+        }
+        RailIcon::EnterFullscreen => spawn_fullscreen_icon(commands, root, color, false),
+        RailIcon::ExitFullscreen => spawn_fullscreen_icon(commands, root, color, true),
+        RailIcon::Settings => spawn_settings_icon(commands, root, color),
+        RailIcon::ZoomIn | RailIcon::ZoomOut => unreachable!("zoom icons return above"),
+    }
+}
+
+fn spawn_rail_icon_box(
+    commands: &mut Commands,
+    parent: Entity,
+    color: Color,
+    geometry: RailIconBox,
+) {
     commands.spawn((
-        Text::new(spec.glyph),
-        TextFont {
-            font: asset_server.load(INTER_FONT_ASSET).into(),
-            font_size: theme.type_scale.title_px.into(),
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(geometry.left),
+            top: px(geometry.top),
+            width: px(geometry.width),
+            height: px(geometry.height),
+            border: UiRect::all(px(geometry.border)),
+            border_radius: BorderRadius::all(px(2)),
             ..default()
         },
-        TextColor(theme.colors.text_primary.color()),
+        BorderColor::all(color),
+        RailIconPaint,
         Pickable::IGNORE,
-        ChildOf(button),
+        ChildOf(parent),
     ));
+}
+
+fn spawn_rail_icon_line(
+    commands: &mut Commands,
+    parent: Entity,
+    color: Color,
+    left: f32,
+    top: f32,
+    width: f32,
+    height: f32,
+) {
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(left),
+            top: px(top),
+            width: px(width),
+            height: px(height),
+            border_radius: BorderRadius::all(px(1)),
+            ..default()
+        },
+        BackgroundColor(color),
+        RailIconPaint,
+        Pickable::IGNORE,
+        ChildOf(parent),
+    ));
+}
+
+fn spawn_fullscreen_icon(commands: &mut Commands, parent: Entity, color: Color, exit: bool) {
+    let lines = if exit {
+        [
+            (2.0, 9.0, 8.0, 2.0),
+            (9.0, 2.0, 2.0, 8.0),
+            (14.0, 9.0, 8.0, 2.0),
+            (13.0, 2.0, 2.0, 8.0),
+            (2.0, 13.0, 8.0, 2.0),
+            (9.0, 14.0, 2.0, 8.0),
+            (14.0, 13.0, 8.0, 2.0),
+            (13.0, 14.0, 2.0, 8.0),
+        ]
+    } else {
+        [
+            (2.0, 2.0, 8.0, 2.0),
+            (2.0, 2.0, 2.0, 8.0),
+            (14.0, 2.0, 8.0, 2.0),
+            (20.0, 2.0, 2.0, 8.0),
+            (2.0, 20.0, 8.0, 2.0),
+            (2.0, 14.0, 2.0, 8.0),
+            (14.0, 20.0, 8.0, 2.0),
+            (20.0, 14.0, 2.0, 8.0),
+        ]
+    };
+    for (left, top, width, height) in lines {
+        spawn_rail_icon_line(commands, parent, color, left, top, width, height);
+    }
+}
+
+fn spawn_settings_icon(commands: &mut Commands, parent: Entity, color: Color) {
+    for (left, top, width, height) in [
+        (10.0, 1.0, 4.0, 5.0),
+        (10.0, 18.0, 4.0, 5.0),
+        (1.0, 10.0, 5.0, 4.0),
+        (18.0, 10.0, 5.0, 4.0),
+        (3.0, 3.0, 4.0, 4.0),
+        (17.0, 3.0, 4.0, 4.0),
+        (3.0, 17.0, 4.0, 4.0),
+        (17.0, 17.0, 4.0, 4.0),
+    ] {
+        spawn_rail_icon_line(commands, parent, color, left, top, width, height);
+    }
+    spawn_rail_icon_box(
+        commands,
+        parent,
+        color,
+        RailIconBox {
+            left: 5.0,
+            top: 5.0,
+            width: 14.0,
+            height: 14.0,
+            border: 2.0,
+        },
+    );
+    spawn_rail_icon_line(commands, parent, color, 10.0, 10.0, 4.0, 4.0);
 }
 
 fn spawn_layers_panel(
@@ -1835,12 +2181,31 @@ mod tests {
                 reduce_queued_layer_commands,
                 sync_visual_cue_recovery,
                 rebuild_right_rail,
+                sync_rail_button_visuals,
             )
                 .chain(),
         )
         .add_systems(PostUpdate, sync_hud_visibility);
         app.update();
         app
+    }
+
+    fn descendants(world: &World, root: Entity) -> Vec<Entity> {
+        fn visit(world: &World, entity: Entity, output: &mut Vec<Entity>) {
+            let children: Vec<_> = world
+                .get::<Children>(entity)
+                .into_iter()
+                .flat_map(|children| children.iter())
+                .collect();
+            for child in children {
+                output.push(child);
+                visit(world, child, output);
+            }
+        }
+
+        let mut output = Vec::new();
+        visit(world, root, &mut output);
+        output
     }
 
     #[test]
@@ -1948,6 +2313,142 @@ mod tests {
             px(TIME_BAR_HEIGHT_PX + UiTheme::default().spacing.lg_px)
         );
         assert_eq!(node.overflow, Overflow::scroll_y());
+    }
+
+    #[test]
+    fn rail_uses_code_defined_semantic_icons_and_distinct_fullscreen_states() {
+        let mut app = rendered_rail_app(false);
+        let expected = [
+            (RailAction::ToggleLayersPanel, RailIcon::Layers, 3),
+            (RailAction::ToggleFullscreen, RailIcon::EnterFullscreen, 8),
+            (RailAction::OpenSettings, RailIcon::Settings, 10),
+        ];
+        for (action, expected_icon, expected_parts) in expected {
+            let world = app.world_mut();
+            let button = world
+                .query::<(Entity, &RailAction)>()
+                .iter(world)
+                .find_map(|(entity, candidate)| (*candidate == action).then_some(entity))
+                .unwrap();
+            let children = world.get::<Children>(button).unwrap();
+            let icon = children
+                .iter()
+                .find(|child| world.get::<RailIcon>(*child).is_some())
+                .unwrap();
+            assert_eq!(world.get::<RailIcon>(icon), Some(&expected_icon));
+            assert!(world.get::<Text>(icon).is_none());
+            let descendants = descendants(world, icon);
+            assert_eq!(
+                descendants
+                    .iter()
+                    .filter(|entity| world.get::<RailIconPaint>(**entity).is_some())
+                    .count(),
+                expected_parts
+            );
+            assert!(descendants
+                .iter()
+                .all(|entity| world.get::<Text>(*entity).is_none()));
+        }
+
+        app.world_mut()
+            .resource_mut::<PresentationState>()
+            .set_fullscreen(true);
+        app.update();
+        let world = app.world_mut();
+        let fullscreen = world
+            .query::<(Entity, &RailAction)>()
+            .iter(world)
+            .find_map(|(entity, action)| {
+                (*action == RailAction::ToggleFullscreen).then_some(entity)
+            })
+            .unwrap();
+        let icon = world
+            .get::<Children>(fullscreen)
+            .unwrap()
+            .iter()
+            .find(|child| world.get::<RailIcon>(*child).is_some())
+            .unwrap();
+        assert_eq!(world.get::<RailIcon>(icon), Some(&RailIcon::ExitFullscreen));
+        assert_eq!(
+            world.get::<AccessibleLabel>(fullscreen).unwrap().0,
+            "Exit fullscreen"
+        );
+    }
+
+    #[test]
+    fn rail_visual_states_update_without_changing_actions_or_icon_geometry() {
+        let mut app = rendered_rail_app(false);
+        let layers = toggle_layers_rail_action(app.world_mut());
+        let icon = app
+            .world()
+            .get::<Children>(layers)
+            .unwrap()
+            .iter()
+            .find(|child| app.world().get::<RailIcon>(*child).is_some())
+            .unwrap();
+        let part_count = {
+            descendants(app.world(), icon)
+                .into_iter()
+                .filter(|entity| app.world().get::<RailIconPaint>(*entity).is_some())
+                .count()
+        };
+        assert_eq!(part_count, 3);
+
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(layers, FocusCause::Navigated);
+        app.update();
+        assert_eq!(
+            app.world().get::<RailVisualState>(layers),
+            Some(&RailVisualState::Focused)
+        );
+
+        app.world_mut().entity_mut(layers).insert(Pressed);
+        app.update();
+        assert_eq!(
+            app.world().get::<RailVisualState>(layers),
+            Some(&RailVisualState::Active)
+        );
+
+        app.world_mut()
+            .entity_mut(layers)
+            .remove::<Pressed>()
+            .insert(InteractionDisabled);
+        app.update();
+        assert_eq!(
+            app.world().get::<RailVisualState>(layers),
+            Some(&RailVisualState::Disabled)
+        );
+        assert_eq!(
+            app.world().get::<RailAction>(layers),
+            Some(&RailAction::ToggleLayersPanel)
+        );
+        let palette = rail_palette(UiTheme::default(), RailVisualState::Disabled);
+        assert_eq!(
+            app.world().get::<BackgroundColor>(layers).unwrap().0,
+            palette.background
+        );
+
+        for state in [
+            RailVisualState::Default,
+            RailVisualState::Hovered,
+            RailVisualState::Focused,
+            RailVisualState::Active,
+            RailVisualState::Disabled,
+        ] {
+            let palette = rail_palette(UiTheme::default(), state);
+            assert_ne!(palette.background, palette.icon);
+            assert!(palette.icon.to_srgba().alpha > 0.0);
+        }
+        assert_eq!(
+            app.world()
+                .get::<Children>(layers)
+                .unwrap()
+                .iter()
+                .find(|child| app.world().get::<RailIcon>(*child).is_some())
+                .map(|entity| app.world().get::<RailIcon>(entity).copied()),
+            Some(Some(RailIcon::Layers))
+        );
     }
 
     #[test]
@@ -2192,6 +2693,33 @@ mod tests {
                 ),
                 "{width}×{height} scale {scale}: Icons layer action is unreachable"
             );
+            for action in [
+                RailAction::ToggleLayersPanel,
+                RailAction::ToggleFullscreen,
+                RailAction::OpenSettings,
+            ] {
+                let button = app
+                    .world_mut()
+                    .query::<(Entity, &RailAction)>()
+                    .iter(app.world())
+                    .find_map(|(entity, candidate)| (*candidate == action).then_some(entity))
+                    .unwrap();
+                let icon = app
+                    .world()
+                    .get::<Children>(button)
+                    .unwrap()
+                    .iter()
+                    .find(|child| app.world().get::<RailIcon>(*child).is_some())
+                    .unwrap();
+                let button_rect = layout_node_rect(app.world(), button);
+                let icon_rect = layout_node_rect(app.world(), icon);
+                assert!(
+                    layout_rect_contains(button_rect, icon_rect)
+                        && (icon_rect.width() - RAIL_ICON_SIZE_PX * scale).abs() <= 1.0
+                        && (icon_rect.height() - RAIL_ICON_SIZE_PX * scale).abs() <= 1.0,
+                    "{width}×{height} scale {scale}: {action:?} icon {icon_rect:?} escaped button {button_rect:?}"
+                );
+            }
         }
     }
 
