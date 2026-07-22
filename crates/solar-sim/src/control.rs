@@ -81,6 +81,9 @@ pub enum SimCommand {
     /// Debug-only input requests a real renderer device-loss cycle. The
     /// variant stays stable in recordings even though release input never emits it.
     SimulateDeviceLoss,
+    /// Debug-only presentation toggles the opt-in frame-time overlay. The
+    /// stable variant keeps debug recordings parseable by release builds.
+    ToggleDiagnosticsOverlay,
 }
 
 #[derive(Resource, Default)]
@@ -359,7 +362,8 @@ pub(crate) fn consume_sim_command(
         | SimCommand::CloseHelp
         | SimCommand::OpenSettings
         | SimCommand::CloseSettings
-        | SimCommand::SimulateDeviceLoss => {}
+        | SimCommand::SimulateDeviceLoss
+        | SimCommand::ToggleDiagnosticsOverlay => {}
     }
     report
 }
@@ -386,7 +390,7 @@ pub(crate) fn consume_presentation_command(
         SimCommand::CloseHelp => presentation.close_help(),
         SimCommand::OpenSettings => presentation.open_settings(),
         SimCommand::CloseSettings => presentation.close_settings(),
-        SimCommand::SimulateDeviceLoss => {}
+        SimCommand::SimulateDeviceLoss | SimCommand::ToggleDiagnosticsOverlay => {}
         SimCommand::SetBodySize(_)
         | SimCommand::SetMoonVisibility { .. }
         | SimCommand::SetLocalOrbitVisibility { .. }
@@ -1338,6 +1342,9 @@ fn serialize_entry(entry: &StampedCommand) -> String {
         SimCommand::OpenSettings => format!("{prefix}|open-settings"),
         SimCommand::CloseSettings => format!("{prefix}|close-settings"),
         SimCommand::SimulateDeviceLoss => format!("{prefix}|simulate-device-loss"),
+        SimCommand::ToggleDiagnosticsOverlay => {
+            format!("{prefix}|toggle-diagnostics-overlay")
+        }
     }
 }
 
@@ -1593,6 +1600,7 @@ fn parse_entry(line: &str) -> Result<StampedCommand, String> {
         "open-settings" if fields.len() == 3 => SimCommand::OpenSettings,
         "close-settings" if fields.len() == 3 => SimCommand::CloseSettings,
         "simulate-device-loss" if fields.len() == 3 => SimCommand::SimulateDeviceLoss,
+        "toggle-diagnostics-overlay" if fields.len() == 3 => SimCommand::ToggleDiagnosticsOverlay,
         command => return Err(format!("unknown or malformed command '{command}'")),
     };
     Ok(StampedCommand {
@@ -2950,6 +2958,11 @@ mod tests {
                 frame: 12,
                 sim_time_s: T_MIN_S,
                 command: SimCommand::SimulateDeviceLoss,
+            },
+            StampedCommand {
+                frame: 13,
+                sim_time_s: T_MIN_S,
+                command: SimCommand::ToggleDiagnosticsOverlay,
             },
         ]);
         assert_eq!(ReplayStream::from_text(&stream.to_text()).unwrap(), stream);

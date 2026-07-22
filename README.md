@@ -67,6 +67,7 @@ Keyboard (see `crates/solar-sim/src/input_intent.rs` for the source of truth):
 | `Home` | reset to the Sun-focused startup angle and full-system framing |
 | `Escape` | revert text, close the active modal, or open the controls guide from the scene |
 | `F9` | simulate device loss (debug builds only; exercises render recovery) |
+| `F10` | toggle the frame-time overlay (debug builds only; hidden by default) |
 
 Open Settings from the right rail. Its 39 controls accept pointer input, the
 content area scrolls independently of the camera, `REVERT` restores the current
@@ -92,6 +93,9 @@ cargo run -p solar-sim --release -- [flags]
   --reject-software-adapter      with --smoke or golden capture: fail on WARP/llvmpipe
   --assert-nonblack              with --smoke: fail if the frame is entirely black
   --golden-view V --golden-backend B --golden-capture DIR   capture one canonical view
+  --frame-stats SECONDS --frame-stats-out PATH   measure CPU frame time and write JSON + PATH.csv
+  --frame-stats-view V          transient canonical-view selector for reproducible measurements
+  --frame-stats-quality P       transient low|medium|high|ultra measurement override
   --reset-settings               persist reviewed defaults before normal startup
   --simulate-device-loss         debug builds only
 ```
@@ -105,7 +109,7 @@ cargo run -p solar-sim --release -- --smoke 60 --expect-backend metal --reject-s
 ## Testing & verification
 
 ```
-cargo test                                       # 369 tests, fully offline
+cargo test                                       # 380 tests, fully offline
 cargo fmt --all -- --check                       # rustfmt defaults
 cargo clippy --workspace --all-targets -- -D warnings
 scripts/check-texture-metadata.sh                # texture license/hash audit
@@ -113,10 +117,11 @@ cargo run -p xtask -- gen-catalog --dry-run      # print the 66-body fetch plan 
 cargo run -p xtask -- gen-catalog \
     --fixtures xtask/fixtures --allow-partial \
     --out assets/catalog.sample.ron              # offline end-to-end (6 bodies; 60 skipped is expected)
+cargo run -p xtask -- perf-report target/perf/*.json  # format WP17 evidence table
 ```
 
-The authoritative test baseline lives in `TASKS.md` (currently **369
-passing**: 53 `sim-core` · 264 `solar-sim` · 49 `xtask` lib · 2 xtask smoke ·
+The authoritative test baseline lives in `TASKS.md` (currently **380
+passing**: 53 `sim-core` · 270 `solar-sim` · 54 `xtask` lib · 2 xtask smoke ·
 1 position spot-check gate, **active**). If this README and `TASKS.md`
 disagree, `TASKS.md` wins.
 

@@ -9,6 +9,7 @@
 
 mod control;
 mod formatting;
+mod frame_stats;
 mod golden;
 mod help;
 mod input_intent;
@@ -34,6 +35,7 @@ pub use control::{
     ReplayParseError, ReplayRunError, ReplayStream, ReplayVersion, SimCommand, StampedCommand,
 };
 pub use formatting::format_distance_km;
+pub use frame_stats::FrameStatsOptions;
 pub use golden::{
     golden_view, GoldenCaptureOptions, GoldenViewSpec, GOLDEN_HEIGHT, GOLDEN_VIEWS, GOLDEN_WIDTH,
 };
@@ -98,8 +100,6 @@ pub use ui_kit::{
 pub use ui_kit::{WidgetGalleryCell, WidgetGalleryRoot};
 
 use bevy::camera::{RenderTarget, ShadowLodOrigin};
-#[cfg(debug_assertions)]
-use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::ecs::system::SystemParam;
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
@@ -179,6 +179,7 @@ pub struct RunOptions {
     pub simulate_device_loss: bool,
     pub reset_settings: bool,
     pub golden_capture: Option<GoldenCaptureOptions>,
+    pub frame_stats: Option<FrameStatsOptions>,
 }
 
 impl Default for RunOptions {
@@ -193,6 +194,7 @@ impl Default for RunOptions {
             simulate_device_loss: false,
             reset_settings: false,
             golden_capture: None,
+            frame_stats: None,
         }
     }
 }
@@ -203,6 +205,10 @@ impl RunOptions {
         let mut golden_view = None;
         let mut golden_backend = None;
         let mut golden_output = None;
+        let mut frame_stats_duration = None;
+        let mut frame_stats_output = None;
+        let mut frame_stats_view = None;
+        let mut frame_stats_quality = None;
         let mut i = 1;
         while i < args.len() {
             match args[i].as_str() {
@@ -264,6 +270,57 @@ impl RunOptions {
                         i += 1;
                     }
                 }
+                "--frame-stats" => {
+                    let value = args.get(i + 1).ok_or_else(|| {
+                        RunOptionsError(
+                            "--frame-stats requires a positive number of seconds".into(),
+                        )
+                    })?;
+                    let seconds = value.parse::<f64>().map_err(|_| {
+                        RunOptionsError(
+                            "--frame-stats requires a positive number of seconds".into(),
+                        )
+                    })?;
+                    if !seconds.is_finite() || seconds <= 0.0 {
+                        return Err(RunOptionsError(
+                            "--frame-stats requires a positive finite number of seconds".into(),
+                        ));
+                    }
+                    frame_stats_duration = Some(seconds);
+                    i += 1;
+                }
+                "--frame-stats-out" => {
+                    let value = args.get(i + 1).ok_or_else(|| {
+                        RunOptionsError("--frame-stats-out requires a path".into())
+                    })?;
+                    frame_stats_output = Some(PathBuf::from(value));
+                    i += 1;
+                }
+                "--frame-stats-view" => {
+                    let value = args.get(i + 1).ok_or_else(|| {
+                        RunOptionsError("--frame-stats-view requires a canonical view slug".into())
+                    })?;
+                    if golden::golden_view(value).is_none() {
+                        return Err(RunOptionsError(format!(
+                            "unknown canonical frame-stats view '{value}'"
+                        )));
+                    }
+                    frame_stats_view = Some(value.clone());
+                    i += 1;
+                }
+                "--frame-stats-quality" => {
+                    let value = args.get(i + 1).ok_or_else(|| {
+                        RunOptionsError(
+                            "--frame-stats-quality requires low, medium, high, or ultra".into(),
+                        )
+                    })?;
+                    frame_stats_quality = Some(QualityPreset::from_slug(value).ok_or_else(|| {
+                        RunOptionsError(format!(
+                            "unsupported frame-stats quality '{value}'; expected low, medium, high, or ultra"
+                        ))
+                    })?);
+                    i += 1;
+                }
                 #[cfg(debug_assertions)]
                 "--simulate-device-loss" => options.simulate_device_loss = true,
                 "--reset-settings" => options.reset_settings = true,
@@ -281,6 +338,33 @@ impl RunOptions {
                 reject_software_adapter: options.reject_software_adapter,
             });
         }
+        match (frame_stats_duration, frame_stats_output) {
+            (Some(duration_s), Some(output)) => {
+                options.frame_stats = Some(FrameStatsOptions {
+                    duration_s,
+                    output,
+                    view: frame_stats_view,
+                    quality: frame_stats_quality,
+                });
+            }
+            (Some(_), None) => {
+                return Err(RunOptionsError(
+                    "--frame-stats requires --frame-stats-out PATH".into(),
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(RunOptionsError(
+                    "--frame-stats-out requires --frame-stats SECONDS".into(),
+                ));
+            }
+            (None, None) => {
+                if frame_stats_view.is_some() || frame_stats_quality.is_some() {
+                    return Err(RunOptionsError(
+                        "frame-stats view and quality selectors require --frame-stats".into(),
+                    ));
+                }
+            }
+        }
         if options.smoke_frames.is_none()
             && (options.expected_backend.is_some() || options.assert_nonblack)
         {
@@ -294,6 +378,13 @@ impl RunOptions {
         {
             return Err(RunOptionsError(
                 "--reject-software-adapter requires --smoke or golden capture options".into(),
+            ));
+        }
+        if options.frame_stats.is_some()
+            && (options.smoke_frames.is_some() || options.golden_capture.is_some())
+        {
+            return Err(RunOptionsError(
+                "--frame-stats cannot be combined with smoke or golden capture modes".into(),
             ));
         }
         Ok(options)
@@ -607,10 +698,6 @@ struct CatalogErrorScreen;
 #[derive(Component)]
 struct CameraFocusAnchor;
 
-#[cfg(debug_assertions)]
-#[derive(Component)]
-struct DiagText;
-
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SimulationSet {
     Input,
@@ -784,9 +871,17 @@ fn build_app_with_platform<P: Plugin>(
     // Do not move platform initialization below DefaultPlugins.
     app.add_plugins(platform_plugin);
     let golden_capture = options.golden_capture.clone();
+    let frame_stats_options = options.frame_stats.clone();
+    let is_golden_capture = golden_capture.is_some();
     let golden_spec = golden_capture
         .as_ref()
-        .and_then(|capture| golden::golden_view(&capture.view));
+        .and_then(|capture| golden::golden_view(&capture.view))
+        .or_else(|| {
+            frame_stats_options
+                .as_ref()
+                .and_then(|stats| stats.view.as_deref())
+                .and_then(golden::golden_view)
+        });
     #[cfg(debug_assertions)]
     if golden_capture.is_some() {
         app.insert_resource(ui_kit::WidgetGalleryEnabled(false));
@@ -824,7 +919,7 @@ fn build_app_with_platform<P: Plugin>(
         .add_plugins(SettingsPlugin::new(SETTINGS_IDENTIFIER));
     // Resolve the explicit recovery boundary before any clock, layer, window,
     // or capture state is derived from the loaded settings.
-    let persistence = if golden_capture.is_some() {
+    let persistence = if golden_capture.is_some() || frame_stats_options.is_some() {
         settings::SettingsPersistencePolicy::TransientRuntime
     } else {
         settings::SettingsPersistencePolicy::Persistent
@@ -842,6 +937,12 @@ fn build_app_with_platform<P: Plugin>(
             ..default()
         };
         settings.normalized()
+    } else if let Some(quality) = frame_stats_options.as_ref().and_then(|stats| stats.quality) {
+        AppSettings {
+            quality,
+            ..bootstrapped_settings
+        }
+        .normalized()
     } else {
         bootstrapped_settings
     };
@@ -942,12 +1043,11 @@ fn build_app_with_platform<P: Plugin>(
         golden::configure_golden_capture(&mut app, capture);
     }
 
-    #[cfg(debug_assertions)]
-    if options.golden_capture.is_none() {
-        app.add_plugins(FrameTimeDiagnosticsPlugin::default())
-            .add_systems(Startup, spawn_diag_overlay)
-            .add_systems(Update, update_diag_overlay);
-    }
+    frame_stats::configure_diagnostics(
+        &mut app,
+        frame_stats_options,
+        cfg!(debug_assertions) && !is_golden_capture,
+    );
 
     app
 }
@@ -980,6 +1080,8 @@ struct SimCommandGate<'w> {
     settings_save: ResMut<'w, settings::SettingsSaveRequest>,
     #[cfg(debug_assertions)]
     debug_device_loss: ResMut<'w, DebugDeviceLossRequest>,
+    #[cfg(debug_assertions)]
+    diagnostics_overlay: Option<ResMut<'w, frame_stats::DiagnosticsOverlayState>>,
 }
 
 fn apply_sim_commands(gate: SimCommandGate) {
@@ -1002,6 +1104,8 @@ fn apply_sim_commands(gate: SimCommandGate) {
         mut settings_save,
         #[cfg(debug_assertions)]
         mut debug_device_loss,
+        #[cfg(debug_assertions)]
+        mut diagnostics_overlay,
     } = gate;
     let commands: Vec<_> = queue.drain().collect();
     let frame_start_t = clock.0.t();
@@ -1010,6 +1114,12 @@ fn apply_sim_commands(gate: SimCommandGate) {
         #[cfg(debug_assertions)]
         if matches!(command, SimCommand::SimulateDeviceLoss) {
             request_debug_device_loss(&mut debug_device_loss);
+        }
+        #[cfg(debug_assertions)]
+        if matches!(command, SimCommand::ToggleDiagnosticsOverlay) {
+            if let Some(overlay) = diagnostics_overlay.as_deref_mut() {
+                overlay.toggle();
+            }
         }
         let clock_before = clock_semantic_state(&clock.0);
         let camera_before = camera.as_deref().map(CameraController::semantic_snapshot);
@@ -1490,44 +1600,6 @@ fn nonblack_rgb_dimensions(width: u32, height: u32, rgb: &[u8]) -> Result<(u32, 
     }
 }
 
-#[cfg(debug_assertions)]
-fn spawn_diag_overlay(mut commands: Commands, theme: Res<UiTheme>, asset_server: Res<AssetServer>) {
-    commands.spawn((
-        Text::new("fps: --"),
-        TextFont {
-            font: asset_server.load(INTER_FONT_ASSET).into(),
-            font_size: theme.type_scale.caption_px.into(),
-            ..default()
-        },
-        TextColor(theme.colors.text_muted.color()),
-        Node {
-            position_type: PositionType::Absolute,
-            right: px(theme.spacing.sm_px),
-            bottom: px(TIME_BAR_HEIGHT_PX + theme.spacing.sm_px),
-            ..default()
-        },
-        GlobalZIndex(110),
-        AccessibleLabel::new("Frame rate diagnostic"),
-        layers::HudSurface,
-        DiagText,
-    ));
-}
-
-#[cfg(debug_assertions)]
-fn update_diag_overlay(
-    diagnostics: Res<DiagnosticsStore>,
-    mut text: Query<&mut Text, With<DiagText>>,
-) {
-    if let Some(fps) = diagnostics
-        .get(&FrameTimeDiagnosticsPlugin::FPS)
-        .and_then(|diagnostic| diagnostic.smoothed())
-    {
-        for mut text in &mut text {
-            **text = format!("fps: {fps:.0}");
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1576,6 +1648,51 @@ mod tests {
         assert!(!RunOptions::default().reset_settings);
         let args = ["solar-sim", "--reset-settings"].map(str::to_owned);
         assert!(RunOptions::from_args(&args).unwrap().reset_settings);
+    }
+
+    #[test]
+    fn frame_stats_cli_is_opt_in_strict_and_transiently_configurable() {
+        assert!(RunOptions::default().frame_stats.is_none());
+        let args = [
+            "solar-sim",
+            "--frame-stats",
+            "5",
+            "--frame-stats-out",
+            "target/perf/full-system-high.json",
+            "--frame-stats-view",
+            "full-system",
+            "--frame-stats-quality",
+            "high",
+        ]
+        .map(str::to_owned);
+        let options = RunOptions::from_args(&args).unwrap();
+        let stats = options.frame_stats.unwrap();
+        assert_eq!(stats.duration_s, 5.0);
+        assert_eq!(
+            stats.output,
+            PathBuf::from("target/perf/full-system-high.json")
+        );
+        assert_eq!(stats.view.as_deref(), Some("full-system"));
+        assert_eq!(stats.quality, Some(QualityPreset::High));
+
+        for invalid in [
+            vec!["solar-sim", "--frame-stats", "0"],
+            vec!["solar-sim", "--frame-stats", "NaN"],
+            vec!["solar-sim", "--frame-stats-out", "report.json"],
+            vec!["solar-sim", "--frame-stats-view", "not-a-view"],
+            vec![
+                "solar-sim",
+                "--frame-stats",
+                "1",
+                "--frame-stats-out",
+                "report.json",
+                "--smoke",
+                "60",
+            ],
+        ] {
+            let invalid = invalid.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            assert!(RunOptions::from_args(&invalid).is_err());
+        }
     }
 
     #[test]

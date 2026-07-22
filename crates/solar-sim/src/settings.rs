@@ -141,6 +141,16 @@ impl FrameCap {
         }
     }
 
+    pub(crate) const fn slug(self) -> &'static str {
+        match self {
+            Self::Fps30 => "30",
+            Self::Fps60 => "60",
+            Self::Fps120 => "120",
+            Self::Fps240 => "240",
+            Self::Unlimited => "unlimited",
+        }
+    }
+
     fn label(self) -> &'static str {
         match self {
             Self::Fps30 => "30 FPS",
@@ -171,6 +181,25 @@ impl QualityPreset {
             Self::Medium => "MEDIUM",
             Self::High => "HIGH",
             Self::Ultra => "ULTRA",
+        }
+    }
+
+    pub(crate) const fn slug(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Ultra => "ultra",
+        }
+    }
+
+    pub(crate) fn from_slug(value: &str) -> Option<Self> {
+        match value {
+            "low" => Some(Self::Low),
+            "medium" => Some(Self::Medium),
+            "high" => Some(Self::High),
+            "ultra" => Some(Self::Ultra),
+            _ => None,
         }
     }
 

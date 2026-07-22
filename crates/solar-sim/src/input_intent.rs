@@ -42,6 +42,8 @@ enum KeyIntent {
     CloseBrowse,
     #[cfg(debug_assertions)]
     SimulateDeviceLoss,
+    #[cfg(debug_assertions)]
+    ToggleDiagnosticsOverlay,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -118,6 +120,11 @@ const KEY_BINDINGS: &[KeyBinding] = &[
     KeyBinding {
         key: KeyCode::F9,
         intent: KeyIntent::SimulateDeviceLoss,
+    },
+    #[cfg(debug_assertions)]
+    KeyBinding {
+        key: KeyCode::F10,
+        intent: KeyIntent::ToggleDiagnosticsOverlay,
     },
 ];
 
@@ -697,6 +704,10 @@ fn intent_to_command(intent: InputIntent) -> SimCommand {
         InputIntent::Key(KeyIntent::CloseBrowse) => SimCommand::SetBrowseOpen(false),
         #[cfg(debug_assertions)]
         InputIntent::Key(KeyIntent::SimulateDeviceLoss) => SimCommand::SimulateDeviceLoss,
+        #[cfg(debug_assertions)]
+        InputIntent::Key(KeyIntent::ToggleDiagnosticsOverlay) => {
+            SimCommand::ToggleDiagnosticsOverlay
+        }
         InputIntent::Orbit {
             delta_yaw,
             delta_pitch,

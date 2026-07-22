@@ -8,7 +8,7 @@
 use anyhow::{bail, Result};
 use std::path::PathBuf;
 use xtask::{
-    emit, fetch, golden, plan, starfield, steam, texture, GenOptions, DEFAULT_EPOCH_JD_TDB,
+    emit, fetch, golden, perf, plan, starfield, steam, texture, GenOptions, DEFAULT_EPOCH_JD_TDB,
 };
 
 fn main() -> Result<()> {
@@ -20,13 +20,27 @@ fn main() -> Result<()> {
         Some("check-texture-metadata") => check_texture_metadata(&args[1..]),
         Some("capture-goldens") => capture_goldens(&args[1..]),
         Some("compare-goldens") => compare_goldens(&args[1..]),
+        Some("perf-report") => perf_report(&args[1..]),
         Some("prepare-steam-dev") => prepare_steam_dev(&args[1..]),
         Some("steam-release-preflight") => steam_release_preflight(&args[1..]),
         _ => {
-            eprintln!("usage:\n  xtask gen-catalog [--out PATH] [--epoch-jd F] [--dry-run] [--fixtures DIR [--allow-partial]] [--online [--capture DIR]]\n  xtask bake-starfield --source PATH --out PATH [--limit N]\n  xtask convert-texture --source PATH.ppm --out PATH.ktx2 [--alpha-from-luminance]\n  xtask check-texture-metadata [--dir assets/textures]\n  xtask capture-goldens --app PATH --out DIR --backend TAG\n  xtask compare-goldens --baseline DIR --candidate DIR [--max-mean F] [--max-p99 F] [--allow-retries]\n  xtask prepare-steam-dev --app PATH\n  xtask steam-release-preflight --action package|depot");
+            eprintln!("usage:\n  xtask gen-catalog [--out PATH] [--epoch-jd F] [--dry-run] [--fixtures DIR [--allow-partial]] [--online [--capture DIR]]\n  xtask bake-starfield --source PATH --out PATH [--limit N]\n  xtask convert-texture --source PATH.ppm --out PATH.ktx2 [--alpha-from-luminance]\n  xtask check-texture-metadata [--dir assets/textures]\n  xtask capture-goldens --app PATH --out DIR --backend TAG\n  xtask compare-goldens --baseline DIR --candidate DIR [--max-mean F] [--max-p99 F] [--allow-retries]\n  xtask perf-report STATS.json [STATS.json ...]\n  xtask prepare-steam-dev --app PATH\n  xtask steam-release-preflight --action package|depot");
             std::process::exit(2);
         }
     }
+}
+
+fn perf_report(args: &[String]) -> Result<()> {
+    if args.is_empty() {
+        bail!("perf-report requires at least one frame-stats summary path");
+    }
+    if let Some(flag) = args.iter().find(|argument| argument.starts_with('-')) {
+        bail!("unknown perf-report flag: {flag}");
+    }
+    let paths = args.iter().map(PathBuf::from).collect::<Vec<_>>();
+    let summaries = perf::read_summaries(&paths)?;
+    print!("{}", perf::format_wp17_table(&summaries));
+    Ok(())
 }
 
 fn prepare_steam_dev(args: &[String]) -> Result<()> {

@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 369 passing** (53 `sim-core` · 264 `solar-sim` · 49 `xtask`
+**Test baseline: 380 passing** (53 `sim-core` · 270 `solar-sim` · 54 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -913,7 +913,86 @@ update frames are not themselves a reliable readiness condition on this
 machine and strengthens the existing Q18 question; no retry, delay, or
 assertion change was made, and the WP17 smoke gate is not claimed.
 
+### Q19 — OPEN.
+
+UIP-1 requires an M2 Pro baseline at all six canonical views across Low,
+Medium, High, and Ultra. The real Metal runs prove that the current Ultra
+mapping (`Msaa::Sample8`) is unsupported by this Apple M2 Pro for both
+`Rgba16Float` and `Depth32Float`: wgpu reports supported sample counts
+`[1, 2, 4]`, the renderer enters `StoppedUnexpected`, and no valid Ultra
+frame-time evidence exists. UIP-1 now refuses to write a report whenever
+render recovery leaves the healthy state, so the failure cannot be mistaken
+for a fast baseline. Human decision required: revise the UIP-6 Ultra mapping
+or fallback policy, or explicitly revise the baseline matrix. Agents must not
+silently clamp Ultra or record timings from the failed render.
+
 ## Change log (append-only; newest first)
+
+- **2026-07-22** — Implemented **UIP-1 frame-time instrumentation** and
+  completed every unblocked acceptance item. `--frame-stats SECONDS` installs
+  Bevy frame-time diagnostics only for the opt-in run, emits one strict
+  `solar-sim-frame-stats-v1` JSON line to stdout and the requested path, writes
+  the raw series to the adjacent `.csv`, records physical resolution, actual
+  MSAA, quality, vsync, frame cap, and complete adapter identity, and exits
+  nonzero without evidence if rendering becomes unhealthy. Transient
+  `--frame-stats-view` and `--frame-stats-quality` selectors make the required
+  matrix reproducible without writing user settings. Flag-absent configuration
+  inserts no frame-stats or diagnostics resource in release builds. The prior
+  debug FPS label is now a default-hidden instantaneous/mean frame-time overlay
+  toggled by the command-routed, replay-stable F10 action; golden capture never
+  installs it. `xtask perf-report` strictly parses one or more summaries,
+  rejects corrupt/unknown schemas and impossible values, sorts the canonical
+  matrix, and prints the WP17 Markdown evidence table. No dependency, f64
+  truth, render default, architecture file, generated catalog content, WP16,
+  or WP17 release scope changed.
+
+  M2 Pro / Metal baseline below used five measured seconds per run, the six
+  canonical view profiles, vsync on, frame cap 120, and the physical resolution
+  reported by Bevy. The final High sun-bloom run opened on the attached 5K
+  Retina display; the other valid runs reported 2560×1440. These differences
+  are retained rather than normalized.
+
+  | View | Quality | Resolution | MSAA | VSync | Frame cap | Frames | Min ms | Mean ms | P95 ms | P99 ms | FPS | Adapter |
+  |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+  | full-system | low | 2560×1440 | off | on | 120 | 527 | 1.749 | 9.498 | 9.261 | 9.585 | 105.3 | Apple M2 Pro (IntegratedGpu, metal) |
+  | full-system | medium | 2560×1440 | 2x | on | 120 | 544 | 2.618 | 9.206 | 9.206 | 10.092 | 108.6 | Apple M2 Pro (IntegratedGpu, metal) |
+  | full-system | high | 2560×1440 | 4x | on | 120 | 570 | 2.503 | 8.776 | 9.222 | 10.208 | 114.0 | Apple M2 Pro (IntegratedGpu, metal) |
+  | inner-orbits | low | 2560×1440 | off | on | 120 | 573 | 2.206 | 8.731 | 9.514 | 12.148 | 114.5 | Apple M2 Pro (IntegratedGpu, metal) |
+  | inner-orbits | medium | 2560×1440 | 2x | on | 120 | 574 | 2.864 | 8.712 | 9.308 | 10.012 | 114.8 | Apple M2 Pro (IntegratedGpu, metal) |
+  | inner-orbits | high | 2560×1440 | 4x | on | 120 | 574 | 2.175 | 8.717 | 9.523 | 10.326 | 114.7 | Apple M2 Pro (IntegratedGpu, metal) |
+  | earth-texture | low | 2560×1440 | off | on | 120 | 572 | 1.754 | 8.751 | 9.302 | 10.225 | 114.3 | Apple M2 Pro (IntegratedGpu, metal) |
+  | earth-texture | medium | 2560×1440 | 2x | on | 120 | 572 | 2.329 | 8.754 | 9.088 | 9.707 | 114.2 | Apple M2 Pro (IntegratedGpu, metal) |
+  | earth-texture | high | 2560×1440 | 4x | on | 120 | 572 | 2.661 | 8.746 | 9.862 | 10.587 | 114.3 | Apple M2 Pro (IntegratedGpu, metal) |
+  | jupiter-system | low | 2560×1440 | off | on | 120 | 573 | 2.923 | 8.739 | 9.364 | 9.870 | 114.4 | Apple M2 Pro (IntegratedGpu, metal) |
+  | jupiter-system | medium | 2560×1440 | 2x | on | 120 | 572 | 2.171 | 8.754 | 9.321 | 10.181 | 114.2 | Apple M2 Pro (IntegratedGpu, metal) |
+  | jupiter-system | high | 2560×1440 | 4x | on | 120 | 571 | 2.777 | 8.770 | 9.872 | 11.673 | 114.0 | Apple M2 Pro (IntegratedGpu, metal) |
+  | saturn-rings | low | 2560×1440 | off | on | 120 | 570 | 1.992 | 8.774 | 9.143 | 9.912 | 114.0 | Apple M2 Pro (IntegratedGpu, metal) |
+  | saturn-rings | medium | 2560×1440 | 2x | on | 120 | 571 | 3.139 | 8.761 | 9.369 | 10.210 | 114.1 | Apple M2 Pro (IntegratedGpu, metal) |
+  | saturn-rings | high | 2560×1440 | 4x | on | 120 | 572 | 1.704 | 8.742 | 9.707 | 10.335 | 114.4 | Apple M2 Pro (IntegratedGpu, metal) |
+  | sun-bloom | low | 2560×1440 | off | on | 120 | 570 | 2.388 | 8.778 | 8.923 | 9.885 | 113.9 | Apple M2 Pro (IntegratedGpu, metal) |
+  | sun-bloom | medium | 2560×1440 | 2x | on | 120 | 535 | 1.928 | 9.348 | 9.684 | 36.462 | 107.0 | Apple M2 Pro (IntegratedGpu, metal) |
+  | sun-bloom | high | 5120×2880 | 4x | on | 120 | 450 | 2.958 | 11.121 | 16.747 | 36.561 | 89.9 | Apple M2 Pro (IntegratedGpu, metal) |
+
+  Ultra is not claimed for any view: the first two canonical Ultra probes
+  reproduced the 8×-MSAA validation failure, and the post-guard probe exited
+  without writing a summary. Q19 records the required human ruling.
+
+  Evidence: default `cargo test` passes **380 tests** (53 + 270 + 54 + 2 +
+  1); `cargo test --workspace --features steam` passes **381**; default and
+  Steam-feature warning-denied workspace/all-target clippy pass; release-mode
+  warning-denied `solar-sim` clippy passes; format check, `git diff --check`,
+  texture metadata audit, catalog dry-run, and offline partial fixture
+  generation all pass. The generated sample catalog changed only its cosmetic
+  generation timestamp during the required gate and was restored byte-for-byte.
+
+- **2026-07-22** — Opened **UIP-1 frame-time instrumentation** as the sole
+  in-progress phase under `docs/ui-performance-plan-2026-07-22.md`. Reviewed
+  `AGENTS.md`, ARCHITECTURE Rev D, this board, the complete 2026-07-18
+  UI/gameplay architecture review, the UIP plan, and `xtask/AGENTS.md` before
+  source work. Scope is limited to opt-in CPU frame statistics and CSV output,
+  a hidden debug overlay excluded from goldens, and `xtask perf-report`; GPU
+  timestamps, rendering/default changes, and WP16/WP17 release work remain out
+  of scope. Pre-change `cargo test` passes the recorded **369 tests**.
 
 - **2026-07-22** — Integrated the approved UI/gameplay follow-up stack into
   `main` in dependency order: PR #7 camera/discoverability (`df6e0a2`), PR #8

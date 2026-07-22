@@ -8,6 +8,7 @@ pub mod horizons;
 pub mod lookup;
 pub mod manifest;
 pub mod normalize;
+pub mod perf;
 pub mod sbdb;
 pub mod starfield;
 pub mod steam;
