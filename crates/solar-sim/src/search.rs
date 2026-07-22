@@ -1,11 +1,11 @@
-//! WP12 instant catalog search and full-screen browse menu — Rev C §§4.1, 9.1.
+//! WP12/UIP-5 instant catalog search and full-screen browse menu — Rev D §9.
 //!
 //! Search starts with `Catalog::find`, preserving the core's exact contract,
 //! then adds deterministic prefix, alias, and fuzzy candidates. Presentation
-//! owns only edit/dropdown/menu state; every selection crosses the existing
-//! `SimCommand::TravelToBody` boundary.
+//! owns only edit/dropdown/menu state; body and region selections cross their
+//! shared semantic `SimCommand` travel boundaries.
 
-use crate::control::{SimCommand, SimCommandQueue};
+use crate::control::{RegionPreset, SimCommand, SimCommandQueue};
 use crate::input_intent::{ModalSurfaceSet, UiScrollSurface};
 use crate::layers::HudSurface;
 use crate::ui_kit::{
@@ -409,6 +409,7 @@ enum BrowseAction {
     Close,
     ToggleExpanded(usize),
     TravelTo(usize),
+    TravelToRegion(RegionPreset),
 }
 
 struct BrowseButtonSpec<'a> {
@@ -854,6 +855,10 @@ fn activate_browse_action(
                 sim_commands.push(SimCommand::SetBrowseOpen(false));
             }
         }
+        BrowseAction::TravelToRegion(preset) => {
+            sim_commands.push(SimCommand::TravelToRegionPreset(preset));
+            sim_commands.push(SimCommand::SetBrowseOpen(false));
+        }
     }
 }
 
@@ -1100,6 +1105,70 @@ fn rebuild_browse_menu(
             state.expanded[column.kind.index()],
             state.scroll_y[column.kind.index()],
         );
+    }
+    let preset_footer = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                flex_wrap: FlexWrap::Wrap,
+                column_gap: px(theme.spacing.sm_px),
+                row_gap: px(theme.spacing.xs_px),
+                ..default()
+            },
+            ChildOf(root),
+        ))
+        .id();
+    let preset_title = spawn_text(
+        &mut commands,
+        preset_footer,
+        &font,
+        "REGION PRESETS",
+        theme.type_scale.label_px,
+        theme.colors.text_primary.color(),
+        true,
+    );
+    commands.entity(preset_title).insert(Node {
+        width: percent(100),
+        ..default()
+    });
+    for (index, preset) in RegionPreset::ALL.into_iter().enumerate() {
+        let distance_au = match preset {
+            RegionPreset::Inner => "1.8 AU",
+            RegionPreset::Belt => "3.6 AU",
+            RegionPreset::Outer => "35 AU",
+            RegionPreset::Kuiper => "55 AU",
+        };
+        let label = format!(
+            "{}  {} — {distance_au}",
+            index + 1,
+            preset.label().to_uppercase()
+        );
+        let accessible_label = format!(
+            "Travel to the {} region preset at {distance_au}",
+            preset.label()
+        );
+        let button = spawn_button(
+            &mut commands,
+            preset_footer,
+            *theme,
+            &font,
+            BrowseButtonSpec {
+                label: &label,
+                accessible_label: &accessible_label,
+                action: BrowseAction::TravelToRegion(preset),
+                tab_index: 400 + index as i32,
+            },
+        );
+        commands.entity(button).insert(Node {
+            width: percent(24),
+            min_width: px(120),
+            flex_grow: 1.0,
+            min_height: px(32),
+            padding: UiRect::horizontal(px(theme.spacing.xs_px)),
+            border_radius: BorderRadius::all(px(theme.spacing.radius_px)),
+            align_items: AlignItems::Center,
+            ..default()
+        });
     }
     if let Some(action) = state.restore_action.take() {
         commands.queue(move |world: &mut World| {
@@ -1674,6 +1743,14 @@ mod tests {
                 + DWARFS_AND_ASTEROIDS_SHORTLIST.len()
                 + COMETS_SHORTLIST.len()
         );
+        let region_entries = world
+            .query::<(&BrowseAction, &AccessibleLabel)>()
+            .iter(world)
+            .filter(|(action, label)| {
+                matches!(action, BrowseAction::TravelToRegion(_)) && !label.0.trim().is_empty()
+            })
+            .count();
+        assert_eq!(region_entries, RegionPreset::ALL.len());
 
         {
             let mut state = world.resource_mut::<BrowseUiState>();
@@ -1704,6 +1781,41 @@ mod tests {
         );
         app.update();
         assert_eq!(app.world().resource::<InputFocus>().get(), Some(menu));
+    }
+
+    #[test]
+    fn browse_region_rows_queue_the_shared_travel_command_and_close() {
+        let mut app = App::new();
+        app.insert_resource(LoadedCatalog::new(real_catalog()))
+            .init_resource::<BrowseUiState>()
+            .init_resource::<InputFocus>()
+            .init_resource::<SimCommandQueue>();
+
+        for preset in RegionPreset::ALL {
+            let action = app
+                .world_mut()
+                .spawn(BrowseAction::TravelToRegion(preset))
+                .observe(activate_browse_action)
+                .id();
+            app.world_mut().trigger(Activate { entity: action });
+        }
+
+        let expected = RegionPreset::ALL
+            .into_iter()
+            .flat_map(|preset| {
+                [
+                    SimCommand::TravelToRegionPreset(preset),
+                    SimCommand::SetBrowseOpen(false),
+                ]
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .collect::<Vec<_>>(),
+            expected
+        );
     }
 
     #[test]
@@ -2485,7 +2597,7 @@ mod tests {
                 .query_filtered::<Entity, With<BrowseActionLabel>>()
                 .iter(world)
                 .collect();
-            assert_eq!(action_labels.len(), 70);
+            assert_eq!(action_labels.len(), 74);
             for label in action_labels {
                 assert_text_fits_parent_horizontally(
                     world,

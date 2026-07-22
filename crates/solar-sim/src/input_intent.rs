@@ -1,10 +1,10 @@
-//! WP5 — the sole raw-device-input boundary (ARCHITECTURE invariant 4).
+//! WP5/UIP-5 — the sole raw-device-input boundary (ARCHITECTURE invariant 4).
 //!
 //! Raw Bevy events become semantic `InputIntent`s here, then a second system
 //! translates each intent into exactly one `SimCommand`. No other module reads
 //! keyboard or mouse state; future UI widgets join at the command queue seam.
 
-use crate::control::{SimCommand, SimCommandQueue};
+use crate::control::{RegionPreset, SimCommand, SimCommandQueue};
 use crate::help::HelpModalRoot;
 use crate::layers::HudSurface;
 use crate::search::{BrowseMenuRoot, BrowseUiState, SearchDropdownRoot};
@@ -29,8 +29,8 @@ use sim_core::time::RateIndex;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum KeyIntent {
     Travel(&'static str),
+    TravelRegion(RegionPreset),
     StepRate(i8),
-    SetRate(RateIndex),
     Play,
     Pause,
     TogglePlay,
@@ -98,7 +98,19 @@ const KEY_BINDINGS: &[KeyBinding] = &[
     },
     KeyBinding {
         key: KeyCode::Digit1,
-        intent: KeyIntent::SetRate(RateIndex::REAL),
+        intent: KeyIntent::TravelRegion(RegionPreset::Inner),
+    },
+    KeyBinding {
+        key: KeyCode::Digit2,
+        intent: KeyIntent::TravelRegion(RegionPreset::Belt),
+    },
+    KeyBinding {
+        key: KeyCode::Digit3,
+        intent: KeyIntent::TravelRegion(RegionPreset::Outer),
+    },
+    KeyBinding {
+        key: KeyCode::Digit4,
+        intent: KeyIntent::TravelRegion(RegionPreset::Kuiper),
     },
     KeyBinding {
         key: KeyCode::KeyR,
@@ -691,8 +703,10 @@ fn translate_intents(
 fn intent_to_command(intent: InputIntent) -> SimCommand {
     match intent {
         InputIntent::Key(KeyIntent::Travel(id)) => SimCommand::TravelToBody(id.into()),
+        InputIntent::Key(KeyIntent::TravelRegion(preset)) => {
+            SimCommand::TravelToRegionPreset(preset)
+        }
         InputIntent::Key(KeyIntent::StepRate(delta)) => SimCommand::StepRate(delta),
-        InputIntent::Key(KeyIntent::SetRate(rate)) => SimCommand::SetRate(rate),
         InputIntent::Key(KeyIntent::Play) => SimCommand::Play,
         InputIntent::Key(KeyIntent::Pause) => SimCommand::Pause,
         InputIntent::Key(KeyIntent::TogglePlay) => SimCommand::TogglePlay,
@@ -820,7 +834,7 @@ mod tests {
     }
 
     #[test]
-    fn new_camera_and_rate_aliases_match_the_existing_semantic_commands() {
+    fn camera_rate_and_region_keys_map_to_the_reviewed_semantic_commands() {
         let command_for = |key| {
             let intent = KEY_BINDINGS
                 .iter()
@@ -843,6 +857,14 @@ mod tests {
         );
         assert_eq!(day_rate().label(), "1 DAY/S");
         assert_eq!(command_for(KeyCode::Home), SimCommand::ResetView);
+        for (key, preset) in [
+            (KeyCode::Digit1, RegionPreset::Inner),
+            (KeyCode::Digit2, RegionPreset::Belt),
+            (KeyCode::Digit3, RegionPreset::Outer),
+            (KeyCode::Digit4, RegionPreset::Kuiper),
+        ] {
+            assert_eq!(command_for(key), SimCommand::TravelToRegionPreset(preset));
+        }
     }
 
     #[test]
@@ -874,6 +896,10 @@ mod tests {
                 KeyCode::ArrowDown,
                 KeyCode::Home,
                 KeyCode::Space,
+                KeyCode::Digit1,
+                KeyCode::Digit2,
+                KeyCode::Digit3,
+                KeyCode::Digit4,
             ] {
                 keys.press(key);
             }
@@ -1119,6 +1145,9 @@ mod tests {
             KeyCode::KeyP,
             KeyCode::Space,
             KeyCode::Digit1,
+            KeyCode::Digit2,
+            KeyCode::Digit3,
+            KeyCode::Digit4,
             KeyCode::BracketLeft,
             KeyCode::BracketRight,
             KeyCode::ArrowLeft,
@@ -1174,6 +1203,9 @@ mod tests {
             KeyCode::KeyP,
             KeyCode::Space,
             KeyCode::Digit1,
+            KeyCode::Digit2,
+            KeyCode::Digit3,
+            KeyCode::Digit4,
             KeyCode::BracketLeft,
             KeyCode::BracketRight,
             KeyCode::ArrowLeft,
@@ -1219,9 +1251,17 @@ mod tests {
         let mut app = interaction_test_app(true, false);
         {
             let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
-            keys.press(KeyCode::KeyS);
-            keys.press(KeyCode::Space);
-            keys.press(KeyCode::Escape);
+            for key in [
+                KeyCode::KeyS,
+                KeyCode::Space,
+                KeyCode::Digit1,
+                KeyCode::Digit2,
+                KeyCode::Digit3,
+                KeyCode::Digit4,
+                KeyCode::Escape,
+            ] {
+                keys.press(key);
+            }
         }
         app.update();
         let queued: Vec<_> = app
@@ -1451,9 +1491,17 @@ mod tests {
         let mut app = interaction_test_app(false, true);
         {
             let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
-            keys.press(KeyCode::KeyM);
-            keys.press(KeyCode::Space);
-            keys.press(KeyCode::Escape);
+            for key in [
+                KeyCode::KeyM,
+                KeyCode::Space,
+                KeyCode::Digit1,
+                KeyCode::Digit2,
+                KeyCode::Digit3,
+                KeyCode::Digit4,
+                KeyCode::Escape,
+            ] {
+                keys.press(key);
+            }
         }
         app.world_mut()
             .resource_mut::<ButtonInput<MouseButton>>()

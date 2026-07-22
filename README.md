@@ -62,7 +62,7 @@ Keyboard (see `crates/solar-sim/src/input_intent.rs` for the source of truth):
 | `O` / `M` / `S` / `I` | travel to Sun / Mercury / Sedna / Io |
 | `←` / `→` or `[` / `]` | step time rate down / up the signed ladder |
 | `↓` | select +1 day/s without changing play/pause state |
-| `1` | real-time rate |
+| `1` / `2` / `3` / `4` | travel to the Inner / Belt / Outer / Kuiper region preset |
 | `R` / `P` / `Space` | play / pause / toggle |
 | `Home` | reset to the Sun-focused startup angle and full-system framing |
 | `Escape` | revert text, close the active modal, or open the controls guide from the scene |
@@ -109,7 +109,7 @@ cargo run -p solar-sim --release -- --smoke 60 --expect-backend metal --reject-s
 ## Testing & verification
 
 ```
-cargo test                                       # 395 tests, fully offline
+cargo test                                       # 398 tests, fully offline
 cargo fmt --all -- --check                       # rustfmt defaults
 cargo clippy --workspace --all-targets -- -D warnings
 scripts/check-texture-metadata.sh                # texture license/hash audit
@@ -120,8 +120,8 @@ cargo run -p xtask -- gen-catalog \
 cargo run -p xtask -- perf-report target/perf/*.json  # format WP17 evidence table
 ```
 
-The authoritative test baseline lives in `TASKS.md` (currently **395
-passing**: 53 `sim-core` · 285 `solar-sim` · 54 `xtask` lib · 2 xtask smoke ·
+The authoritative test baseline lives in `TASKS.md` (currently **398
+passing**: 53 `sim-core` · 288 `solar-sim` · 54 `xtask` lib · 2 xtask smoke ·
 1 position spot-check gate, **active**). If this README and `TASKS.md`
 disagree, `TASKS.md` wins.
 

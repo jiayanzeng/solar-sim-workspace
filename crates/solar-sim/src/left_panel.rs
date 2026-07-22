@@ -638,6 +638,7 @@ pub(crate) fn consume_left_panel_command(
             };
             apply_body_selection(loaded, body_index, state, navigation);
         }
+        SimCommand::TravelToRegionPreset(_) => navigation.truncate(1),
         SimCommand::SetLeftPanelTab(tab) => {
             if *tab == LeftPanelTab::Collection {
                 let (Some(loaded), Some(selected)) = (loaded, state.selected_body_index) else {

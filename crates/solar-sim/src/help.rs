@@ -1,4 +1,4 @@
-//! WP5/WP7 — command-routed gameplay help and control discoverability.
+//! WP5/WP7/UIP-5 — command-routed gameplay help and control discoverability.
 //!
 //! Escape opens this retained modal only after text editing and higher-priority
 //! modals decline the key. The surface owns focus and scrolling while open;
@@ -55,7 +55,7 @@ struct GuideEntry {
     body: &'static str,
 }
 
-const GUIDE_ENTRIES: [GuideEntry; 7] = [
+const GUIDE_ENTRIES: [GuideEntry; 11] = [
     GuideEntry {
         heading: "EXPLORE",
         body: "Left-drag or right-drag the scene to orbit the focused body. Scroll to dolly. A short primary click still selects a body.",
@@ -66,7 +66,7 @@ const GUIDE_ENTRIES: [GuideEntry; 7] = [
     },
     GuideEntry {
         heading: "TIME RATE",
-        body: "Left/Right Arrow or [/] steps down/up the signed rate ladder. Down Arrow selects +1 DAY/S. Key 1 selects REAL RATE.",
+        body: "Left/Right Arrow or [/] steps down/up the signed rate ladder. Down Arrow selects +1 DAY/S.",
     },
     GuideEntry {
         heading: "PLAYBACK",
@@ -75,6 +75,22 @@ const GUIDE_ENTRIES: [GuideEntry; 7] = [
     GuideEntry {
         heading: "QUICK TRAVEL",
         body: "O, M, S, and I travel to the Sun, Mercury, Sedna, and Io. Search, Browse, labels, and body clicks expose the complete catalog.",
+    },
+    GuideEntry {
+        heading: "INNER REGION",
+        body: "Key 1 travels to the Sun-focused Inner preset with a fixed 1.8 AU framing distance.",
+    },
+    GuideEntry {
+        heading: "BELT REGION",
+        body: "Key 2 travels to the Sun-focused Belt preset with a fixed 3.6 AU framing distance.",
+    },
+    GuideEntry {
+        heading: "OUTER REGION",
+        body: "Key 3 travels to the Sun-focused Outer preset with a fixed 35 AU framing distance.",
+    },
+    GuideEntry {
+        heading: "KUIPER REGION",
+        body: "Key 4 travels to the Sun-focused Kuiper preset with a fixed 55 AU framing distance.",
     },
     GuideEntry {
         heading: "PANELS AND LAYERS",
@@ -530,6 +546,10 @@ mod tests {
             "Home",
             "Left/Right Arrow",
             "Down Arrow",
+            "Key 1",
+            "Key 2",
+            "Key 3",
+            "Key 4",
             "Space",
             "Escape",
         ] {
@@ -540,6 +560,7 @@ mod tests {
             "right-drag",
             "`←` / `→`",
             "`↓`",
+            "`1` / `2` / `3` / `4`",
             "`Home`",
             "`Escape`",
         ] {

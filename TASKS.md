@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 395 passing** (53 `sim-core` · 285 `solar-sim` · 54 `xtask`
+**Test baseline: 398 passing** (53 `sim-core` · 288 `solar-sim` · 54 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -938,6 +938,57 @@ maintenance whether the debug-only assertions should be conditionally compiled
 so release all-target linting is also a supported gate.
 
 ## Change log (append-only; newest first)
+
+- **2026-07-22** — Completed **UIP-5 region presets**. Added the public
+  `RegionPreset::{Inner,Belt,Outer,Kuiper}` contract and exact named kilometre
+  framing constants derived from the approved 1.8/3.6/35/55 AU radii. The new
+  `TravelToRegionPreset` command restores the canonical startup yaw/pitch,
+  uses the existing 1.25-second eased focus/distance tween to the Sun, clears
+  breadcrumb navigation to the root, and deliberately leaves body selection
+  unchanged. Stable `inner`/`belt`/`outer`/`kuiper` replay slugs round-trip
+  strictly and reject unknown or overlong rows.
+
+  Ordinary-viewport keys 1–4 now map one-to-one to the four presets, replacing
+  key 1's previous real-rate shortcut; the time bar, rate ladder, and LIVE
+  snap continue to expose +REAL. Four separate Help entries and a responsive,
+  accessible four-action footer in Menu/Browse route through the same semantic
+  command, with Menu adding only its ordinary close command. Text editing,
+  Search results, Browse, Settings, and Help retain input ownership and emit no
+  preset travel. README and Help key tables agree.
+
+  Three new regressions cover all four exact landings plus selection/root
+  invariants, strict portable recording/replay hash parity, and all four Menu
+  actions; strengthened input, Help, Menu accessibility, responsive-layout,
+  and desktop command-gate tests cover keys 1–4 under every ownership context,
+  four visible accessible rows, and exact desktop/headless camera-state parity.
+  Two input-isolated M2 Pro/Metal runs captured all six canonical views on the
+  first attempt. Comparison passed with p99 Delta-E 0.0000 throughout; Earth,
+  Jupiter, and Sun mean 0.0050 and the other views mean 0.0000. A comparable
+  5120x2880 High/4x-MSAA frame-stats run measured 9.563 ms mean / 104.6 fps,
+  11.4% lower mean time than UIP-4's 10.789 ms sample (normal run variance;
+  UIP-5 adds no steady-state renderer work).
+
+  Evidence: default `cargo test` passes **398 tests** (53 + 288 + 54 + 2 +
+  1); `cargo test --workspace --features steam` passes **399**; default and
+  Steam-feature warning-denied workspace/all-target clippy pass; release
+  build, release-mode warning-denied `solar-sim` library clippy, format check,
+  `git diff --check`, texture metadata audit, and catalog dry-run pass. Q19
+  remains open for the unsupported Ultra baseline and Q20 remains the recorded
+  release-test clippy configuration issue. No dependency, generated catalog,
+  settings, architecture, agent-rule, simulation-truth, or rendering-default
+  file changed.
+
+- **2026-07-22** — Opened **UIP-5 region presets** as the sole in-progress
+  phase under `docs/ui-performance-plan-2026-07-22.md`. Confirmed that human
+  commit `a7e5ddd` already placed the R4 contract at the end of ARCHITECTURE
+  Rev D §9. Scope is limited to one replayable `TravelToRegionPreset` command
+  with exact Inner/Belt/Outer/Kuiper framing constants, its shared reducer,
+  ordinary-viewport keys 1–4, Help entries, and Menu footer rows. Presets must
+  focus the Sun through the existing eased tween, restore the canonical pose,
+  clear breadcrumb navigation to root, and preserve selection. Modal/text
+  ownership, f64 propagation truth, the catalog, settings, and architecture
+  remain unchanged. Pre-change `cargo test` passes the current **395-test**
+  baseline.
 
 - **2026-07-22** — Completed **UIP-4 startup rate +1 day/s**. `AppSettings`
   now owns a normalized 24-detent `startup_rate`, defaulting to +1 day/s;

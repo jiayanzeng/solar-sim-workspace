@@ -35,8 +35,10 @@ pub use apparent_size::{
     clamped_body_radius_units, projected_body_diameter_logical_px, MIN_BODY_DIAMETER_LOGICAL_PX,
 };
 pub use control::{
-    replay_headless, CameraController, CommandRecording, HeadlessSimulation, ReplayFrameInput,
-    ReplayParseError, ReplayRunError, ReplayStream, ReplayVersion, SimCommand, StampedCommand,
+    replay_headless, CameraController, CommandRecording, HeadlessSimulation, RegionPreset,
+    ReplayFrameInput, ReplayParseError, ReplayRunError, ReplayStream, ReplayVersion, SimCommand,
+    StampedCommand, BELT_REGION_FRAMING_DISTANCE_KM, INNER_REGION_FRAMING_DISTANCE_KM,
+    KUIPER_REGION_FRAMING_DISTANCE_KM, OUTER_REGION_FRAMING_DISTANCE_KM,
 };
 pub use formatting::format_distance_km;
 pub use frame_stats::FrameStatsOptions;
@@ -2653,6 +2655,7 @@ mod tests {
     #[test]
     fn desktop_command_gate_converges_navigation_after_each_ordered_command() {
         let catalog = catalog();
+        let mut headless = HeadlessSimulation::new(&catalog).unwrap();
         let states = propagate_catalog(&catalog, t_from_jd_tdb(2_461_042.0)).unwrap();
         let loaded = LoadedCatalog::new(catalog);
         let sun = loaded.index_of("sun").unwrap();
@@ -2690,6 +2693,17 @@ mod tests {
         app.init_resource::<DebugDeviceLossRequest>();
 
         app.update();
+        headless
+            .step_with_wall_time(
+                0.0,
+                0.0,
+                &[
+                    SimCommand::TravelToBody("jupiter".into()),
+                    SimCommand::SetLeftPanelTab(LeftPanelTab::Collection),
+                ],
+                None,
+            )
+            .unwrap();
         assert_eq!(
             app.world()
                 .resource::<CameraController>()
@@ -2712,6 +2726,9 @@ mod tests {
             .resource_mut::<SimCommandQueue>()
             .push(SimCommand::TravelToBody("io".into()));
         app.update();
+        headless
+            .step_with_wall_time(0.0, 0.0, &[SimCommand::TravelToBody("io".into())], None)
+            .unwrap();
         assert_eq!(
             app.world()
                 .resource::<CameraController>()
@@ -2732,6 +2749,20 @@ mod tests {
             queue.push(SimCommand::SetLeftPanelTab(LeftPanelTab::ViewOptions));
         }
         app.update();
+        headless
+            .step_with_wall_time(
+                0.0,
+                0.0,
+                &[
+                    SimCommand::NavigateBreadcrumb {
+                        depth: 1,
+                        target_id: "jupiter".into(),
+                    },
+                    SimCommand::SetLeftPanelTab(LeftPanelTab::ViewOptions),
+                ],
+                None,
+            )
+            .unwrap();
         assert_eq!(
             app.world()
                 .resource::<CameraController>()
@@ -2749,6 +2780,37 @@ mod tests {
             app.world().resource::<NavigationStack>().label(),
             "Solar System › Jupiter"
         );
+
+        app.world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .push(SimCommand::TravelToRegionPreset(RegionPreset::Outer));
+        app.update();
+        headless
+            .step_with_wall_time(
+                0.0,
+                0.0,
+                &[SimCommand::TravelToRegionPreset(RegionPreset::Outer)],
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(
+            app.world()
+                .resource::<CameraController>()
+                .semantic_snapshot(),
+            headless.camera().semantic_snapshot()
+        );
+        assert_eq!(
+            app.world()
+                .resource::<CameraController>()
+                .selected_body_index(),
+            jupiter
+        );
+        assert_eq!(
+            app.world().resource::<NavigationStack>().label(),
+            "Solar System"
+        );
+        assert_eq!(headless.navigation_label(), "Solar System");
     }
 
     #[test]

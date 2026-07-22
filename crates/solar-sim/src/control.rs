@@ -1,4 +1,4 @@
-//! WP5/WP8/WP9/WP14 — command consumption, camera travel, time, and replay.
+//! WP5/WP8/WP9/WP14/UIP-5 — command consumption, camera travel, time, and replay.
 //!
 //! This module is the user-state mutation boundary. `CameraController` keeps
 //! its fields private, and `consume_sim_command` is the only function that
@@ -25,12 +25,70 @@ const MIN_PITCH_RAD: f64 = -1.5;
 const MAX_PITCH_RAD: f64 = 1.5;
 const ORBIT_RADIANS_PER_PIXEL: f64 = 0.005;
 
+/// Exact kilometre framing distances approved by Rev D §9. The decimal
+/// values are the IAU 2012 astronomical unit multiplied by R4's fixed radii;
+/// runtime camera code remains kilometre/render-unit based.
+pub const INNER_REGION_FRAMING_DISTANCE_KM: f64 = 269_276_167.26;
+pub const BELT_REGION_FRAMING_DISTANCE_KM: f64 = 538_552_334.52;
+pub const OUTER_REGION_FRAMING_DISTANCE_KM: f64 = 5_235_925_474.5;
+pub const KUIPER_REGION_FRAMING_DISTANCE_KM: f64 = 8_227_882_888.5;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RegionPreset {
+    Inner,
+    Belt,
+    Outer,
+    Kuiper,
+}
+
+impl RegionPreset {
+    pub const ALL: [Self; 4] = [Self::Inner, Self::Belt, Self::Outer, Self::Kuiper];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Inner => "Inner",
+            Self::Belt => "Belt",
+            Self::Outer => "Outer",
+            Self::Kuiper => "Kuiper",
+        }
+    }
+
+    pub const fn framing_distance_km(self) -> f64 {
+        match self {
+            Self::Inner => INNER_REGION_FRAMING_DISTANCE_KM,
+            Self::Belt => BELT_REGION_FRAMING_DISTANCE_KM,
+            Self::Outer => OUTER_REGION_FRAMING_DISTANCE_KM,
+            Self::Kuiper => KUIPER_REGION_FRAMING_DISTANCE_KM,
+        }
+    }
+
+    const fn replay_slug(self) -> &'static str {
+        match self {
+            Self::Inner => "inner",
+            Self::Belt => "belt",
+            Self::Outer => "outer",
+            Self::Kuiper => "kuiper",
+        }
+    }
+
+    fn from_replay_slug(slug: &str) -> Option<Self> {
+        match slug {
+            "inner" => Some(Self::Inner),
+            "belt" => Some(Self::Belt),
+            "outer" => Some(Self::Outer),
+            "kuiper" => Some(Self::Kuiper),
+            _ => None,
+        }
+    }
+}
+
 /// Stable, serializable user actions. Body references are catalog ids, never
 /// display names, so command recordings survive localization and UI changes.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SimCommand {
     SelectBody(String),
     TravelToBody(String),
+    TravelToRegionPreset(RegionPreset),
     Orbit {
         delta_yaw: f64,
         delta_pitch: f64,
@@ -276,6 +334,21 @@ pub(crate) fn consume_sim_command(
                 start_focus_km: camera.focus_position_km,
                 start_distance_units: camera.distance_units,
                 target_distance_units: framing_distance_units(loaded, target_index),
+            });
+        }
+        SimCommand::TravelToRegionPreset(preset) => {
+            let Some(sun_index) = loaded.index_of("sun") else {
+                return report;
+            };
+            camera.yaw_rad = INITIAL_YAW_RAD;
+            camera.pitch_rad = INITIAL_PITCH_RAD;
+            camera.travel = Some(TravelTween {
+                target_index: sun_index,
+                elapsed_s: 0.0,
+                duration_s: TRAVEL_DURATION_S,
+                start_focus_km: camera.focus_position_km,
+                start_distance_units: camera.distance_units,
+                target_distance_units: preset.framing_distance_km() / KM_PER_RENDER_UNIT,
             });
         }
         SimCommand::Orbit {
@@ -1270,6 +1343,9 @@ fn serialize_entry(entry: &StampedCommand) -> String {
     match &entry.command {
         SimCommand::SelectBody(id) => format!("{prefix}|select|{id}"),
         SimCommand::TravelToBody(id) => format!("{prefix}|travel|{id}"),
+        SimCommand::TravelToRegionPreset(preset) => {
+            format!("{prefix}|travel-region|{}", preset.replay_slug())
+        }
         SimCommand::Orbit {
             delta_yaw,
             delta_pitch,
@@ -1514,6 +1590,9 @@ fn parse_entry(line: &str) -> Result<StampedCommand, String> {
     let command = match fields[2] {
         "select" => SimCommand::SelectBody(parse_body_id(&fields, 4)?),
         "travel" => SimCommand::TravelToBody(parse_body_id(&fields, 4)?),
+        "travel-region" if fields.len() == 4 => SimCommand::TravelToRegionPreset(
+            RegionPreset::from_replay_slug(fields[3]).ok_or("unknown region preset")?,
+        ),
         "orbit" if fields.len() == 5 => SimCommand::Orbit {
             delta_yaw: parse_f64_bits(fields[3], "orbit yaw")?,
             delta_pitch: parse_f64_bits(fields[4], "orbit pitch")?,
@@ -2019,6 +2098,120 @@ mod tests {
         assert!(ReplayStream::from_text(concat!(
             "solar-sim-replay-v2\n",
             "0|0000000000000000|reset-view|extra\n"
+        ))
+        .is_err());
+    }
+
+    #[test]
+    fn every_region_preset_lands_on_the_exact_sun_pose_and_preserves_selection() {
+        let catalog = catalog();
+        let loaded = LoadedCatalog::new(catalog.clone());
+        let sun = loaded.index_of("sun").unwrap();
+        let io = loaded.index_of("io").unwrap();
+        let expected_distances_km = [
+            269_276_167.26,
+            538_552_334.52,
+            5_235_925_474.5,
+            8_227_882_888.5,
+        ];
+
+        for (preset, expected_distance_km) in
+            RegionPreset::ALL.into_iter().zip(expected_distances_km)
+        {
+            assert_eq!(preset.framing_distance_km(), expected_distance_km);
+            let mut simulation = HeadlessSimulation::new(&catalog).unwrap();
+            simulation
+                .step(
+                    TRAVEL_DURATION_S,
+                    &[SimCommand::TravelToBody("io".into())],
+                    None,
+                )
+                .unwrap();
+            simulation
+                .step(
+                    0.0,
+                    &[SimCommand::Orbit {
+                        delta_yaw: 53.0,
+                        delta_pitch: -31.0,
+                    }],
+                    None,
+                )
+                .unwrap();
+            assert_eq!(simulation.camera.selected_body_index(), io);
+            assert_eq!(simulation.camera.focus_body_index(), io);
+            assert_eq!(simulation.navigation_label(), "Solar System › Jupiter › Io");
+
+            simulation
+                .step(0.0, &[SimCommand::TravelToRegionPreset(preset)], None)
+                .unwrap();
+            assert_eq!(simulation.camera.selected_body_index(), io);
+            assert_eq!(simulation.navigation_label(), "Solar System");
+            assert_eq!(
+                simulation.camera.yaw_rad().to_bits(),
+                INITIAL_YAW_RAD.to_bits()
+            );
+            assert_eq!(
+                simulation.camera.pitch_rad().to_bits(),
+                INITIAL_PITCH_RAD.to_bits()
+            );
+            assert!(simulation.camera.is_travelling());
+
+            simulation.step(TRAVEL_DURATION_S, &[], None).unwrap();
+            assert_eq!(simulation.camera.selected_body_index(), io);
+            assert_eq!(simulation.camera.focus_body_index(), sun);
+            assert_eq!(simulation.camera.focus_position_km(), [0.0; 3]);
+            assert_eq!(
+                simulation.camera.distance_units().to_bits(),
+                (expected_distance_km / KM_PER_RENDER_UNIT).to_bits()
+            );
+            assert!(!simulation.camera.is_travelling());
+        }
+    }
+
+    #[test]
+    fn region_presets_serialize_and_replay_portably_with_strict_slugs() {
+        let catalog = catalog();
+        let mut original = HeadlessSimulation::new(&catalog).unwrap();
+        let mut recording = CommandRecording::default();
+        original
+            .step(
+                TRAVEL_DURATION_S,
+                &[SimCommand::TravelToBody("io".into())],
+                Some(&mut recording),
+            )
+            .unwrap();
+        for preset in RegionPreset::ALL {
+            original
+                .step(
+                    TRAVEL_DURATION_S,
+                    &[SimCommand::TravelToRegionPreset(preset)],
+                    Some(&mut recording),
+                )
+                .unwrap();
+        }
+
+        let text = recording.stream().to_text();
+        for slug in ["inner", "belt", "outer", "kuiper"] {
+            assert!(text.contains(&format!("|travel-region|{slug}\n")));
+        }
+        let parsed = ReplayStream::from_text(&text).unwrap();
+        assert_eq!(&parsed, recording.stream());
+        let replayed = replay_headless(
+            &catalog,
+            &parsed,
+            1 + RegionPreset::ALL.len() as u64,
+            TRAVEL_DURATION_S,
+        )
+        .unwrap();
+        assert_eq!(replayed.state_hash(), original.state_hash());
+        assert!(ReplayStream::from_text(concat!(
+            "solar-sim-replay-v2\n",
+            "0|0000000000000000|travel-region|unknown\n"
+        ))
+        .is_err());
+        assert!(ReplayStream::from_text(concat!(
+            "solar-sim-replay-v2\n",
+            "0|0000000000000000|travel-region|inner|extra\n"
         ))
         .is_err());
     }
