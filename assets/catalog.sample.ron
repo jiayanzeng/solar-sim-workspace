@@ -2,10 +2,10 @@
 // Regenerate with: cargo run -p xtask -- gen-catalog --fixtures xtask/fixtures --epoch-jd 2461042
 // Frame: ECLIPJ2000. Units: km, degrees, Julian Date (TDB).
 // Per-body provenance is in each record's `source` field.
-// Generated: 2026-07-15T06:19:55Z
+// Generated: 2026-07-22T01:13:30Z
 Catalog(
   schema_version: 1,
-  generated_utc: "2026-07-15T06:19:55Z",
+  generated_utc: "2026-07-22T01:13:30Z",
   frame: "ECLIPJ2000",
   bodies: [
     BodyRecord(
@@ -22,9 +22,9 @@ Catalog(
       radius_km: 695700.0,
       color_srgb: (255, 214, 140),
       texture: Some("textures/sun.ktx2"),
-      description: "The star at the center of the solar system, holding 99.8% of its mass. Every orbit in this catalog ultimately answers to it.",
+      description: "The Sun is the star at the center of the solar system, and its gravity holds the system together. Its light and heat power most surface life on Earth and shape the space environment around every cataloged world.",
       orbit: None,
-      source: "no orbit (heliocentric anchor); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "no orbit (heliocentric anchor); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/sun/facts/",
     ),
     BodyRecord(
       id: "earth",
@@ -38,7 +38,7 @@ Catalog(
       radius_km: 6371.0,
       color_srgb: (86, 141, 235),
       texture: Some("textures/earth.ktx2"),
-      description: "Our home planet — the only world known to harbor life.",
+      description: "Earth is a rocky planet with liquid surface oceans and an atmosphere rich in nitrogen and oxygen. It is the only world currently known to support life, and its active geology continually reshapes the surface.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -52,7 +52,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: Some(0.9855999999999767),
       )),
-      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/earth/facts/",
     ),
     BodyRecord(
       id: "moon",
@@ -68,7 +68,7 @@ Catalog(
       radius_km: 1737.4,
       color_srgb: (198, 189, 175),
       texture: Some("textures/moon.ktx2"),
-      description: "Earth\'s constant companion and the only other world humans have walked on.",
+      description: "Earth\'s Moon is a rocky, airless world whose surface records billions of years of impacts. It stabilizes Earth\'s axial wobble, drives most ocean tides, and remains the only world beyond Earth visited by humans.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -82,7 +82,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/moon/facts/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "ceres",
@@ -98,7 +98,7 @@ Catalog(
       radius_km: 469.7,
       color_srgb: (186, 156, 255),
       texture: None,
-      description: "The largest object in the asteroid belt and the only dwarf planet of the inner solar system.",
+      description: "Ceres is the largest object in the main asteroid belt and the only dwarf planet in the inner solar system. Dawn found a mixture of rock and ice, widespread evidence of past water activity, and bright salt deposits in Occator Crater.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461000.5,
         elements: Elements(
@@ -112,7 +112,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/ceres/facts/",
     ),
     BodyRecord(
       id: "halley",
@@ -128,7 +128,7 @@ Catalog(
       radius_km: 5.5,
       color_srgb: (166, 216, 232),
       texture: None,
-      description: "The most famous comet of all, returning roughly every 76 years; its 1986 perihelion is a demo-script stop.",
+      description: "1P/Halley is a short-period comet that returns to the inner solar system roughly every 76 years. It is the source of the Eta Aquariid and Orionid meteor showers, and spacecraft imaged its dark nucleus during the 1986 passage.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2446467.395,
         elements: Elements(
@@ -142,7 +142,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/1p-halley/",
     ),
     BodyRecord(
       id: "3i_atlas",
@@ -158,7 +158,7 @@ Catalog(
       radius_km: 0.5,
       color_srgb: (166, 216, 232),
       texture: None,
-      description: "The third known interstellar object, crossing the solar system on a hyperbolic path — the catalog\'s open-arc stress test.",
+      description: "3I/ATLAS is the third confirmed interstellar object observed passing through the solar system. Its hyperbolic path is not bound to the Sun, and cometary activity revealed an icy body surrounded by a coma.",
       orbit: Some(Orbit(
         epoch_jd_tdb: 2460978.0,
         elements: Elements(
@@ -172,7 +172,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; nucleus radius adopted 0.5 km; HST constraint 0.16-2.8 km at pV=0.04 (NASA/HST 2025; arXiv:2512.22365); NGA-based estimates ~0.3 km; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md)",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; nucleus radius adopted 0.5 km; HST constraint 0.16-2.8 km at pV=0.04 (NASA/HST 2025; arXiv:2512.22365); NGA-based estimates ~0.3 km; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/3i-atlas/",
     ),
   ],
 )
