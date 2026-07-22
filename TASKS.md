@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 399 passing** (53 `sim-core` · 289 `solar-sim` · 54 `xtask`
+**Test baseline: 401 passing** (53 `sim-core` · 291 `solar-sim` · 54 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -951,6 +951,52 @@ internal 3D render-scale chain currently excluded by UIP-6 should be revisited.
 Agents must not silently force windowed mode or add a render-scale target.
 
 ## Change log (append-only; newest first)
+
+- **2026-07-22** — Completed **UIP-7 bounded-error temporal reuse for secular
+  orbit paths**. The retained-path key remains exact for non-secular orbits,
+  fitted mean motion, and parent GM. For the eight secular planet paths only,
+  `orbit_lines` now accumulates the approved analytic element-drift bound from
+  the last sampled key and compares it with a conservative perspective scale
+  at the cached orbit's nearest possible depth; reuse stops strictly at the
+  0.25-logical-pixel threshold. Missing/non-perspective projection data and a
+  camera inside the orbit fall back to exact refreshes. No simulation truth,
+  propagation, catalog, command, setting, sampling density, or renderer
+  default changed.
+
+  The new cross-check sweeps all eight planets from three supported-time
+  anchors and proves every fresh vertex displacement is contained by the
+  analytic km bound. Projection math is independently checked at exactly one
+  quarter pixel. A retained-write regression runs 60 stable-camera frames at
+  +1 yr/s and observes **0** line/asset writes (down from the prior eight
+  secular writes per frame), then jumps far enough for accumulated bounds to
+  trip and verifies that only secular paths refresh. The non-secular hyperbolic
+  test now also proves exact reuse across time.
+
+  Two independent M2 Pro/Metal golden captures completed all six views on the
+  first attempt; comparison passed with p99 Delta-E 0.0000 throughout and mean
+  Delta-E at or below 0.0050. The comparable 5120x2880 High/4x-MSAA
+  `full-system` frame-stats baseline was **9.914 ms mean / 100.9 fps** before
+  UIP-7. Three post-change runs measured 9.015, 9.868, and 10.572 ms; the
+  median run was **9.868 ms / 101.337 fps**, 0.46% below the baseline, while
+  the spread records the normal short-run variance. Evidence: default `cargo
+  test` passes **401 tests** (53 + 291 + 54 + 2 + 1); Steam-feature tests pass
+  **402**; default and Steam warning-denied workspace/all-target clippy,
+  release build and release warning-denied library clippy, format and diff
+  checks, texture
+  metadata audit, and catalog dry-run all pass. The two UIP-6
+  measurement-gated issues remain human decisions under Q19/Q21.
+
+- **2026-07-22** — Opened **UIP-7 bounded-error temporal reuse for secular
+  orbit paths** as the sole in-progress phase under
+  `docs/ui-performance-plan-2026-07-22.md`. Scope is limited to the eight
+  catalog planets with secular rates: retain their sampled parent-frame paths
+  while the approved analytic element-drift bound remains under 0.25 logical
+  px at the current conservative camera scale, then resample. Non-secular
+  paths retain exact reuse; f64 propagation truth, orbit sampling, fixed-view
+  determinism, catalog data, commands/settings, and renderer defaults remain
+  unchanged. Two measurement-gated issues remain human decisions: UIP-6's
+  Q19/Q21 findings are now also recorded in the performance plan. Pre-change
+  verification will use the current **399-test** baseline.
 
 - **2026-07-22** — Implemented **UIP-6 GPU quality-preset composition** and
   completed every acceptance item not blocked by Q19. `QualityPreset` now

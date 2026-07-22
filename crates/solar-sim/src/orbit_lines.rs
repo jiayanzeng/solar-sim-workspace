@@ -1,4 +1,4 @@
-//! WP6 — parent-relative orbit sampling and retained line rendering.
+//! UIP-7 — bounded-error temporal reuse for retained orbit lines (Rev D §10.2).
 //!
 //! Orbit geometry stays in f64 kilometers in the orbiting body's parent
 //! frame (Rev C §3 invariant 6). Only the retained gizmo asset contains f32
@@ -7,12 +7,13 @@
 //! which puts shorter chords near perihelion, while the hyperbolic branch is
 //! a strictly open ±25-Julian-year arc centered on perihelion (Rev C §10.2).
 //!
-//! The temporal geometry cache is exact under the immutable startup catalog:
-//! its key is the complete drifted [`Elements`], effective mean motion, and
-//! parent GM. A path is reused only when that key compares exactly equal, so
-//! temporal reuse contributes zero kilometers of f64 error and zero render
-//! units after the fixed kilometer-to-render conversion. This deliberately
-//! avoids time buckets and screen-space approximations.
+//! The cache key remains the complete drifted [`Elements`], effective mean
+//! motion, and parent GM. Non-secular paths retain exact-key reuse. For the
+//! eight secular planet paths, UIP-7 supersedes the former "no screen-space
+//! approximations" note by ruling: retained geometry may lag a fresh sample
+//! only while an analytic element-drift bound stays below one quarter logical
+//! pixel at the current conservative camera scale. The bound accumulates from
+//! the last sampled key, so crossing it deterministically refreshes the path.
 
 use crate::scene_polish::OrbitEmphasisSet;
 use crate::selection::{SelectionAccent, SelectionAccentSet, SELECTION_ACCENT_RGB};
@@ -38,6 +39,7 @@ const ORBIT_DEPTH_BIAS: f32 = -0.001;
 const FADE_OUT_ANGULAR_RADIUS: f64 = 0.000_1;
 const FULL_ALPHA_ANGULAR_RADIUS: f64 = 0.002;
 const EDGE_ON_ALPHA_FACTOR: f64 = 0.2;
+const MAX_TEMPORAL_REUSE_ERROR_LOGICAL_PX: f64 = 0.25;
 
 /// Parent-frame f64 truth for one sampled conic.
 #[derive(Debug, Clone, PartialEq)]
@@ -165,13 +167,77 @@ fn retained_orbit_path(
     orbit: &Orbit,
     mu_parent_km3_s2: f64,
     current_t_s: f64,
+    maximum_drift_km: f64,
 ) -> Result<Option<OrbitPath>, KeplerError> {
     let cache_key = orbit_geometry_cache_key(orbit, mu_parent_km3_s2, current_t_s)?;
     if cache_key == path.cache_key {
-        Ok(None)
-    } else {
-        sample_orbit_from_key(cache_key).map(Some)
+        return Ok(None);
     }
+
+    let exact_non_element_inputs_match = cache_key.mean_motion_rad_per_s
+        == path.cache_key.mean_motion_rad_per_s
+        && cache_key.mu_parent_km3_s2 == path.cache_key.mu_parent_km3_s2;
+    if orbit.secular.is_some()
+        && exact_non_element_inputs_match
+        && orbit_vertex_count(path.cache_key.elements.e) == orbit_vertex_count(cache_key.elements.e)
+        && secular_vertex_drift_bound_km(path.cache_key.elements, cache_key.elements)
+            < maximum_drift_km
+    {
+        return Ok(None);
+    }
+
+    sample_orbit_from_key(cache_key).map(Some)
+}
+
+/// Conservative displacement bound for samples at the same true anomaly.
+/// The maximum of the cached/current `a` and `e` keeps the linearized terms
+/// conservative in either drift direction; angular deltas intentionally stay
+/// unwrapped because shortening them modulo one turn could understate drift.
+fn secular_vertex_drift_bound_km(cached: Elements, current: Elements) -> f64 {
+    let a_km = cached.a_km.abs().max(current.a_km.abs());
+    let e = cached.e.max(current.e);
+    let delta_a_km = (current.a_km - cached.a_km).abs();
+    let delta_e = (current.e - cached.e).abs();
+    let angular_delta_rad = (current.i_deg - cached.i_deg).abs().to_radians()
+        + (current.raan_deg - cached.raan_deg).abs().to_radians()
+        + (current.argp_deg - cached.argp_deg).abs().to_radians();
+    let bound_km = delta_a_km * (1.0 + e)
+        + a_km * (delta_e * (1.0 + e))
+        + a_km * (1.0 + e) * angular_delta_rad;
+    if bound_km.is_finite() && bound_km >= 0.0 {
+        bound_km
+    } else {
+        f64::INFINITY
+    }
+}
+
+/// Converts the quarter-logical-pixel contract to kilometers at the closest
+/// possible point on the cached orbit's bounding sphere. Solving with the
+/// bound on both displacement and closest depth avoids spending pixels that
+/// the candidate drift itself could consume.
+fn temporal_reuse_tolerance_km(
+    camera_distance_km: f64,
+    characteristic_radius_km: f64,
+    projection: &Projection,
+    viewport_height_logical_px: f64,
+) -> f64 {
+    let Projection::Perspective(perspective) = projection else {
+        return 0.0;
+    };
+    let closest_depth_km = camera_distance_km - characteristic_radius_km;
+    let half_fov_tangent = (f64::from(perspective.fov) * 0.5).tan();
+    if !closest_depth_km.is_finite()
+        || closest_depth_km <= 0.0
+        || !viewport_height_logical_px.is_finite()
+        || viewport_height_logical_px <= 0.0
+        || !half_fov_tangent.is_finite()
+        || half_fov_tangent <= 0.0
+    {
+        return 0.0;
+    }
+    let depth_fraction =
+        2.0 * half_fov_tangent * MAX_TEMPORAL_REUSE_ERROR_LOGICAL_PX / viewport_height_logical_px;
+    depth_fraction * closest_depth_km / (1.0 + depth_fraction)
 }
 
 fn sample_elliptic(cache_key: OrbitGeometryCacheKey) -> Result<OrbitPath, KeplerError> {
@@ -346,6 +412,12 @@ struct OrbitLineRenderOptions<'w> {
     selection: Option<Res<'w, SelectionAccent>>,
 }
 
+#[derive(SystemParam)]
+struct OrbitLineTemporalInputs<'w, 's> {
+    clock: Res<'w, SimulationClock>,
+    cameras: Query<'w, 's, (&'static Camera, &'static Projection), With<Camera3d>>,
+}
+
 impl OrbitLineRenderOptions<'_> {
     fn body_brightness(&self, body_index: usize) -> f32 {
         self.brightness.sanitized()
@@ -485,7 +557,7 @@ fn update_orbit_lines(
     loaded: Option<Res<LoadedCatalog>>,
     states: Option<Res<BodyStates>>,
     camera: Res<CameraController>,
-    clock: Res<SimulationClock>,
+    temporal: OrbitLineTemporalInputs,
     options: OrbitLineRenderOptions,
     mut gizmo_assets: ResMut<Assets<GizmoAsset>>,
     mut lines: Query<(&mut OrbitLine, &mut Transform, &Gizmo)>,
@@ -495,6 +567,15 @@ fn update_orbit_lines(
     };
     let focus_position_km = camera.focus_position_km();
     let camera_position_km = camera.camera_position_km();
+    let projection_scale = temporal
+        .cameras
+        .single()
+        .ok()
+        .and_then(|(camera, projection)| {
+            camera
+                .logical_viewport_size()
+                .map(|size| (projection, f64::from(size.y)))
+        });
     for (mut line, mut transform, gizmo) in &mut lines {
         let Some(parent_state) = states.0.get(line.parent_index) else {
             continue;
@@ -512,23 +593,40 @@ fn update_orbit_lines(
             continue;
         };
 
+        let parent_to_camera = sub(camera_position_km, parent_state.position_km);
+        let camera_distance_km = norm(parent_to_camera);
+        let maximum_drift_km = projection_scale.map_or(0.0, |(projection, viewport_height)| {
+            temporal_reuse_tolerance_km(
+                camera_distance_km,
+                line.path.characteristic_radius_km,
+                projection,
+                viewport_height,
+            )
+        });
+
         let mut rebuilt = false;
-        if clock.is_changed() {
-            match retained_orbit_path(&line.path, orbit, mu_parent_km3_s2, clock.0.t()) {
-                Ok(Some(path)) => {
-                    rebuilt = path.vertices_parent_km != line.path.vertices_parent_km;
-                    line.path = path;
-                }
-                Ok(None) => {}
-                Err(error) => {
-                    error!("could not refresh orbit line for '{}': {error}", body.id);
-                    continue;
-                }
+        // Evaluate the retained key even when time is paused: a zoom, resize,
+        // or projection change can reduce the current pixel-space allowance
+        // enough to require a deterministic refresh at the same simulation
+        // time.
+        match retained_orbit_path(
+            &line.path,
+            orbit,
+            mu_parent_km3_s2,
+            temporal.clock.0.t(),
+            maximum_drift_km,
+        ) {
+            Ok(Some(path)) => {
+                rebuilt = path.vertices_parent_km != line.path.vertices_parent_km;
+                line.path = path;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                error!("could not refresh orbit line for '{}': {error}", body.id);
+                continue;
             }
         }
 
-        let parent_to_camera = sub(camera_position_km, parent_state.position_km);
-        let camera_distance_km = norm(parent_to_camera);
         let view_angle_cos = if camera_distance_km > 0.0 {
             dot(line.path.plane_normal, parent_to_camera) / camera_distance_km
         } else {
@@ -682,6 +780,7 @@ mod tests {
         load_catalog_text, propagate_catalog, ScenePolishPlugin, SimulationTickAdvance,
         EMPHASIS_CROSSFADE_S, EMPHASIZED_ORBIT_BRIGHTNESS,
     };
+    use bevy::camera::{CameraProjection, ComputedCameraValues, RenderTargetInfo, Viewport};
     use sim_core::catalog::Catalog;
     use sim_core::kepler::state_at;
     use sim_core::time::{
@@ -706,6 +805,27 @@ mod tests {
             body.orbit.as_ref().expect("orbiting body has orbit"),
             parent.gm_km3_s2.expect("parent has GM"),
         )
+    }
+
+    fn camera_for_reuse_test(width: u32, height: u32) -> (Camera, Projection) {
+        let mut perspective = PerspectiveProjection::default();
+        perspective.update(width as f32, height as f32);
+        let camera = Camera {
+            computed: ComputedCameraValues {
+                clip_from_view: perspective.get_clip_from_view(),
+                target_info: Some(RenderTargetInfo {
+                    physical_size: UVec2::new(width, height),
+                    scale_factor: 1.0,
+                }),
+                ..default()
+            },
+            viewport: Some(Viewport {
+                physical_size: UVec2::new(width, height),
+                ..default()
+            }),
+            ..default()
+        };
+        (camera, Projection::Perspective(perspective))
     }
 
     #[derive(Debug, Clone, PartialEq)]
@@ -908,48 +1028,108 @@ mod tests {
     }
 
     #[test]
-    fn exact_retained_paths_match_fresh_secular_planets_across_supported_time() {
+    fn secular_drift_bound_contains_fresh_vertex_displacement_across_supported_time() {
         const PLANETS: [&str; 8] = [
             "mercury", "venus", "earth", "mars", "jupiter", "saturn", "uranus", "neptune",
         ];
         let catalog = catalog();
         let catalog_epoch_t = t_from_jd_tdb(DEFAULT_START_EPOCH_JD_TDB);
-        let times = [T_MIN_S, catalog_epoch_t, T_HIGH_CONFIDENCE_MAX_S, T_MAX_S];
+        let anchors = [T_MIN_S, catalog_epoch_t, T_HIGH_CONFIDENCE_MAX_S];
+        let deltas = [DAY_S, JULIAN_YEAR_S, 10.0 * JULIAN_YEAR_S];
 
         for id in PLANETS {
             let (orbit, mu) = body_orbit(&catalog, id);
             assert!(orbit.secular.is_some(), "{id} must exercise secular drift");
-            let mut retained = sample_orbit(orbit, mu, times[0]).unwrap();
-            for t_s in times {
-                if let Some(refreshed) = retained_orbit_path(&retained, orbit, mu, t_s).unwrap() {
-                    retained = refreshed;
-                }
-                let fresh = sample_orbit(orbit, mu, t_s).unwrap();
-                assert_eq!(retained, fresh, "{id} at t={t_s}");
-                assert_eq!(
-                    retained
+            for anchor_t_s in anchors {
+                let cached = sample_orbit(orbit, mu, anchor_t_s).unwrap();
+                for delta_s in deltas {
+                    let current_t_s = (anchor_t_s + delta_s).min(T_MAX_S);
+                    let fresh = sample_orbit(orbit, mu, current_t_s).unwrap();
+                    let bound_km =
+                        secular_vertex_drift_bound_km(cached.elements(), fresh.elements());
+                    let maximum_vertex_displacement_km = cached
                         .vertices_parent_km
                         .iter()
                         .zip(&fresh.vertices_parent_km)
                         .map(|(left, right)| norm(sub(*left, *right)))
-                        .fold(0.0_f64, f64::max),
-                    0.0,
-                    "{id} temporal-cache error in km at t={t_s}"
-                );
-                assert!(retained
-                    .vertices_parent_km
-                    .iter()
-                    .zip(&fresh.vertices_parent_km)
-                    .all(|(left, right)| parent_relative_render_position(*left)
-                        == parent_relative_render_position(*right)));
-                assert!(
-                    retained_orbit_path(&retained, orbit, mu, t_s)
+                        .fold(0.0_f64, f64::max);
+                    assert!(
+                        maximum_vertex_displacement_km <= bound_km,
+                        "{id} at t={current_t_s}: vertex drift {maximum_vertex_displacement_km:e} km exceeded analytic bound {bound_km:e} km"
+                    );
+                    assert!(
+                        retained_orbit_path(
+                            &cached,
+                            orbit,
+                            mu,
+                            current_t_s,
+                            bound_km + bound_km.abs() * f64::EPSILON * 4.0 + f64::MIN_POSITIVE,
+                        )
                         .unwrap()
                         .is_none(),
-                    "{id} must reuse an exact key without rebuilding"
-                );
+                        "{id} at t={current_t_s} must reuse below the analytic threshold"
+                    );
+                    assert_eq!(
+                        retained_orbit_path(&cached, orbit, mu, current_t_s, bound_km).unwrap(),
+                        Some(fresh),
+                        "{id} at t={current_t_s} must resample when the bound is reached"
+                    );
+                }
             }
         }
+
+        let (earth, mu) = body_orbit(&catalog, "earth");
+        let mut density_crossing = earth.clone();
+        density_crossing.secular.as_mut().unwrap().e_per_cy = 0.1;
+        let epoch_t_s = t_from_jd_tdb(density_crossing.epoch_jd_tdb);
+        let cached = sample_orbit(&density_crossing, mu, epoch_t_s).unwrap();
+        let current_t_s = epoch_t_s + 10.0 * JULIAN_YEAR_S;
+        let fresh = sample_orbit(&density_crossing, mu, current_t_s).unwrap();
+        assert_ne!(
+            cached.vertices_parent_km.len(),
+            fresh.vertices_parent_km.len(),
+            "fixture must cross an adaptive sampling-density boundary"
+        );
+        assert_eq!(
+            retained_orbit_path(&cached, &density_crossing, mu, current_t_s, f64::INFINITY,)
+                .unwrap(),
+            Some(fresh),
+            "a vertex-count change must refresh even under an unlimited pixel allowance"
+        );
+    }
+
+    #[test]
+    fn temporal_reuse_tolerance_is_quarter_pixel_at_the_nearest_orbit_depth() {
+        let projection = Projection::Perspective(PerspectiveProjection::default());
+        let camera_distance_km = 10_000_000.0;
+        let orbit_radius_km = 2_000_000.0;
+        let viewport_height = 1_200.0;
+        let tolerance_km = temporal_reuse_tolerance_km(
+            camera_distance_km,
+            orbit_radius_km,
+            &projection,
+            viewport_height,
+        );
+        let Projection::Perspective(perspective) = projection else {
+            unreachable!();
+        };
+        let closest_depth_after_drift_km = camera_distance_km - orbit_radius_km - tolerance_km;
+        let projected_drift_px = tolerance_km * viewport_height
+            / (2.0 * closest_depth_after_drift_km * (f64::from(perspective.fov) * 0.5).tan());
+        assert!(
+            (projected_drift_px - MAX_TEMPORAL_REUSE_ERROR_LOGICAL_PX).abs() <= f64::EPSILON,
+            "projected tolerance was {projected_drift_px} logical px"
+        );
+        assert_eq!(
+            temporal_reuse_tolerance_km(
+                orbit_radius_km,
+                orbit_radius_km,
+                &Projection::Perspective(perspective),
+                viewport_height,
+            ),
+            0.0,
+            "a camera inside the orbit must fall back to exact refreshes"
+        );
     }
 
     #[test]
@@ -1005,14 +1185,28 @@ mod tests {
         let (orbit, mu) = body_orbit(&catalog, "3i_atlas");
         let t_s = t_from_jd_tdb(orbit.epoch_jd_tdb);
         let original = sample_orbit(orbit, mu, t_s).unwrap();
-        assert!(retained_orbit_path(&original, orbit, mu, t_s)
+        assert!(
+            retained_orbit_path(&original, orbit, mu, t_s, f64::INFINITY)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            retained_orbit_path(
+                &original,
+                orbit,
+                mu,
+                t_s + 100.0 * JULIAN_YEAR_S,
+                f64::INFINITY,
+            )
             .unwrap()
-            .is_none());
+            .is_none(),
+            "non-secular geometry must remain exact across time"
+        );
 
         let mut fitted = orbit.clone();
         fitted.mean_motion_deg_per_day =
             Some((orbit.mean_motion_rad_per_s(mu) * DAY_S).to_degrees() * 1.01);
-        let retained_fitted = retained_orbit_path(&original, &fitted, mu, t_s)
+        let retained_fitted = retained_orbit_path(&original, &fitted, mu, t_s, f64::INFINITY)
             .unwrap()
             .expect("fitted mean motion is part of the exact key");
         let fresh_fitted = sample_orbit(&fitted, mu, t_s).unwrap();
@@ -1030,9 +1224,15 @@ mod tests {
         two_body.mean_motion_deg_per_day = None;
         let two_body_original = sample_orbit(&two_body, mu, t_s).unwrap();
         let changed_mu = mu * 1.01;
-        let retained_mu = retained_orbit_path(&two_body_original, &two_body, changed_mu, t_s)
-            .unwrap()
-            .expect("parent GM is part of the exact key");
+        let retained_mu = retained_orbit_path(
+            &two_body_original,
+            &two_body,
+            changed_mu,
+            t_s,
+            f64::INFINITY,
+        )
+        .unwrap()
+        .expect("parent GM is part of the exact key");
         let fresh_mu = sample_orbit(&two_body, changed_mu, t_s).unwrap();
         assert_eq!(retained_mu, fresh_mu);
         assert_eq!(retained_mu.cache_key.mu_parent_km3_s2, changed_mu);
@@ -1447,6 +1647,150 @@ mod tests {
             .unwrap();
         assert_eq!(line.path.vertices_parent_km, vertices_before);
         assert_eq!(transform.translation, expected_reanchored);
+    }
+
+    #[test]
+    fn one_year_per_second_reuses_eight_secular_assets_until_bound_trips() {
+        const SECULAR_PLANETS: [&str; 8] = [
+            "mercury", "venus", "earth", "mars", "jupiter", "saturn", "uranus", "neptune",
+        ];
+
+        #[derive(Resource, Default)]
+        struct RetainedWriteCounts {
+            lines: usize,
+            assets_changed: bool,
+        }
+
+        fn count_retained_writes(
+            lines: Query<(), Changed<OrbitLine>>,
+            assets: Res<Assets<GizmoAsset>>,
+            mut counts: ResMut<RetainedWriteCounts>,
+        ) {
+            counts.lines += lines.iter().count();
+            counts.assets_changed |= assets.is_changed();
+        }
+
+        let catalog = catalog();
+        let t_s = t_from_jd_tdb(DEFAULT_START_EPOCH_JD_TDB);
+        let states = propagate_catalog(&catalog, t_s).unwrap();
+        let loaded = LoadedCatalog::new(catalog);
+        let sun = loaded.index_of("sun").unwrap();
+        assert_eq!(
+            loaded
+                .catalog
+                .bodies
+                .iter()
+                .filter(|body| body
+                    .orbit
+                    .as_ref()
+                    .is_some_and(|orbit| orbit.secular.is_some()))
+                .count(),
+            SECULAR_PLANETS.len()
+        );
+        let controller = CameraController::new(sun, states.0[sun].position_km, 10_000_000.0);
+        let (render_camera, projection) = camera_for_reuse_test(960, 600);
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<Assets<GizmoAsset>>()
+            .insert_resource(loaded)
+            .insert_resource(states)
+            .insert_resource(controller)
+            .insert_resource(SimulationClock(SimClock::new(
+                StartMode::FixedEpoch {
+                    jd_tdb: DEFAULT_START_EPOCH_JD_TDB,
+                },
+                t_s,
+            )))
+            .insert_resource(OrbitLineBrightness::default())
+            .init_resource::<RetainedWriteCounts>()
+            .add_systems(Startup, spawn_orbit_lines)
+            .add_systems(Update, update_orbit_lines)
+            .add_systems(Update, count_retained_writes.after(update_orbit_lines));
+        app.world_mut()
+            .spawn((Camera3d::default(), render_camera, projection));
+        app.update();
+
+        app.world_mut()
+            .resource_mut::<SimulationClock>()
+            .0
+            .set_rate(RateIndex::new(8).unwrap());
+        *app.world_mut().resource_mut::<RetainedWriteCounts>() = RetainedWriteCounts::default();
+        for frame in 1..=60 {
+            app.world_mut()
+                .resource_mut::<SimulationClock>()
+                .0
+                .tick(1.0 / 60.0, f64::from(frame) / 60.0);
+            app.update();
+        }
+        let counts = app.world().resource::<RetainedWriteCounts>();
+        assert_eq!(
+            counts.lines, 0,
+            "the eight secular paths must produce no retained-line writes over one simulated year"
+        );
+        assert!(
+            !counts.assets_changed,
+            "stable-camera temporal reuse must not acquire retained assets mutably"
+        );
+
+        let retained_t_s = app.world().resource::<SimulationClock>().0.t();
+        let expected_planet_elements: Vec<_> = {
+            let loaded = app.world().resource::<LoadedCatalog>();
+            SECULAR_PLANETS
+                .iter()
+                .map(|id| {
+                    let index = loaded.index_of(id).unwrap();
+                    let orbit = loaded.catalog.bodies[index].orbit.as_ref().unwrap();
+                    (index, elements_at(orbit, retained_t_s))
+                })
+                .collect()
+        };
+        let retained_planet_count = {
+            let world = app.world_mut();
+            let mut lines = world.query::<&OrbitLine>();
+            lines
+                .iter(world)
+                .filter(|line| {
+                    expected_planet_elements
+                        .iter()
+                        .find(|(index, _)| *index == line.body_index)
+                        .is_some_and(|(_, expected)| line.path.elements() != *expected)
+                })
+                .count()
+        };
+        assert_eq!(retained_planet_count, SECULAR_PLANETS.len());
+
+        // Tightening the camera scale while time is unchanged must re-evaluate
+        // the pixel allowance. Placing the camera inside every planet orbit
+        // makes the conservative allowance zero and refreshes all eight keys.
+        app.world_mut()
+            .insert_resource(CameraController::new(sun, [0.0; 3], 1.0));
+        app.update();
+        {
+            let world = app.world_mut();
+            let mut lines = world.query::<&OrbitLine>();
+            for (body_index, expected) in &expected_planet_elements {
+                let line = lines
+                    .iter(world)
+                    .find(|line| line.body_index == *body_index)
+                    .unwrap();
+                assert_eq!(line.path.elements(), *expected);
+            }
+        }
+
+        *app.world_mut().resource_mut::<RetainedWriteCounts>() = RetainedWriteCounts::default();
+        app.world_mut()
+            .resource_mut::<SimulationClock>()
+            .0
+            .set_t(T_MAX_S);
+        app.update();
+        let counts = app.world().resource::<RetainedWriteCounts>();
+        assert_eq!(
+            counts.lines,
+            SECULAR_PLANETS.len(),
+            "only the eight secular paths should resample after accumulated bounds trip"
+        );
+        assert!(counts.assets_changed);
     }
 
     #[test]

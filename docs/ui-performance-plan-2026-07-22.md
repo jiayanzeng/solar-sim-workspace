@@ -234,6 +234,16 @@ passes the sun-bloom golden's replacement or is excluded by an approved
 golden-matrix note; no default changes in this block (decision rule 1 governs
 defaults later, on reference-hardware evidence).
 
+**Measurement-gated execution notes (2026-07-22).** Two measurement-gated
+issues remain human decisions and are tracked as `TASKS.md` Q19/Q21. First,
+the M2 Pro supports only 1x/2x/4x sampling for the HDR color and depth
+formats, so the specified 8x Ultra mapping fails renderer validation and
+produces no valid frame-stats
+report; agents must not silently clamp it. Second, Bevy accepts Low's 1.0
+scale-factor override, but macOS borderless fullscreen retains the native 5K
+swapchain; agents must not force windowed mode or introduce the out-of-scope
+internal render-scale chain without a human ruling.
+
 ### UIP-7 — Bounded-error temporal reuse for secular orbit paths
 
 **Build.** Replace exact-equality reuse for **secular** orbits only: retain
