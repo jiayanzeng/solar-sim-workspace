@@ -81,7 +81,8 @@ pub use search::{
 pub use settings::{
     AppSettings, DisplayModeSetting, DistanceUnit, FrameCap, PersistedLayerState, QualityPreset,
     RecoveryDirective, RenderFailureKind, RenderRecoveryPhase, RenderRecoveryStatus,
-    ResolutionSetting, SettingsScreenRoot, SettingsUiPlugin, StartModeSetting, SETTINGS_IDENTIFIER,
+    ResolutionSetting, SettingsScreenRoot, SettingsUiPlugin, StartModeSetting, StartupRateSetting,
+    SETTINGS_IDENTIFIER,
 };
 pub use starfield::{
     decode_starfield, load_starfield, StarfieldAssetError, StarfieldPlugin, StarfieldPoint,
@@ -959,6 +960,9 @@ fn build_app_with_platform<P: Plugin>(
             },
             vsync: false,
             frame_cap: FrameCap::Unlimited,
+            // Canonical evidence must not depend on asset-loading duration.
+            // This capture-only setting still crosses the startup command gate.
+            startup_rate: StartupRateSetting::real_time(),
             ..default()
         };
         settings.normalized()
@@ -985,16 +989,14 @@ fn build_app_with_platform<P: Plugin>(
     let wall_now_t = wall_now_t();
     let initial_clock = initial_settings.initial_clock(wall_now_t);
     let initial_t_s = initial_clock.t();
+    let mut initial_commands = SimCommandQueue::default();
+    enqueue_startup_rate_command(&mut initial_commands, &initial_settings);
     #[cfg(debug_assertions)]
-    let initial_commands = {
-        let mut commands = SimCommandQueue::default();
+    {
         if options.simulate_device_loss {
-            commands.push(SimCommand::SimulateDeviceLoss);
+            initial_commands.push(SimCommand::SimulateDeviceLoss);
         }
-        commands
-    };
-    #[cfg(not(debug_assertions))]
-    let initial_commands = SimCommandQueue::default();
+    }
     app.insert_resource(SimulationClock(initial_clock))
         .insert_resource(SimulationTickAdvance::default())
         .insert_resource(PropagationStamp::default())
@@ -1083,6 +1085,10 @@ fn wall_now_t() -> f64 {
         Err(error) => -error.duration().as_secs_f64(),
     };
     t_from_unix_utc(unix_s)
+}
+
+fn enqueue_startup_rate_command(queue: &mut SimCommandQueue, settings: &AppSettings) {
+    queue.push(SimCommand::SetRate(settings.startup_rate.rate()));
 }
 
 #[derive(SystemParam)]
@@ -2407,6 +2413,46 @@ mod tests {
         #[cfg(debug_assertions)]
         app.init_resource::<DebugDeviceLossRequest>();
         app
+    }
+
+    #[test]
+    fn default_boot_records_one_day_rate_once_and_replays_it_deterministically() {
+        let mut app = command_gate_change_test_app();
+        let initial_t = app.world().resource::<SimulationClock>().0.t();
+        assert_eq!(
+            app.world().resource::<SimulationClock>().0.rate(),
+            RateIndex::REAL,
+            "SimClock construction must remain at +REAL before the startup command"
+        );
+        let settings = app.world().resource::<AppSettings>().clone();
+        enqueue_startup_rate_command(
+            &mut app.world_mut().resource_mut::<SimCommandQueue>(),
+            &settings,
+        );
+
+        app.update();
+
+        let clock = &app.world().resource::<SimulationClock>().0;
+        assert_eq!(clock.rate().label(), "1 DAY/S");
+        assert!(clock.is_playing());
+        assert!(!clock.is_live(initial_t));
+        let mut recording = app
+            .world_mut()
+            .remove_resource::<CommandRecording>()
+            .unwrap();
+        assert_eq!(recording.stream().entries().len(), 1);
+        assert_eq!(
+            recording.stream().entries()[0].command,
+            SimCommand::SetRate(settings.startup_rate.rate())
+        );
+        recording.record_frame(0, 0.0, 0.0);
+        let encoded = recording.stream().to_text();
+        let parsed = ReplayStream::from_text(&encoded).unwrap();
+        assert_eq!(&parsed, recording.stream());
+
+        let replayed = replay_headless(&catalog(), &parsed, 1, 0.0).unwrap();
+        assert_eq!(replayed.clock().rate(), settings.startup_rate.rate());
+        assert!(replayed.clock().is_playing());
     }
 
     #[test]

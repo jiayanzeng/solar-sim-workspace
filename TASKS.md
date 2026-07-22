@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 390 passing** (53 `sim-core` · 280 `solar-sim` · 54 `xtask`
+**Test baseline: 395 passing** (53 `sim-core` · 285 `solar-sim` · 54 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -938,6 +938,54 @@ maintenance whether the debug-only assertions should be conditionally compiled
 so release all-target linting is also a supported gate.
 
 ## Change log (append-only; newest first)
+
+- **2026-07-22** — Completed **UIP-4 startup rate +1 day/s**. `AppSettings`
+  now owns a normalized 24-detent `startup_rate`, defaulting to +1 day/s;
+  missing persisted settings and legacy `apply-settings` replay rows migrate
+  to that default, while every valid signed ladder value round-trips. The
+  Settings screen exposes the value on its existing cycle-control pattern,
+  and both RESTORE DEFAULTS and `--reset-settings` converge through the shared
+  default settings reducer. Immediately after `SimClock` construction, the
+  app queues exactly one `SetRate(startup_rate)` through the ordinary command
+  gate, so it is recorded and replayable. `SimClock::new`, the fixed/LIVE
+  seeds, LIVE predicate, LIVE snap, and the 53-test `sim-core` suite remain
+  unchanged at +REAL; the default startup command leaves LIVE honestly unlit.
+
+  Five new regressions cover missing-field migration through both serde and
+  the production settings file, all valid and representative corrupt ladder
+  values, complete Settings cycling, exact one-command startup recording and
+  headless replay, and +REAL construction/LIVE snap after the +1 day/s boot
+  setting. The portable replay hash was intentionally repinned because the
+  new persisted startup-rate identity is now included in the deterministic
+  settings hash; legacy 24-field rows remain accepted. Golden capture uses a
+  transient +REAL startup selection so canonical evidence cannot depend on
+  asset-load duration, without changing ordinary launches or bypassing the
+  startup command gate. Two independent, input-isolated M2 Pro/Metal captures
+  passed all six views on the first attempt: full-system and four other views
+  compare at mean/p99 Delta-E 0.0000, and Earth at mean 0.0050 / p99 0.0000.
+  An ordinary +1 day/s 5120x2880 High/4x-MSAA frame-stats run measured 10.789
+  ms mean / 92.7 fps; its 5K resolution is retained and is not compared with
+  the earlier 2560x1440 samples.
+
+  Evidence: default `cargo test` passes **395 tests** (53 + 285 + 54 + 2 +
+  1); `cargo test --workspace --features steam` passes **396**; default and
+  Steam-feature warning-denied workspace/all-target clippy pass; release
+  build, release-mode warning-denied `solar-sim` library clippy, format check,
+  `git diff --check`, texture metadata audit, and catalog dry-run pass. Q19
+  remains open for the unsupported Ultra baseline and Q20 remains the recorded
+  release-test clippy configuration issue. No dependency, generated catalog,
+  architecture, agent-rule, core-time, rendering-default, or physical-truth
+  file changed.
+
+- **2026-07-22** — Opened **UIP-4 startup rate +1 day/s** as the sole
+  in-progress phase under `docs/ui-performance-plan-2026-07-22.md`. Confirmed
+  that human commit `a7e5ddd` already placed the R1 contract at the end of
+  ARCHITECTURE Rev D §7. Scope is limited to a settings-owned normalized
+  ladder value, its Settings/RESTORE DEFAULTS/`--reset-settings` persistence
+  paths, and exactly one ordinary recorded `SetRate` command at session start.
+  `sim-core::time`, `SimClock::new`, `StartMode`, LIVE detection/snap, and the
+  time-ladder constants remain unchanged. Pre-change `cargo test` passes the
+  current **390-test** baseline.
 
 - **2026-07-22** — Completed **UIP-3 contextual Moons semantics**. One shared
   catalog-derived system mapping now treats a focused moon as its parent

@@ -1165,6 +1165,7 @@ fn hash_app_settings(hash: &mut Fnv1a, settings: &AppSettings) {
         }
         crate::StartModeSetting::Live => hash.u8(1),
     }
+    hash.i8(settings.startup_rate.rate().get());
     hash.u8(u8::from(settings.invert_horizontal));
     hash.u8(u8::from(settings.invert_vertical));
     for visible in [
@@ -1378,7 +1379,7 @@ fn serialize_settings_command(prefix: &str, settings: &AppSettings) -> String {
         crate::StartModeSetting::Live => ("live", "-".to_string()),
     };
     format!(
-        "{prefix}|apply-settings|{display}|{}|{}|{}|{frame_cap}|{quality}|{:08x}|{units}|{start_kind}|{start_value}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+        "{prefix}|apply-settings|{display}|{}|{}|{}|{frame_cap}|{quality}|{:08x}|{units}|{start_kind}|{start_value}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
         settings.resolution.width,
         settings.resolution.height,
         u8::from(settings.vsync),
@@ -1394,11 +1395,12 @@ fn serialize_settings_command(prefix: &str, settings: &AppSettings) -> String {
         u8::from(settings.layers.orbits),
         u8::from(settings.layers.labels),
         u8::from(settings.layers.icons),
+        settings.startup_rate.rate().get(),
     )
 }
 
 fn parse_settings_command(fields: &[&str]) -> Result<AppSettings, String> {
-    if fields.len() != 24 {
+    if !matches!(fields.len(), 24 | 25) {
         return Err("apply-settings has the wrong field count".into());
     }
     let display_mode = match fields[3] {
@@ -1456,6 +1458,15 @@ fn parse_settings_command(fields: &[&str]) -> Result<AppSettings, String> {
         ui_scale,
         units,
         start_mode,
+        startup_rate: fields.get(24).map_or_else(
+            || Ok(crate::StartupRateSetting::default()),
+            |value| {
+                value
+                    .parse::<i8>()
+                    .map(crate::StartupRateSetting::from_raw)
+                    .map_err(|_| "startup rate is not an i8")
+            },
+        )?,
         invert_horizontal: parse_bool(fields[13], "invert horizontal")?,
         invert_vertical: parse_bool(fields[14], "invert vertical")?,
         layers: crate::PersistedLayerState {
@@ -1693,10 +1704,9 @@ mod tests {
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
     const FRAME_DT_S: f64 = 1.0 / 60.0;
-    // UA Phase 1 intentionally changes the deterministic camera identity:
-    // mixed replays now preserve an in-flight dolly instead of jumping from
-    // the stale pre-dolly travel start on the next frame.
-    const PORTABLE_REPLAY_HASH: u64 = 10_452_357_387_508_502_282;
+    // UIP-4 intentionally adds the persisted startup-rate identity to the
+    // deterministic settings hash; the mixed replay remains otherwise exact.
+    const PORTABLE_REPLAY_HASH: u64 = 13_840_042_804_535_984_476;
 
     fn catalog() -> Catalog {
         load_catalog_text(REAL_CATALOG).expect("committed catalog must load")
@@ -2213,6 +2223,32 @@ mod tests {
             .stream()
             .to_text()
             .starts_with("solar-sim-replay-v2\n"));
+    }
+
+    #[test]
+    fn legacy_apply_settings_rows_default_the_missing_startup_rate() {
+        let prefix = "0|0000000000000000";
+        let current = serialize_settings_command(prefix, &AppSettings::default());
+        let legacy = current
+            .rsplit_once('|')
+            .expect("new settings row ends with startup rate")
+            .0;
+        let parsed = ReplayStream::from_text(&format!("solar-sim-replay-v2\n{legacy}\n")).unwrap();
+        let SimCommand::ApplySettings(settings) = &parsed.entries()[0].command else {
+            panic!("expected apply-settings command");
+        };
+        assert_eq!(settings.startup_rate, crate::StartupRateSetting::default());
+
+        let invalid = format!("solar-sim-replay-v2\n{legacy}|0\n");
+        let parsed = ReplayStream::from_text(&invalid).unwrap();
+        let SimCommand::ApplySettings(settings) = &parsed.entries()[0].command else {
+            panic!("expected apply-settings command");
+        };
+        assert_eq!(settings.startup_rate, crate::StartupRateSetting::default());
+        assert!(
+            ReplayStream::from_text(&format!("solar-sim-replay-v2\n{legacy}|not-a-rate\n"))
+                .is_err()
+        );
     }
 
     #[test]

@@ -109,7 +109,7 @@ cargo run -p solar-sim --release -- --smoke 60 --expect-backend metal --reject-s
 ## Testing & verification
 
 ```
-cargo test                                       # 390 tests, fully offline
+cargo test                                       # 395 tests, fully offline
 cargo fmt --all -- --check                       # rustfmt defaults
 cargo clippy --workspace --all-targets -- -D warnings
 scripts/check-texture-metadata.sh                # texture license/hash audit
@@ -120,8 +120,8 @@ cargo run -p xtask -- gen-catalog \
 cargo run -p xtask -- perf-report target/perf/*.json  # format WP17 evidence table
 ```
 
-The authoritative test baseline lives in `TASKS.md` (currently **390
-passing**: 53 `sim-core` · 280 `solar-sim` · 54 `xtask` lib · 2 xtask smoke ·
+The authoritative test baseline lives in `TASKS.md` (currently **395
+passing**: 53 `sim-core` · 285 `solar-sim` · 54 `xtask` lib · 2 xtask smoke ·
 1 position spot-check gate, **active**). If this README and `TASKS.md`
 disagree, `TASKS.md` wins.
 

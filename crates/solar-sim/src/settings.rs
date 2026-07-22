@@ -34,7 +34,7 @@ use bevy::{
     winit::{UpdateMode, WinitSettings},
 };
 use sim_core::time::{
-    jd_tdb_from_t, SimClock, StartMode, DEFAULT_START_EPOCH_JD_TDB, T_MAX_S, T_MIN_S,
+    jd_tdb_from_t, RateIndex, SimClock, StartMode, DEFAULT_START_EPOCH_JD_TDB, T_MAX_S, T_MIN_S,
 };
 use std::{
     sync::Arc,
@@ -292,6 +292,46 @@ impl From<StartMode> for StartModeSetting {
     }
 }
 
+/// Persisted startup selection over the frozen 24-step simulation-rate ladder.
+#[derive(Reflect, Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(test, derive(serde::Serialize, serde::Deserialize))]
+pub struct StartupRateSetting(i8);
+
+impl Default for StartupRateSetting {
+    fn default() -> Self {
+        // The core ladder freezes +4 as +1 day/s. Keep the product default in
+        // the settings layer so SimClock construction remains exactly +REAL.
+        Self(4)
+    }
+}
+
+impl StartupRateSetting {
+    pub(crate) const fn from_raw(value: i8) -> Self {
+        Self(value)
+    }
+
+    pub fn rate(self) -> RateIndex {
+        RateIndex::new(self.0).unwrap_or_else(|| Self::default().rate())
+    }
+
+    pub(crate) fn real_time() -> Self {
+        Self(RateIndex::REAL.get())
+    }
+
+    fn normalized(self) -> Self {
+        Self(self.rate().get())
+    }
+
+    fn next(self) -> Self {
+        let current = self.rate().get();
+        Self(match current {
+            12 => -12,
+            -1 => 1,
+            value => value + 1,
+        })
+    }
+}
+
 #[derive(Reflect, Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(test, derive(serde::Serialize, serde::Deserialize))]
 pub struct PersistedLayerState {
@@ -385,6 +425,8 @@ pub struct AppSettings {
     pub ui_scale: f32,
     pub units: DistanceUnit,
     pub start_mode: StartModeSetting,
+    #[cfg_attr(test, serde(default))]
+    pub startup_rate: StartupRateSetting,
     pub invert_horizontal: bool,
     pub invert_vertical: bool,
     pub layers: PersistedLayerState,
@@ -401,6 +443,7 @@ impl Default for AppSettings {
             ui_scale: 1.0,
             units: DistanceUnit::default(),
             start_mode: StartModeSetting::default(),
+            startup_rate: StartupRateSetting::default(),
             invert_horizontal: false,
             invert_vertical: false,
             layers: PersistedLayerState::default(),
@@ -420,6 +463,7 @@ impl AppSettings {
         if let StartModeSetting::FixedEpoch { jd_tdb } = &mut self.start_mode {
             *jd_tdb = normalized_fixed_epoch_jd_tdb(*jd_tdb);
         }
+        self.startup_rate = self.startup_rate.normalized();
         self
     }
 
@@ -620,6 +664,7 @@ enum SettingAction {
     SetStartLive,
     SetStartFixed,
     AdjustStartEpoch(f64),
+    CycleStartupRate,
     ToggleInvertHorizontal,
     ToggleInvertVertical,
     ToggleLayer(LayerId),
@@ -1148,6 +1193,22 @@ fn rebuild_settings_screen(
         ],
         &mut next_tab_index,
     );
+    let startup_rate_tab_index = next_settings_tab_index(&mut next_tab_index);
+    commands
+        .spawn_scene(slider(
+            *theme,
+            WidgetSpec::new(
+                format!("STARTUP RATE  {}", draft.startup_rate.rate().label()),
+                "Cycle startup simulation rate",
+                WidgetVisualState::Active,
+            ),
+        ))
+        .insert((
+            SettingAction::CycleStartupRate,
+            startup_rate_tab_index,
+            ChildOf(content),
+        ))
+        .observe(activate_setting_action);
     spawn_checkbox(
         &mut commands,
         content,
@@ -1210,7 +1271,7 @@ fn rebuild_settings_screen(
         ],
         &mut next_tab_index,
     );
-    debug_assert_eq!(next_tab_index, SETTINGS_FIRST_TAB_INDEX + 39);
+    debug_assert_eq!(next_tab_index, SETTINGS_FIRST_TAB_INDEX + 40);
     let action = screen.restore_focus.take().unwrap_or(SettingAction::Close);
     commands.queue(move |world: &mut World| {
         let focused = {
@@ -1415,6 +1476,9 @@ fn activate_setting_action(
                 ),
             };
         }
+        SettingAction::CycleStartupRate => {
+            screen.draft.startup_rate = screen.draft.startup_rate.next();
+        }
         SettingAction::ToggleInvertHorizontal => {
             screen.draft.invert_horizontal = !screen.draft.invert_horizontal;
         }
@@ -1588,6 +1652,7 @@ mod tests {
             start_mode: StartModeSetting::FixedEpoch {
                 jd_tdb: 2_451_545.25,
             },
+            startup_rate: StartupRateSetting::from_raw(-7),
             invert_horizontal: true,
             invert_vertical: true,
             layers: PersistedLayerState {
@@ -1621,6 +1686,26 @@ mod tests {
         let mut app = persistence_test_app(identifier);
         *app.world_mut().resource_mut::<AppSettings>() = nondefault_settings();
         SaveSettingsSync::Always.apply(app.world_mut());
+    }
+
+    fn remove_startup_rate_from_persisted_settings(identifier: &str) {
+        let path = bevy::platform::dirs::preferences_dir()
+            .unwrap()
+            .join(identifier)
+            .join("settings.toml");
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut removed = 0;
+        let legacy = text
+            .lines()
+            .filter(|line| {
+                let keep = !line.trim_start().starts_with("startup_rate =");
+                removed += usize::from(!keep);
+                keep
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(removed, 1, "persisted settings must contain startup_rate");
+        std::fs::write(path, format!("{legacy}\n")).unwrap();
     }
 
     fn settings_with_fixed_epoch(jd_tdb: f64) -> AppSettings {
@@ -1882,7 +1967,7 @@ mod tests {
     }
 
     fn expected_settings_tab_order() -> Vec<SettingAction> {
-        let mut actions = Vec::with_capacity(39);
+        let mut actions = Vec::with_capacity(40);
         actions.extend(DisplayModeSetting::ALL.map(SettingAction::SetDisplayMode));
         actions.extend(ResolutionSetting::PRESETS.map(SettingAction::SetResolution));
         actions.push(SettingAction::ToggleVsync);
@@ -1895,6 +1980,7 @@ mod tests {
             SettingAction::SetStartFixed,
             SettingAction::AdjustStartEpoch(-365.25),
             SettingAction::AdjustStartEpoch(365.25),
+            SettingAction::CycleStartupRate,
             SettingAction::ToggleInvertHorizontal,
             SettingAction::ToggleInvertVertical,
         ]);
@@ -1917,6 +2003,64 @@ mod tests {
     }
 
     #[test]
+    fn settings_without_startup_rate_migrate_to_one_day_per_second() {
+        #[derive(serde::Serialize)]
+        struct LegacyAppSettings {
+            display_mode: DisplayModeSetting,
+            resolution: ResolutionSetting,
+            vsync: bool,
+            frame_cap: FrameCap,
+            quality: QualityPreset,
+            ui_scale: f32,
+            units: DistanceUnit,
+            start_mode: StartModeSetting,
+            invert_horizontal: bool,
+            invert_vertical: bool,
+            layers: PersistedLayerState,
+        }
+
+        let current = nondefault_settings();
+        let legacy = LegacyAppSettings {
+            display_mode: current.display_mode,
+            resolution: current.resolution,
+            vsync: current.vsync,
+            frame_cap: current.frame_cap,
+            quality: current.quality,
+            ui_scale: current.ui_scale,
+            units: current.units,
+            start_mode: current.start_mode,
+            invert_horizontal: current.invert_horizontal,
+            invert_vertical: current.invert_vertical,
+            layers: current.layers,
+        };
+        let encoded = ron::to_string(&legacy).unwrap();
+        let migrated: AppSettings = ron::from_str(&encoded).unwrap();
+
+        assert_eq!(migrated.startup_rate, StartupRateSetting::default());
+        assert_eq!(migrated.startup_rate.rate().label(), "1 DAY/S");
+    }
+
+    #[test]
+    fn startup_rate_normalization_preserves_every_detent_and_defaults_invalid_values() {
+        for rate in RateIndex::detents() {
+            let settings = AppSettings {
+                startup_rate: StartupRateSetting::from_raw(rate.get()),
+                ..default()
+            }
+            .normalized();
+            assert_eq!(settings.startup_rate.rate(), rate);
+        }
+        for invalid in [i8::MIN, -13, 0, 13, i8::MAX] {
+            let settings = AppSettings {
+                startup_rate: StartupRateSetting::from_raw(invalid),
+                ..default()
+            }
+            .normalized();
+            assert_eq!(settings.startup_rate, StartupRateSetting::default());
+        }
+    }
+
+    #[test]
     fn explicit_reset_paths_survive_full_process_relaunch() {
         match std::env::var(SETTINGS_TEST_PHASE_ENV).as_deref() {
             Ok("write") | Ok("rewrite") => {
@@ -1929,6 +2073,18 @@ mod tests {
                     app.world().resource::<AppSettings>(),
                     &nondefault_settings()
                 );
+                return;
+            }
+            Ok("write-legacy-without-startup-rate") => {
+                write_nondefault_settings(&child_settings_identifier());
+                remove_startup_rate_from_persisted_settings(&child_settings_identifier());
+                return;
+            }
+            Ok("read-legacy-without-startup-rate") => {
+                let app = persistence_test_app(&child_settings_identifier());
+                let mut expected = nondefault_settings();
+                expected.startup_rate = StartupRateSetting::default();
+                assert_eq!(app.world().resource::<AppSettings>(), &expected);
                 return;
             }
             Ok("cli-reset") => {
@@ -2062,6 +2218,9 @@ mod tests {
         for phase in [
             "write",
             "read-before",
+            "write-legacy-without-startup-rate",
+            "read-legacy-without-startup-rate",
+            "rewrite",
             "cli-reset",
             "read-after-cli",
             "rewrite",
@@ -2103,13 +2262,25 @@ mod tests {
             },
             ..default()
         };
-        assert_eq!(fixed.initial_clock(wall_now_t).t(), 21_600.0);
+        let fixed_clock = fixed.initial_clock(wall_now_t);
+        assert_eq!(fixed_clock.t(), 21_600.0);
+        assert_eq!(fixed_clock.rate(), RateIndex::REAL);
 
         let live = AppSettings {
             start_mode: StartModeSetting::Live,
             ..default()
         };
-        assert_eq!(live.initial_clock(wall_now_t).t(), wall_now_t);
+        let mut live_clock = live.initial_clock(wall_now_t);
+        assert_eq!(live_clock.t(), wall_now_t);
+        assert_eq!(live_clock.rate(), RateIndex::REAL);
+        assert!(live_clock.is_live(wall_now_t));
+        live_clock.set_rate(StartupRateSetting::default().rate());
+        assert!(!live_clock.is_live(wall_now_t));
+        live_clock.snap_to_live();
+        let report = live_clock.tick(1.0, wall_now_t);
+        assert!(report.snapped_live);
+        assert_eq!(live_clock.rate(), RateIndex::REAL);
+        assert!(live_clock.is_live(wall_now_t));
 
         let beyond_range = AppSettings {
             start_mode: StartModeSetting::FixedEpoch {
@@ -2621,6 +2792,19 @@ mod tests {
     }
 
     #[test]
+    fn startup_rate_control_cycles_every_ladder_detent() {
+        let start = StartupRateSetting::default();
+        let mut current = start;
+        let mut observed = std::collections::BTreeSet::new();
+        for _ in 0..24 {
+            observed.insert(current.rate());
+            current = current.next();
+        }
+        assert_eq!(observed.len(), 24);
+        assert_eq!(current, start);
+    }
+
+    #[test]
     fn settings_tab_indices_are_unique_and_follow_semantic_order() {
         let mut app = settings_screen_test_app();
         app.update();
@@ -2634,10 +2818,10 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         controls.sort_by_key(|(index, _)| *index);
-        assert_eq!(controls.len(), 39);
+        assert_eq!(controls.len(), 40);
         assert_eq!(
             controls.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
-            (SETTINGS_FIRST_TAB_INDEX..SETTINGS_FIRST_TAB_INDEX + 39).collect::<Vec<_>>()
+            (SETTINGS_FIRST_TAB_INDEX..SETTINGS_FIRST_TAB_INDEX + 40).collect::<Vec<_>>()
         );
         assert_eq!(
             controls
@@ -2970,7 +3154,7 @@ mod tests {
                 &AccessibilityNode,
             )>();
             let controls: Vec<_> = controls.iter(world).collect();
-            assert_eq!(controls.len(), 39);
+            assert_eq!(controls.len(), 40);
             assert!(controls
                 .iter()
                 .all(|(_, _, _, label, _)| !label.0.trim().is_empty()));
