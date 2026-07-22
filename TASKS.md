@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 223 passing** (53 `sim-core` · 119 `solar-sim` · 48 `xtask`
+**Test baseline: 357 passing** (53 `sim-core` · 253 `solar-sim` · 48 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -904,6 +904,66 @@ specify a readiness condition while retaining a hard nonblack result. Do not
 silently add retries or weaken the assertion.
 
 ## Change log (append-only; newest first)
+
+- **2026-07-21** — Completed the WP5 camera/discoverability correction and
+  returned WP5 to **✅ done**. Primary-button viewport drag now crosses one
+  deterministic 5 px threshold into the existing Orbit intent while preserving
+  click selection below threshold, matching right-drag displacement after the
+  threshold, and yielding to HUD, text-edit, and modal ownership. New
+  command-routed aliases add Left/Right rate stepping, Down for exactly
+  +1 day/s without changing play state, Home for a replayable deterministic
+  `ResetView`, and single-owner Escape Help open/close behavior. `ResetView`
+  selects and focuses the Sun, cancels travel, and restores the same canonical
+  yaw, pitch, and catalog-derived full-system framing used at startup. The new
+  responsive Help surface is composed privately under `HudPlugin`, is mutually
+  exclusive with Browse and Settings, traps keyboard focus, restores its
+  invoker, exposes command-only Close and Reset View actions, scrolls to every
+  item, and documents the live control map; no plugin-graph, simulation-truth,
+  catalog, dependency, or generated-asset contract changed. Ten new default
+  tests cover command/replay strictness and portable convergence, modal
+  precedence and hashing, exact alias parity, primary drag/click ownership,
+  label and sphere selection blocking, Help action routing, focus restoration,
+  scroll bounds, accessibility, README agreement, and the required
+  800/960×600 × {0.75, 1.0, 1.5, 2.0} layout matrix. Evidence: `cargo test`
+  passes all **357 tests** (53 `sim-core` · 253 `solar-sim` · 48 `xtask`
+  library · 2 smoke · 1 active spot-check), and
+  `cargo test -p solar-sim --features steam` passes all **254** app tests with
+  zero failures, ignores, or skips. `cargo fmt --all -- --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`, Steam-feature
+  clippy with warnings denied, `git diff --check`, texture metadata audit (16
+  KTX2 assets), and catalog dry-run are green. The opt-in real-GPU
+  `--smoke 120 --expect-backend metal --reject-software-adapter
+  --assert-nonblack` run passed on Apple M2 Pro/Metal at 100.9 fps with a
+  nonblack 5120×2880 readback. Q18's separate exact 60-frame WP17 gate remains
+  open and was not retried or weakened.
+
+- **2026-07-21** — Reopened WP5 as the sole **in-progress** package for the
+  next approved UI/gameplay phase: camera and discoverability. Re-read the
+  root `AGENTS.md` first, then the complete `ARCHITECTURE.md`, `TASKS.md`, the
+  WP5 brief, and the complete
+  `docs/ui-gameplay-request-architecture-review-2026-07-18.md` before source
+  work; `crates/solar-sim` has no nested agent file. Scope is limited to the
+  architecture-compatible items in that report: primary-button viewport drag
+  as a thresholded alias of the existing Orbit intent, an explicit
+  replayable `ResetView` command restoring the canonical Sun-focused
+  yaw/pitch/full-system framing, Left/Right rate-step aliases, Down selecting
+  exactly +1 day/s without changing play state, and a command-routed,
+  focus-trapped, responsive Escape Help modal under `HudPlugin`. Existing
+  right-drag, bracket, Space, and other controls remain. Browse, Settings,
+  text edit, ordinary HUD pointer ownership, f64/floating-origin truth,
+  travel/dolly clamps, and the single command reducer remain authoritative.
+  Region presets are excluded because their deterministic semantics are still
+  unresolved; +1 day/s startup, the Moons-layer request, visual proxies,
+  comet tails, selection/orbit picking, HUD polish, content, WP16, and WP17
+  are also outside this one-package phase. Planned regressions cover click
+  versus drag threshold ownership, old/new alias parity and modal blocking,
+  exact reset desktop/headless replay convergence, strict replay parsing,
+  single-owner Escape precedence, Help focus/scroll restoration, and the full
+  800/960×600 × {0.75, 1.0, 1.5, 2.0} reachability matrix. The clean starting
+  point is merged `main` commit `54083c2`; the required pre-change `cargo test`
+  passes all **347 tests** (53 `sim-core` · 243 `solar-sim` · 48 `xtask`
+  library · 2 smoke · 1 active spot-check) with zero failures, ignores, or
+  skips before implementation.
 
 - **2026-07-21** — Completed the WP14 Windows relaunch correction and returned
   WP14 to **✅ done**. Hosted run `29796611174` passed all five required checks;

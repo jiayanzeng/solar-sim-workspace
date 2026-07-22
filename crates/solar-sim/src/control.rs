@@ -19,6 +19,8 @@ use sim_core::time::{RateIndex, SimClock, StartMode, TickReport};
 use std::fmt;
 
 const TRAVEL_DURATION_S: f64 = 1.25;
+const INITIAL_YAW_RAD: f64 = 0.0;
+const INITIAL_PITCH_RAD: f64 = 0.35;
 const MIN_PITCH_RAD: f64 = -1.5;
 const MAX_PITCH_RAD: f64 = 1.5;
 const ORBIT_RADIANS_PER_PIXEL: f64 = 0.005;
@@ -36,6 +38,7 @@ pub enum SimCommand {
     Dolly {
         delta: f64,
     },
+    ResetView,
     SetTime(f64),
     SetRate(RateIndex),
     StepRate(i8),
@@ -71,6 +74,8 @@ pub enum SimCommand {
         target_id: String,
     },
     ToggleFullscreen,
+    OpenHelp,
+    CloseHelp,
     OpenSettings,
     CloseSettings,
     /// Debug-only input requests a real renderer device-loss cycle. The
@@ -158,8 +163,8 @@ impl CameraController {
             selected_body_index: focus_body_index,
             focus_body_index,
             focus_position_km,
-            yaw_rad: 0.0,
-            pitch_rad: 0.35,
+            yaw_rad: INITIAL_YAW_RAD,
+            pitch_rad: INITIAL_PITCH_RAD,
             distance_units,
             travel: None,
         }
@@ -290,6 +295,21 @@ pub(crate) fn consume_sim_command(
                 travel.target_distance_units = camera.distance_units;
             }
         }
+        SimCommand::ResetView => {
+            let Some(sun_index) = loaded.index_of("sun") else {
+                return report;
+            };
+            camera.selected_body_index = sun_index;
+            camera.focus_body_index = sun_index;
+            // The validated catalog's sole star is the heliocentric origin.
+            // Keeping this exact avoids inventing a second startup tween and
+            // makes ResetView identical in desktop and headless execution.
+            camera.focus_position_km = [0.0; 3];
+            camera.yaw_rad = INITIAL_YAW_RAD;
+            camera.pitch_rad = INITIAL_PITCH_RAD;
+            camera.distance_units = full_system_framing_distance_units(loaded);
+            camera.travel = None;
+        }
         SimCommand::SetTime(t_s) => {
             if t_s.is_finite() {
                 report.clamped = clock.set_t(*t_s);
@@ -335,6 +355,8 @@ pub(crate) fn consume_sim_command(
         | SimCommand::ApplySettings(_)
         | SimCommand::RestorePresentationDefaults
         | SimCommand::ToggleFullscreen
+        | SimCommand::OpenHelp
+        | SimCommand::CloseHelp
         | SimCommand::OpenSettings
         | SimCommand::CloseSettings
         | SimCommand::SimulateDeviceLoss => {}
@@ -360,6 +382,8 @@ pub(crate) fn consume_presentation_command(
         }
         SimCommand::RestorePresentationDefaults => *layers = LayerState::default(),
         SimCommand::ToggleFullscreen => presentation.toggle_fullscreen(),
+        SimCommand::OpenHelp => presentation.open_help(),
+        SimCommand::CloseHelp => presentation.close_help(),
         SimCommand::OpenSettings => presentation.open_settings(),
         SimCommand::CloseSettings => presentation.close_settings(),
         SimCommand::SimulateDeviceLoss => {}
@@ -390,10 +414,23 @@ pub(crate) fn consume_application_command(
     settings_save: &mut settings::SettingsSaveRequest,
 ) {
     match command {
-        SimCommand::OpenSettings if browse.is_open() => {
-            search::consume_search_command(&SimCommand::SetBrowseOpen(false), browse);
+        SimCommand::OpenSettings => {
+            if browse.is_open() {
+                search::consume_search_command(&SimCommand::SetBrowseOpen(false), browse);
+            }
+            presentation.close_help();
         }
         SimCommand::SetBrowseOpen(true) if presentation.is_settings_open() => {
+            presentation.close_settings();
+            presentation.close_help();
+        }
+        SimCommand::SetBrowseOpen(true) => {
+            presentation.close_help();
+        }
+        SimCommand::OpenHelp => {
+            if browse.is_open() {
+                search::consume_search_command(&SimCommand::SetBrowseOpen(false), browse);
+            }
             presentation.close_settings();
         }
         _ => {}
@@ -999,7 +1036,8 @@ impl HeadlessSimulation {
         hash.u64(self.wall_now_t.to_bits());
         hash.u64(self.layers.stable_hash());
         hash.u8(u8::from(self.presentation.is_fullscreen()));
-        hash.u8(u8::from(self.presentation.is_settings_open()));
+        hash.u8(u8::from(self.presentation.is_settings_open())
+            | (u8::from(self.presentation.is_help_open()) << 1));
         hash.u8(u8::from(self.presentation.is_layers_panel_open()));
         hash_view_options(&mut hash, &self.view_options);
         hash_app_settings(&mut hash, &self.app_settings);
@@ -1238,6 +1276,7 @@ fn serialize_entry(entry: &StampedCommand) -> String {
         SimCommand::Dolly { delta } => {
             format!("{prefix}|dolly|{:016x}", delta.to_bits())
         }
+        SimCommand::ResetView => format!("{prefix}|reset-view"),
         SimCommand::SetTime(t_s) => format!("{prefix}|set-time|{:016x}", t_s.to_bits()),
         SimCommand::SetRate(rate) => format!("{prefix}|set-rate|{}", rate.get()),
         SimCommand::StepRate(delta) => format!("{prefix}|step-rate|{delta}"),
@@ -1294,6 +1333,8 @@ fn serialize_entry(entry: &StampedCommand) -> String {
             format!("{prefix}|navigate-breadcrumb|{depth}|{target_id}")
         }
         SimCommand::ToggleFullscreen => format!("{prefix}|toggle-fullscreen"),
+        SimCommand::OpenHelp => format!("{prefix}|open-help"),
+        SimCommand::CloseHelp => format!("{prefix}|close-help"),
         SimCommand::OpenSettings => format!("{prefix}|open-settings"),
         SimCommand::CloseSettings => format!("{prefix}|close-settings"),
         SimCommand::SimulateDeviceLoss => format!("{prefix}|simulate-device-loss"),
@@ -1462,6 +1503,7 @@ fn parse_entry(line: &str) -> Result<StampedCommand, String> {
         "dolly" if fields.len() == 4 => SimCommand::Dolly {
             delta: parse_f64_bits(fields[3], "dolly")?,
         },
+        "reset-view" if fields.len() == 3 => SimCommand::ResetView,
         "set-time" if fields.len() == 4 => {
             let t_s = parse_f64_bits(fields[3], "time")?;
             if !t_s.is_finite() {
@@ -1546,6 +1588,8 @@ fn parse_entry(line: &str) -> Result<StampedCommand, String> {
             target_id: parse_stable_id(fields[4])?,
         },
         "toggle-fullscreen" if fields.len() == 3 => SimCommand::ToggleFullscreen,
+        "open-help" if fields.len() == 3 => SimCommand::OpenHelp,
+        "close-help" if fields.len() == 3 => SimCommand::CloseHelp,
         "open-settings" if fields.len() == 3 => SimCommand::OpenSettings,
         "close-settings" if fields.len() == 3 => SimCommand::CloseSettings,
         "simulate-device-loss" if fields.len() == 3 => SimCommand::SimulateDeviceLoss,
@@ -1907,6 +1951,61 @@ mod tests {
     }
 
     #[test]
+    fn reset_view_restores_the_exact_canonical_pose_and_replays_portably() {
+        let catalog = catalog();
+        let loaded = LoadedCatalog::new(catalog.clone());
+        let sun = loaded.index_of("sun").unwrap();
+        let mut original = HeadlessSimulation::new(&catalog).unwrap();
+        let mut recording = CommandRecording::default();
+
+        original
+            .step(
+                FRAME_DT_S,
+                &[
+                    SimCommand::TravelToBody("io".into()),
+                    SimCommand::Orbit {
+                        delta_yaw: 53.0,
+                        delta_pitch: -31.0,
+                    },
+                    SimCommand::Dolly { delta: 4.0 },
+                ],
+                Some(&mut recording),
+            )
+            .unwrap();
+        original
+            .step(FRAME_DT_S, &[SimCommand::ResetView], Some(&mut recording))
+            .unwrap();
+
+        assert_eq!(original.camera.selected_body_index(), sun);
+        assert_eq!(original.camera.focus_body_index(), sun);
+        assert_eq!(original.camera.focus_position_km(), [0.0; 3]);
+        assert_eq!(
+            original.camera.yaw_rad().to_bits(),
+            INITIAL_YAW_RAD.to_bits()
+        );
+        assert_eq!(
+            original.camera.pitch_rad().to_bits(),
+            INITIAL_PITCH_RAD.to_bits()
+        );
+        assert_eq!(
+            original.camera.distance_units().to_bits(),
+            full_system_framing_distance_units(&loaded).to_bits()
+        );
+        assert!(!original.camera.is_travelling());
+
+        let text = recording.stream().to_text();
+        assert!(text.contains("|reset-view\n"));
+        let parsed = ReplayStream::from_text(&text).unwrap();
+        let replayed = replay_headless(&catalog, &parsed, 2, FRAME_DT_S).unwrap();
+        assert_eq!(replayed.state_hash(), original.state_hash());
+        assert!(ReplayStream::from_text(concat!(
+            "solar-sim-replay-v2\n",
+            "0|0000000000000000|reset-view|extra\n"
+        ))
+        .is_err());
+    }
+
+    #[test]
     fn replay_round_trip_of_500_plus_mixed_commands_has_portable_state_hash() {
         let catalog = catalog();
         let mut original = HeadlessSimulation::new(&catalog).unwrap();
@@ -2051,6 +2150,51 @@ mod tests {
         assert_eq!(v2.version(), ReplayVersion::V2);
         assert!(v2.to_text().starts_with("solar-sim-replay-v2\n"));
         assert_eq!(v2.frames().len(), 1);
+    }
+
+    #[test]
+    fn help_commands_round_trip_strictly_and_affect_canonical_modal_state() {
+        let stream = ReplayStream::v2(
+            vec![ReplayFrameInput {
+                frame: 0,
+                wall_dt_s: 0.0,
+                wall_now_t: 0.0,
+            }],
+            vec![
+                StampedCommand {
+                    frame: 0,
+                    sim_time_s: 0.0,
+                    command: SimCommand::OpenHelp,
+                },
+                StampedCommand {
+                    frame: 0,
+                    sim_time_s: 0.0,
+                    command: SimCommand::CloseHelp,
+                },
+            ],
+        );
+        let text = stream.to_text();
+        assert!(text.contains("|open-help\n"));
+        assert!(text.contains("|close-help\n"));
+        assert_eq!(ReplayStream::from_text(&text).unwrap(), stream);
+        for malformed in ["open-help|extra", "close-help|extra"] {
+            assert!(ReplayStream::from_text(&format!(
+                "solar-sim-replay-v2\n0|0000000000000000|{malformed}\n"
+            ))
+            .is_err());
+        }
+
+        let catalog = catalog();
+        let mut open = HeadlessSimulation::new(&catalog).unwrap();
+        let mut baseline = HeadlessSimulation::new(&catalog).unwrap();
+        open.step_with_wall_time(0.0, 0.0, &[SimCommand::OpenHelp], None)
+            .unwrap();
+        baseline.step_with_wall_time(0.0, 0.0, &[], None).unwrap();
+        assert!(open.presentation.is_help_open());
+        assert_ne!(open.state_hash(), baseline.state_hash());
+        open.step_with_wall_time(0.0, 0.0, &[SimCommand::CloseHelp], None)
+            .unwrap();
+        assert!(!open.presentation.is_help_open());
     }
 
     #[test]
@@ -2281,6 +2425,28 @@ mod tests {
             .unwrap();
         assert!(!browse_wins.presentation.is_settings_open());
         assert!(browse_wins.browse.is_open());
+
+        let mut help_wins = HeadlessSimulation::new(&catalog).unwrap();
+        help_wins
+            .step(
+                FRAME_DT_S,
+                &[
+                    SimCommand::SetBrowseOpen(true),
+                    SimCommand::OpenSettings,
+                    SimCommand::OpenHelp,
+                ],
+                None,
+            )
+            .unwrap();
+        assert!(help_wins.presentation.is_help_open());
+        assert!(!help_wins.presentation.is_settings_open());
+        assert!(!help_wins.browse.is_open());
+
+        help_wins
+            .step(FRAME_DT_S, &[SimCommand::OpenSettings], None)
+            .unwrap();
+        assert!(!help_wins.presentation.is_help_open());
+        assert!(help_wins.presentation.is_settings_open());
     }
 
     #[test]
@@ -2674,6 +2840,7 @@ mod tests {
                 visible: false,
             },
             SimCommand::ToggleFullscreen,
+            SimCommand::OpenHelp,
             SimCommand::OpenSettings,
             SimCommand::SetBrowseOpen(true),
         ] {
