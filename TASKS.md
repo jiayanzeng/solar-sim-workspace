@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 364 passing** (53 `sim-core` · 260 `solar-sim` · 48 `xtask`
+**Test baseline: 367 passing** (53 `sim-core` · 263 `solar-sim` · 48 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -903,7 +903,79 @@ startup/readback-readiness defect to fix, or whether the human-owned gate should
 specify a readiness condition while retaining a hard nonblack result. Do not
 silently add retries or weaken the assertion.
 
+Additional evidence on 2026-07-22: the HUD-polish branch completed a
+one-attempt `full-system` Metal golden capture after the harness's existing
+readiness wait and produced a visibly nonblack 960×600 frame. The immediately
+following `--smoke 120 --expect-backend metal --reject-software-adapter
+--assert-nonblack` run confirmed Apple M2 Pro/Metal and measured 120.0 fps, but
+its earlier primary-window readback was entirely black. This shows that 120
+update frames are not themselves a reliable readiness condition on this
+machine and strengthens the existing Q18 question; no retry, delay, or
+assertion change was made, and the WP17 smoke gate is not claimed.
+
 ## Change log (append-only; newest first)
+
+- **2026-07-22** — Completed the integrated WP8/WP11 HUD-polish correction
+  and returned WP8 to **✅ done**. The time surface is now a transparent,
+  picking-ignored full-width host containing one centered, bounded interactive
+  dock; only the dock and its descendants own HUD input, so both side regions
+  continue to reach viewport picking. The dock preserves the exact date,
+  clock, play/pause, LIVE, rate-label, focus, and 24-detent command behavior
+  while increasing the theme-derived slider geometry to a 32 px hit row, 6 px
+  track, and 24 px thumb. Toasts, the Layers panel, and the right rail inherit
+  the reviewed 104 px bottom reservation and remain separate. The rail keeps
+  ASCII `+`/`-` zoom controls but replaces the `L`, `FS`/`EX`, and `S`
+  placeholders with dependency-free 24×24 stacked-square, distinct
+  enter/exit-fullscreen,
+  and gear geometry. Shared rail palette logic covers default, hover, keyboard
+  focus, pressed/canonical-active, and disabled states without changing any
+  `RailAction`, tab index, focus restoration, or AccessKit label. Three new
+  default tests cover real UI picking through the host side region; exact
+  centered dock and slider geometry throughout the complete 800/960×600 ×
+  {0.75, 1.0, 1.5, 2.0} matrix; semantic code-defined icon composition,
+  fullscreen-state distinction, visual-state convergence, and 24×24 button
+  containment throughout that same scale matrix. Evidence: `cargo test`
+  passes all **367 tests** (53 `sim-core` · 263 `solar-sim` · 48 `xtask`
+  library · 2 smoke · 1 active spot-check), and
+  `cargo test --workspace --features steam` passes all **368 tests** with zero
+  failures, ignores, or skips. `cargo fmt --all -- --check`, default and
+  Steam-feature workspace clippy with warnings denied, `git diff --check`,
+  texture metadata audit (16 KTX2 assets), and catalog dry-run are green. A
+  one-attempt real-GPU `full-system` Metal golden capture produced and visually
+  verified a nonblack 960×600 frame with the centered dock, enlarged slider,
+  open side regions, and distinct icons. The separate opt-in 120-frame smoke
+  readback reproduced open Q18 after passing its Apple M2 Pro/Metal adapter and
+  120.0 fps checks; it is recorded above, was not retried or weakened, and the
+  WP17 smoke gate is not claimed. No clock/replay/simulation truth, protected
+  file, dependency, generated asset, or held WP16 work changed.
+
+- **2026-07-22** — Reopened WP8 as the sole **in-progress** package for the
+  next approved UI/gameplay phase: integrated HUD polish. Read the root
+  `AGENTS.md` first, then the complete `ARCHITECTURE.md`, the WP8/WP11 briefs,
+  and the complete
+  `docs/ui-gameplay-request-architecture-review-2026-07-18.md` before source
+  work; `crates/solar-sim` has no nested agent file or separate WP8/WP11 spec.
+  Scope is limited to report items #10/#11: replace the opaque full-width time
+  bar with a full-width pass-through host and one centered interactive dock,
+  enlarge the rate slider's visible and hit geometry without changing its
+  24-detent mapping, and replace the Layers/fullscreen/Settings letter
+  placeholders with dependency-free code-defined icons while preserving the
+  existing rail actions, focus restoration, tab order, and accessibility
+  labels. Reviewed implementation constants are a 104 logical px reserved
+  bottom height, 16 px viewport inset, 640 px maximum dock width, and
+  theme-derived slider dimensions of 32 px hit row, 6 px track, and 24 px
+  thumb. The host and its visual side regions ignore picking; the dock and its
+  descendants retain ordinary HUD ownership. The dock, active toast stack,
+  Layers panel, and right rail must remain bounded and non-overlapping for the
+  full 800/960×600 × {0.75, 1.0, 1.5, 2.0} matrix. Code-defined 24×24 Layers,
+  enter/exit-fullscreen, and Settings geometry must remain legible across the
+  supported scales and visual palettes; zoom retains its existing +/− text.
+  No clock/replay/simulation truth, UI action, protected file, dependency,
+  generated asset, or WP16 Steam contract may change. This clean stacked
+  branch begins at verified PR #8 head `898e6fd`; the required pre-change
+  `cargo test` passes all **364 tests** (53 `sim-core` · 260 `solar-sim` · 48
+  `xtask` library · 2 smoke · 1 active spot-check) with zero failures,
+  ignores, or skips.
 
 - **2026-07-21** — Completed the WP6/WP9 selection-interaction correction
   and returned WP6 to **✅ done**. One render-only selection resource now

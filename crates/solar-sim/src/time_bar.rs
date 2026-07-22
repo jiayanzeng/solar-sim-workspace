@@ -30,12 +30,16 @@ use sim_core::time::{
     RangeEdge, RateIndex, SimClock, TickReport,
 };
 
-pub const TIME_BAR_HEIGHT_PX: f32 = 84.0;
+pub const TIME_BAR_HEIGHT_PX: f32 = 104.0;
+const TIME_DOCK_MAX_WIDTH_PX: f32 = 640.0;
 const TOAST_LIFETIME_S: f32 = 4.0;
 const SLIDER_LIMIT: f32 = 12.0;
 
 #[derive(Component, Debug, Clone, Copy, Default, FromTemplate)]
 pub struct TimeBarRoot;
+
+#[derive(Component, Debug, Clone, Copy, Default, FromTemplate)]
+struct TimeDock;
 
 #[derive(Component, Debug, Clone, Copy, Default, FromTemplate)]
 struct TimeRateLabel;
@@ -45,6 +49,9 @@ struct TimeRateSlider;
 
 #[derive(Component, Debug, Clone, Copy, Default, FromTemplate)]
 struct TimeSliderThumb;
+
+#[derive(Component, Debug, Clone, Copy, Default, FromTemplate)]
+struct TimeSliderTrack;
 
 #[derive(Component, Debug, Clone, Copy, Default)]
 struct TimeSliderDetent;
@@ -221,6 +228,8 @@ fn time_bar_scene(theme: UiTheme, clock: &SimClock) -> impl Scene {
         "PAUSED".to_string()
     };
     let tracking = theme.type_scale.uppercase_tracking_px;
+    // The full-width host reserves vertical layout space but deliberately
+    // ignores picking; only the centered dock should claim HUD gestures.
     bsn! {
         Node {
             position_type: PositionType::Absolute,
@@ -229,20 +238,32 @@ fn time_bar_scene(theme: UiTheme, clock: &SimClock) -> impl Scene {
             width: percent(100),
             height: px(TIME_BAR_HEIGHT_PX),
             padding: UiRect::horizontal(px(theme.spacing.lg_px)),
-            border: UiRect::top(px(theme.spacing.hairline_px)),
-            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
             justify_content: JustifyContent::Center,
-            row_gap: px(theme.spacing.xs_px),
         }
         TimeBarRoot
         HudSurface
         AccessibleLabel("Simulation time bar")
         template_value(TabGroup::new(20))
-        BackgroundColor({theme.colors.top_bar.color()})
-        BorderColor::all(theme.colors.separator.color())
+        Pickable::IGNORE
         GlobalZIndex(95)
-        Children [
-            (
+        Children [(
+            Node {
+                width: percent(100),
+                max_width: px(TIME_DOCK_MAX_WIDTH_PX),
+                height: percent(100),
+                padding: UiRect::horizontal(px(theme.spacing.lg_px)),
+                border: UiRect::all(px(theme.spacing.hairline_px)),
+                border_radius: BorderRadius::all(px(theme.spacing.radius_px)),
+                flex_direction: FlexDirection::Column,
+                justify_content: JustifyContent::Center,
+                row_gap: px(theme.spacing.xs_px),
+            }
+            TimeDock
+            BackgroundColor({theme.colors.top_bar.color()})
+            BorderColor::all(theme.colors.separator.color())
+            Children [
+                (
                 Node {
                     width: percent(100),
                     height: px(38),
@@ -278,8 +299,8 @@ fn time_bar_scene(theme: UiTheme, clock: &SimClock) -> impl Scene {
                     ),
                     live_chip(theme),
                 ]
-            ),
-            (
+                ),
+                (
                 Node {
                     width: percent(100),
                     flex_direction: FlexDirection::Column,
@@ -298,8 +319,9 @@ fn time_bar_scene(theme: UiTheme, clock: &SimClock) -> impl Scene {
                     ),
                     rate_slider(theme, clock),
                 ]
-            ),
-        ]
+                ),
+            ]
+        )]
     }
 }
 
@@ -394,7 +416,7 @@ fn rate_slider(theme: UiTheme, clock: &SimClock) -> impl Scene {
     bsn! {
         Node {
             width: percent(100),
-            height: px(18),
+            height: px(theme.spacing.xl_px + theme.spacing.sm_px),
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
         }
@@ -413,16 +435,17 @@ fn rate_slider(theme: UiTheme, clock: &SimClock) -> impl Scene {
             (
                 Node {
                     width: percent(100),
-                    height: px(4),
+                    height: px(theme.spacing.radius_px),
                     border_radius: BorderRadius::MAX,
                 }
+                TimeSliderTrack
                 BackgroundColor({theme.colors.separator.color()})
             ),
             (
                 Node {
                     position_type: PositionType::Absolute,
                     left: px(0),
-                    right: px(14),
+                    right: px(theme.spacing.xl_px),
                     top: px(0),
                     bottom: px(0),
                 }
@@ -430,8 +453,8 @@ fn rate_slider(theme: UiTheme, clock: &SimClock) -> impl Scene {
                     Node {
                         position_type: PositionType::Absolute,
                         left: percent(50),
-                        width: px(14),
-                        height: px(14),
+                        width: px(theme.spacing.xl_px),
+                        height: px(theme.spacing.xl_px),
                         border: UiRect::all(px(2)),
                         border_radius: BorderRadius::MAX,
                     }
@@ -1317,6 +1340,29 @@ mod tests {
             assert_eq!(group.order, 20);
             assert!(!group.modal);
             let root_rect = node_rect(world, root);
+            let dock = world
+                .query_filtered::<Entity, With<TimeDock>>()
+                .single(world)
+                .unwrap();
+            let dock_rect = node_rect(world, dock);
+            let expected_dock_width =
+                (TIME_DOCK_MAX_WIDTH_PX * scale).min(width as f32 - 2.0 * 16.0 * scale);
+            assert_eq!(world.get::<Pickable>(root), Some(&Pickable::IGNORE));
+            assert_eq!(
+                world.get::<BackgroundColor>(root).map(|color| color.0),
+                Some(Color::NONE)
+            );
+            assert!(world.get::<BackgroundColor>(dock).is_some());
+            assert!(
+                (dock_rect.width() - expected_dock_width).abs() <= 1.0
+                    && (dock_rect.center().x - width as f32 * 0.5).abs() <= 1.0,
+                "{width}×{height} scale {scale}: dock {dock_rect:?} is not centered at reviewed width {expected_dock_width}"
+            );
+            assert!(
+                (dock_rect.min.x - root_rect.min.x - (root_rect.max.x - dock_rect.max.x)).abs()
+                    <= 1.0,
+                "{width}×{height} scale {scale}: dock side regions are asymmetric"
+            );
             let mut controls = world.query_filtered::<Entity, Or<(
                 With<TimeEditFieldComponent>,
                 With<PlayPauseButton>,
@@ -1328,13 +1374,40 @@ mod tests {
             for entity in controls {
                 let rect = node_rect(world, entity);
                 assert!(
-                    rect.min.x >= root_rect.min.x - 1.0
-                        && rect.max.x <= root_rect.max.x + 1.0
-                        && rect.min.y >= root_rect.min.y - 1.0
-                        && rect.max.y <= root_rect.max.y + 1.0,
-                    "{width}×{height} scale {scale}: time control {entity:?} {rect:?} escaped {root_rect:?}"
+                    rect.min.x >= dock_rect.min.x - 1.0
+                        && rect.max.x <= dock_rect.max.x + 1.0
+                        && rect.min.y >= dock_rect.min.y - 1.0
+                        && rect.max.y <= dock_rect.max.y + 1.0,
+                    "{width}×{height} scale {scale}: time control {entity:?} {rect:?} escaped {dock_rect:?}"
                 );
             }
+
+            let slider = world
+                .query_filtered::<Entity, With<TimeRateSlider>>()
+                .single(world)
+                .unwrap();
+            let track = world
+                .query_filtered::<Entity, With<TimeSliderTrack>>()
+                .single(world)
+                .unwrap();
+            let thumb = world
+                .query_filtered::<Entity, With<TimeSliderThumb>>()
+                .single(world)
+                .unwrap();
+            let slider_rect = node_rect(world, slider);
+            let track_rect = node_rect(world, track);
+            let thumb_rect = node_rect(world, thumb);
+            assert!(
+                slider_rect.height() + 1.0 >=
+                    (UiTheme::default().spacing.xl_px + UiTheme::default().spacing.sm_px) * scale
+                    && (track_rect.height() - UiTheme::default().spacing.radius_px * scale).abs()
+                        <= 1.0
+                    && (thumb_rect.width() - UiTheme::default().spacing.xl_px * scale).abs()
+                        <= 1.0
+                    && (thumb_rect.height() - UiTheme::default().spacing.xl_px * scale).abs()
+                        <= 1.0,
+                "{width}×{height} scale {scale}: slider/track/thumb {slider_rect:?}/{track_rect:?}/{thumb_rect:?} lost reviewed dimensions"
+            );
 
             let mut indices = world.query_filtered::<&TabIndex, Or<(
                 With<TimeEditFieldComponent>,
@@ -1560,6 +1633,115 @@ mod tests {
         assert!(!hovered.contains_key(&stack));
         assert!(!hovered.contains_key(&toast_entity));
         assert!(!hovered.contains_key(&text_entity));
+    }
+
+    #[test]
+    fn time_host_side_regions_pass_picking_through_to_the_viewport() {
+        const WIDTH: u32 = 960;
+        const HEIGHT: u32 = 600;
+
+        let mut app = test_layout::app(WIDTH, HEIGHT, 1.0);
+        app.add_plugins((PickingPlugin, InteractionPlugin))
+            .insert_resource(UiTheme::default())
+            .insert_resource(SimulationClock(SimClock::new(StartMode::default(), 0.0)))
+            .add_systems(Startup, spawn_time_bar);
+        let viewport = app
+            .world_mut()
+            .spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: percent(100),
+                    height: percent(100),
+                    ..default()
+                },
+                Pickable::default(),
+                GlobalZIndex(90),
+            ))
+            .id();
+        test_layout::settle(&mut app);
+
+        let root = app
+            .world_mut()
+            .query_filtered::<Entity, With<TimeBarRoot>>()
+            .single(app.world())
+            .unwrap();
+        let dock = app
+            .world_mut()
+            .query_filtered::<Entity, With<TimeDock>>()
+            .single(app.world())
+            .unwrap();
+        let root_rect = node_rect(app.world(), root);
+        let dock_rect = node_rect(app.world(), dock);
+        let side_point = Vec2::new(
+            (root_rect.min.x + dock_rect.min.x) * 0.5,
+            dock_rect.center().y,
+        );
+        assert!(side_point.x < dock_rect.min.x);
+
+        let camera = app
+            .world_mut()
+            .query_filtered::<Entity, With<Camera2d>>()
+            .single(app.world())
+            .unwrap();
+        app.world_mut()
+            .entity_mut(camera)
+            .insert(RenderTarget::None {
+                size: UVec2::new(WIDTH, HEIGHT),
+            });
+        let mut ui_nodes = vec![viewport, root];
+        let descendants: Vec<_> = descendants(app.world(), root)
+            .into_iter()
+            .filter(|entity| app.world().get::<Node>(*entity).is_some())
+            .collect();
+        ui_nodes.extend(descendants.iter().copied());
+        for entity in &ui_nodes {
+            app.world_mut()
+                .entity_mut(*entity)
+                .insert(InheritedVisibility::VISIBLE);
+        }
+        app.world_mut().spawn((
+            PointerId::Mouse,
+            PointerLocation::new(Location {
+                target: NormalizedRenderTarget::None {
+                    width: WIDTH,
+                    height: HEIGHT,
+                },
+                position: side_point,
+            }),
+        ));
+        app.world_mut().insert_resource(UiStack {
+            partition: std::iter::once(0..ui_nodes.len()).collect(),
+            uinodes: ui_nodes,
+        });
+        app.world_mut().run_schedule(First);
+        app.world_mut().run_schedule(PreUpdate);
+
+        let hovered = app
+            .world()
+            .resource::<HoverMap>()
+            .get(&PointerId::Mouse)
+            .unwrap();
+        assert!(hovered.contains_key(&viewport));
+        assert!(!hovered.contains_key(&root));
+        assert!(!hovered.contains_key(&dock));
+    }
+
+    fn descendants(world: &World, root: Entity) -> Vec<Entity> {
+        fn visit(world: &World, entity: Entity, output: &mut Vec<Entity>) {
+            let children: Vec<_> = world
+                .get::<Children>(entity)
+                .into_iter()
+                .flat_map(|children| children.iter())
+                .collect();
+            for child in children {
+                output.push(child);
+                visit(world, child, output);
+            }
+        }
+
+        let mut output = Vec::new();
+        visit(world, root, &mut output);
+        output
     }
 
     fn node_rect(world: &World, entity: Entity) -> Rect {
