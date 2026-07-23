@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 407 passing** (53 `sim-core` · 297 `solar-sim` · 54 `xtask`
+**Test baseline: 408 passing** (53 `sim-core` · 298 `solar-sim` · 54 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -1148,6 +1148,30 @@ headless/golden/replay use the no-op service and spawn failure exposes the
 visible URL plus Copy Link fallback.
 
 ## Change log (append-only; newest first)
+
+- **2026-07-23** — Completed Wave 0 UIO-5 Search reproduction without changing
+  the production search engine. A controlled Bevy editable-widget trace now
+  sends real `KeyboardInput` through `EditableTextInputPlugin`, proves live
+  `j` → `ju` → `jupit` state on the frame after every edit, verifies Jupiter
+  remains rank one, checks the dropdown's reviewed global z-order and Search
+  focus ownership, activates the actual Jupiter result row, and proves exactly
+  one `TravelToBody("jupiter")` command with an inert repeated Enter. This
+  reproduces the shipped integration successfully and classifies the original
+  “not implemented” report as a stale-build/discoverability claim rather than
+  an engine defect. `cargo test` passes all **408 tests**; `cargo fmt --all
+  --check` and `cargo clippy --workspace --all-targets -- -D warnings` pass.
+
+- **2026-07-23** — Reopened WP12 as the sole **in-progress** package for Wave
+  0 UIO-5 Search reproduction under
+  `docs/playability-review-and-rulings-2026-07-23.md` §6. The pure ranking
+  engine, editable state, dropdown, and `TravelToBody` action already exist;
+  scope is reproduction-first through the real rendered/editable integration
+  using the reported `jupit` input, correction of only the failing ownership,
+  rebuild, z-order, or activation layer, and a trace regression proving
+  per-character live results plus one click/keyboard travel command. The
+  ranking algorithm, catalog, dependencies, replay semantics, Menu contract,
+  and Rev-E-gated work remain out of scope. Pre-change `cargo test` passes all
+  **407 tests**.
 
 - **2026-07-23** — Completed Wave 0 housekeeping H1–H3 under
   `docs/playability-review-and-rulings-2026-07-23.md`. H1's four Q18 cleanup

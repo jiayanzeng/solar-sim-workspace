@@ -1513,10 +1513,12 @@ mod tests {
             tab_navigation::{NavAction, TabNavigation, TabNavigationPlugin},
             InputDispatchPlugin, InputFocusPlugin,
         },
+        picking::events::{Pointer, Release},
         picking::hover::HoverMap,
-        text::{Font, TextLayoutInfo},
-        ui_widgets::ButtonPlugin,
-        window::PrimaryWindow,
+        text::{Font, TextLayoutInfo, TextPlugin},
+        ui::UiScale,
+        ui_widgets::{ButtonPlugin, EditableTextInputPlugin},
+        window::{Ime, PrimaryWindow, WindowPlugin},
     };
     use std::cmp::Ordering;
 
@@ -1879,6 +1881,142 @@ mod tests {
         app.world_mut().resource_mut::<SearchHintWrites>().0 = 0;
         app.update();
         assert_eq!(app.world().resource::<SearchHintWrites>().0, 0);
+    }
+
+    #[test]
+    fn editable_keystrokes_publish_jupit_results_and_activate_jupiter_once() {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            InputPlugin,
+            InputFocusPlugin,
+            InputDispatchPlugin,
+            WindowPlugin {
+                primary_window: None,
+                ..default()
+            },
+            AssetPlugin::default(),
+            TextPlugin,
+            EditableTextInputPlugin,
+        ))
+        .add_message::<Ime>()
+        .add_message::<Pointer<Release>>()
+        .init_resource::<UiScale>()
+        .insert_resource(LoadedCatalog::new(real_catalog()))
+        .insert_resource(UiTheme::default())
+        .init_resource::<SearchUiState>()
+        .init_resource::<SimCommandQueue>()
+        .add_systems(
+            Update,
+            (
+                attach_search_observers,
+                sync_search_input,
+                rebuild_search_dropdown,
+            )
+                .chain(),
+        );
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow))
+            .id();
+        let input = app
+            .world_mut()
+            .spawn((SearchInput, EditableText::new("")))
+            .id();
+
+        app.update();
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(input, FocusCause::Navigated);
+        app.update();
+
+        for (key_code, text, expected_query) in [
+            (KeyCode::KeyJ, "j", "j"),
+            (KeyCode::KeyU, "u", "ju"),
+            (KeyCode::KeyP, "p", "jup"),
+            (KeyCode::KeyI, "i", "jupi"),
+            (KeyCode::KeyT, "t", "jupit"),
+        ] {
+            app.world_mut().write_message(KeyboardInput {
+                key_code,
+                logical_key: Key::Character(text.into()),
+                state: ButtonState::Pressed,
+                text: Some(text.into()),
+                repeat: false,
+                window,
+            });
+            app.update();
+            assert_eq!(
+                app.world().get::<EditableText>(input).unwrap().value(),
+                expected_query
+            );
+
+            app.update();
+            let state = app.world().resource::<SearchUiState>();
+            assert_eq!(state.query, expected_query);
+            assert_eq!(state.active_input, Some(input));
+            assert_eq!(state.hits[0].body_id, "jupiter");
+            let dropdown_root = state.dropdown_root.unwrap();
+            assert_eq!(
+                app.world().get::<GlobalZIndex>(dropdown_root),
+                Some(&GlobalZIndex(SEARCH_DROPDOWN_Z_INDEX))
+            );
+            assert_eq!(app.world().resource::<InputFocus>().get(), Some(input));
+        }
+
+        // The newly rebuilt result rows receive their observers on the next
+        // frame, matching the earliest frame on which a user can click them.
+        app.update();
+        let jupiter_result = {
+            let jupiter_index = app
+                .world()
+                .resource::<LoadedCatalog>()
+                .catalog
+                .bodies
+                .iter()
+                .position(|body| body.id == "jupiter")
+                .unwrap();
+            let world = app.world_mut();
+            world
+                .query::<(Entity, &SearchResultAction)>()
+                .iter(world)
+                .find_map(|(entity, action)| (action.0 == jupiter_index).then_some(entity))
+                .unwrap()
+        };
+        app.world_mut().trigger(Activate {
+            entity: jupiter_result,
+        });
+        app.update();
+
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .collect::<Vec<_>>(),
+            vec![SimCommand::TravelToBody("jupiter".into())]
+        );
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(input));
+        assert_eq!(app.world().resource::<SearchUiState>().dropdown_root, None);
+        assert!(app.world().resource::<SearchUiState>().suppress_dropdown);
+
+        // Pointer activation must leave a committed focused field inert: an
+        // immediately repeated Enter cannot enqueue a second travel.
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::Enter,
+            logical_key: Key::Enter,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window,
+        });
+        app.update();
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .count(),
+            0
+        );
     }
 
     #[test]
