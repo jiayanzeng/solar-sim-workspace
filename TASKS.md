@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 402 passing** (53 `sim-core` · 292 `solar-sim` · 54 `xtask`
+**Test baseline: 406 passing** (53 `sim-core` · 296 `solar-sim` · 54 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -889,7 +889,7 @@ state. The Bevy UI node and window-title fallback are insufficient. Preserve
 or a `Cargo.toml` edit. Integrate the accepted correction with WP14 epoch
 normalization after the WP5 and WP8 phases.
 
-### Q18 — OPEN (D3 implemented; UIP-8 acceptance remains intermittent).
+### Q18 — CLOSED.
 
 The opt-in WP17 reference-machine command with exactly `--smoke 60
 --expect-backend metal --reject-software-adapter --assert-nonblack` reached
@@ -933,6 +933,79 @@ whether the gate instead requires a controlled foreground-window procedure.
 Neither option is authorized by D3's texture-readiness ruling; agents must not
 add a retry, invent another delay, or weaken the nonblack assertion.
 
+Human ruling D5, transcribed in `docs/decision-record-2026-07-22.md`, amends
+D3 for `--assert-nonblack` only. UIP-9 lands the preferred **Tier 1 proof**:
+a shared atomic acquisition serial advances from a render-world system only
+when Bevy's public `ExtractedWindows` state contains the primary window's
+acquired swapchain texture after `prepare_windows`. The smoke-local counter
+requires that serial to advance for 30 consecutive readiness frames and resets
+on any gap. The unchanged settle conjunct and this surface conjunct share the
+single 10-second deadline; their satisfaction times, last raw surface state,
+counter, and tier are printed separately. Golden capture remains unchanged.
+
+D5 replaces the false-green five-pass bar with ten consecutive passes across
+at least two logout/login or reboot sessions, affirmative surface evidence on
+every pass, a deliberately occluded hardware negative control, and the unit
+regressions. The 2026-07-22 negative control passes: macOS System Events hid
+the exact-command process one second after launch; it exited nonzero with the
+surface-unavailable message after settle became ready at 5.009 seconds,
+reported no satisfied surface conjunct and zero final consecutive frames, and
+never requested a readback or emitted the black-readback string. Positive
+evidence is still absent in this Codex desktop session: an ordinary run first
+observed the surface conjunct at 0.769 seconds but lost continuity before the
+5.006-second settle point, while one-time and repeated System Events frontmost
+requests observed no swapchain acquisition and timed out after settle at 5.007
+and 5.008 seconds. No readback occurred in those runs. A logout/login or reboot
+cannot be forced safely from this task, so the required two-session ten-pass
+sequence remains human-run and Q18 remains open.
+
+Human-supplied M2 Pro/Metal evidence on 2026-07-23 adds **six consecutive
+positive passes** of the unchanged exact command. Every run reported Tier 1,
+an affirmative surface state at readback, and a nonblack 5120×2880 result:
+(1) settle 5.008 s, surface 0.482 s, 107 consecutive frames, serial 638;
+(2) settle 5.000 s, surface 0.291 s, 72 frames, serial 650; (3) settle 5.007 s,
+surface 0.283 s, 30 frames at the 5.099-second request, serial 611; (4) settle
+5.008 s, surface 1.509 s, 444 frames, serial 575; (5) settle 5.007 s, surface
+0.250 s, 600 frames, serial 613; and (6) settle 5.008 s, surface 0.250 s, 548
+frames, serial 609. The pasted transcript's `History restored` marker is a
+terminal boundary, not evidence of D5's required logout/login or reboot, so
+these count as six passes in one qualifying OS session. Together with the
+already-passing hardware negative control and unit regressions, the remaining
+evidence is four more consecutive passes after an explicitly recorded
+logout/login or reboot. Q18 remains open for human closure after that evidence.
+
+A second human-supplied transcript on 2026-07-23 adds **seven further
+consecutive passes**, extending the uninterrupted positive streak to **13**.
+Every run again used Tier 1 and produced a nonblack 5120×2880 readback:
+(7) settle/surface 5.004/0.404 s, 30 frames, serial 605, request 5.146 s;
+(8) 5.004/0.253 s, 30 frames, serial 678, request 5.595 s; (9) 5.008/0.250
+s, 601 frames, serial 659; (10) 5.000/0.408 s, 244 frames, serial 652; (11)
+5.001/0.259 s, 593 frames, serial 605; (12) 5.008/0.250 s, 596 frames,
+serial 607; and (13) 5.008/0.325 s, 591 frames, serial 652. The positive-run
+count now exceeds D5's minimum, but the new transcript again supplies only a
+terminal `History restored` marker, not an explicit logout/login or reboot.
+The sole remaining D5 evidence item is therefore at least one affirmative pass
+after a recorded qualifying OS-session boundary; Q18 remains open for human
+closure.
+
+The final human-supplied run on 2026-07-23 establishes the second qualifying
+session: the terminal records `Last login: Thu Jul 23 09:35:48 on console`,
+then the exact command at 09:36:20. The unchanged boot time (`Sat Jul 18
+05:36:20 2026`) confirms this was a logout/login rather than a reboot, either
+of which D5 permits. The run passed on Apple M2 Pro/Metal with settle ready at
+5.001 seconds, surface ready at 0.368 seconds, 585 consecutive acquired frames,
+raw serial 587/available, Tier 1, and a nonblack 5120×2880 readback. The
+uninterrupted streak is now **14 passes across two qualifying login sessions**.
+Together with the passing deliberately occluded negative control and all unit
+regressions, every D5 acceptance-evidence item is complete. Per the binding
+update protocol and D5, Q18 remains open until the human explicitly closes it.
+
+Human closure on 2026-07-23: the human explicitly instructed, “Close Q18.”
+The D5 acceptance evidence above is accepted, so the UIP-9 primary-surface
+availability conjunct resolves the Q18 smoke-readback readiness defect while
+preserving the exact 60-frame command, single readback, hard nonblack result,
+and no-retry policy.
+
 ### Q19 — OPEN.
 
 UIP-1 requires an M2 Pro baseline at all six canonical views across Low,
@@ -971,6 +1044,120 @@ internal 3D render-scale chain currently excluded by UIP-6 should be revisited.
 Agents must not silently force windowed mode or add a render-scale target.
 
 ## Change log (append-only; newest first)
+
+- **2026-07-23** — **Q18 closed by explicit human instruction.** The human
+  stated, “Close Q18,” accepting the completed D5 evidence: 14 consecutive
+  Apple M2 Pro/Metal Tier-1 nonblack passes across two qualifying login
+  sessions, the deliberately occluded hardware negative control, and the unit
+  regressions. The accepted UIP-9 surface-availability conjunct retains the
+  exact 60-frame WP17 command, one-shot readback, hard nonblack assertion,
+  shared 10-second deadline, and no-retry rule.
+
+- **2026-07-23** — Completed the **UIP-9 / D5 hardware evidence set** with a
+  human-run pass after an explicit macOS logout/login. `Last login: Thu Jul 23
+  09:35:48 on console` establishes the second qualifying session; the recorded
+  boot time remained `Sat Jul 18 05:36:20 2026`, which is valid because D5
+  permits either logout/login or reboot. The exact M2 Pro/Metal command then
+  passed at 09:36:20 with settle/surface-first-ready times 5.001/0.368 s, 585
+  consecutive surface frames, raw serial 587/available, affirmative Tier 1,
+  and a nonblack 5120×2880 readback. The final positive streak is **14
+  consecutive passes across two qualifying sessions**. The deliberately
+  occluded negative control, required unit regressions, 406/407 default/Steam
+  suites, and all verification gates were already green. All D5 acceptance
+  evidence is therefore complete. Q18 remains open and is marked ready for
+  the human's explicit closure; this agent has not resolved it.
+
+- **2026-07-23** — Recorded seven additional human-run **UIP-9 / D5 positive
+  hardware passes**, extending the uninterrupted Apple M2 Pro/Metal streak
+  from six to **13**. All seven printed affirmative Tier-1 acquisition and
+  returned nonblack 5120×2880 readbacks without retry. Their settle/surface-
+  first-ready/consecutive-frame/serial tuples were `5.004/0.404/30/605`
+  (request 5.146 s), `5.004/0.253/30/678` (request 5.595 s),
+  `5.008/0.250/601/659`, `5.000/0.408/244/652`, `5.001/0.259/593/605`,
+  `5.008/0.250/596/607`, and `5.008/0.325/591/652`. D5's ten-pass count,
+  negative control, unit regressions, and verification gates are satisfied.
+  The transcript still establishes only a terminal-history boundary, not a
+  logout/login or reboot, so the second qualifying OS session remains the only
+  missing acceptance item. Q18 stays open; one further successful exact-command
+  run after an explicitly recorded logout/login or reboot will complete the
+  evidence for human review and closure.
+
+- **2026-07-23** — Recorded six human-run **UIP-9 / D5 positive hardware
+  passes** from the supplied terminal transcript. All used the unchanged exact
+  Apple M2 Pro/Metal command, printed affirmative Tier-1 swapchain acquisition
+  through the readback request, and returned nonblack 5120×2880 frames. In
+  order, the settle/surface-first-ready/consecutive-frame/serial tuples were
+  `5.008/0.482/107/638`, `5.000/0.291/72/650`,
+  `5.007/0.283/30/611` (request at 5.099 s), `5.008/1.509/444/575`,
+  `5.007/0.250/600/613`, and `5.008/0.250/548/609`; all six passed and none
+  used a retry. The transcript's `History restored` line does not establish a
+  logout/login or reboot, so the evidence is conservatively one OS session.
+  D5 status is therefore six of ten consecutive positive runs, one of two
+  qualifying sessions, with the hardware negative control and all unit and
+  verification gates already green. The human must record a logout/login or
+  reboot and run four further consecutive passes before Q18 can be considered
+  for human closure; Q18 remains open.
+
+- **2026-07-22** — Implemented **UIP-9 primary-surface availability
+  conjunct** under human ruling D5 and handed back the incomplete hardware
+  acceptance with Q18 open. The preferred **Tier 1 proof** landed because
+  Bevy 0.19 publicly exposes `RenderApp`, `prepare_windows`, and
+  `ExtractedWindows::swap_chain_texture`: a shared dependency-free atomic
+  serial advances after an actual primary swapchain acquisition, and the
+  smoke-local counter requires 30 consecutive serial advances. Any gap resets
+  the counter. This is composed with the unchanged golden settle condition
+  under the existing single 10-second deadline. It adds no delay, retry,
+  dependency, renderer/window default, golden behavior, command-text, or
+  assertion change.
+
+  Exact additions are `SMOKE_SURFACE_READY_FRAMES = 30` and
+  `SMOKE_SURFACE_TIMEOUT_ERROR = "the primary window surface was not
+  continuously available for 30 frames within 10 seconds after the smoke
+  frame-count measurement; the window must be foreground and unoccluded"`.
+  Diagnostics print settle/surface first-satisfaction times, consecutive
+  surface frames, last raw acquisition state, and Tier 1 at the request; a
+  failed readback also prints that last surface state. The extended
+  `smoke_readiness_timeout_fails_loudly_before_any_readback_request` and new
+  `surface_starvation_fails_loudly_at_the_single_deadline`,
+  `asset_settle_timeout_precedes_surface_timeout_when_both_are_unsatisfied`,
+  `surface_readiness_boundary_is_exact`, and
+  `surface_consecutive_counter_resets_on_an_unavailable_observation` tests pin
+  every D5 boundary, precedence rule, reset, and one-shot decision.
+
+  Four M2 Pro/Metal hardware runs used the unchanged exact command. (1) An
+  ordinary run failed at the surface timeout: settle 5.006 s, surface first
+  satisfied 0.769 s, final count 0, raw serial 169/unavailable, Tier 1, no
+  readback. (2) A one-time System Events foreground request failed at the
+  surface timeout: settle 5.007 s, surface unsatisfied, final count/serial 0,
+  Tier 1, no readback. (3) Repeated frontmost requests through the readiness
+  window likewise failed: settle 5.008 s, surface unsatisfied, final
+  count/serial 0, Tier 1, no readback. (4) The required negative control hid
+  the process with System Events one second after launch and passed: settle
+  5.009 s, surface unsatisfied, final count/serial 0, Tier 1, the exact surface-
+  unavailable failure, no readback dimensions, and no black-readback string.
+  No positive pass is claimed. The required logout/login or reboot boundary
+  cannot safely be forced from this task; the human must run the ten-pass,
+  two-session sequence with the window foreground and unoccluded.
+
+  Verification: default `cargo test` passes **406 tests** (53 + 296 + 54 + 2
+  + 1); Steam-feature tests pass **407** (53 + 297 + 54 + 2 + 1). Default and
+  Steam warning-denied workspace/all-target clippy, release build, release
+  warning-denied solar-sim library clippy, formatting, `git diff --check`, the
+  16-KTX2 metadata audit, and the 66-body catalog dry-run pass. D5 and UIP-9
+  were transcribed as directed; the existing human Windows-plan D5 identifier
+  was not silently renumbered, so the decision record retains both D5 headings.
+
+- **2026-07-22** — Opened **UIP-9 primary-surface availability conjunct** as
+  the sole in-progress phase under `docs/codex-uip9-d5-surface-gate.md`,
+  implementing human ruling D5 for `--assert-nonblack` only. Scope is limited
+  to composing the unchanged shared settle condition with a local primary-
+  surface availability signal, one existing 10-second deadline, unchanged
+  one-shot readback/assertion behavior, required unit and hardware evidence,
+  and the authorized documentation. Golden behavior and signatures, renderer
+  defaults, the WP17 command, retries, dependencies, manifests, and protected
+  files remain out of scope. Pre-change verification passes **402 default
+  tests** (53 + 292 + 54 + 2 + 1) and **403 Steam-feature tests** (53 + 293 +
+  54 + 2 + 1).
 
 - **2026-07-22** — Implemented the ruled **UIP-8 smoke readback readiness**
   gate; hardware acceptance remains blocked by open Q18. Golden capture and

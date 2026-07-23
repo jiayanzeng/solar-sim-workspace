@@ -83,17 +83,26 @@ DX12 machine must pass `cargo run -p solar-sim --release -- --smoke 60
 mean anything. The Windows hosted smoke deliberately omits this check because
 its WARP adapter is an expected compile/launch probe, not a golden GPU gate.
 After the requested smoke-frame measurement completes, `--assert-nonblack`
-uses the golden harness's same referenced-texture readiness condition. It
-prints the readiness wait duration, fails with a distinct nonzero-exit message
-if readiness does not arrive within 10 seconds, and then requests exactly one
-primary-window readback. It never retries that readback and still fails if
-every RGB channel is zero. The nonblack assertion is intentionally not a
-hosted-CI gate: a hosted window surface may read back black even when the fixed
-offscreen golden target is valid. WP17 runs this opt-in check on both real
-reference machines before release closeout.
+requires both the unchanged golden-harness settle condition and a smoke-local
+Tier-1 proof that Bevy acquired the primary window's swapchain texture for at
+least 30 consecutive frames immediately preceding readback. It reports the
+two conjuncts' first-satisfaction times, consecutive surface-frame count, last
+raw acquisition state, and signal tier separately. One shared 10-second
+deadline covers both conjuncts; the gate then requests exactly one primary-
+window readback, never retries, and still fails if every RGB channel is zero.
 
-The UIP-8 implementation satisfies this procedure, but its 2026-07-22 M2 Pro
-evidence is not yet repeatable: an initial five-pass streak was followed by two
-black readbacks after readiness reported true. `TASKS.md` Q18 remains open for
-a human decision on explicit primary-surface readiness versus a controlled
-foreground-window gate procedure.
+The three readiness failures are deliberately distinct: a referenced texture
+load error reports `referenced-texture readiness failed`; an unsatisfied
+settle conjunct reports `referenced textures were not ready within 10 seconds
+after the smoke frame-count measurement`; and a starved surface conjunct
+reports `the primary window surface was not continuously available for 30
+frames within 10 seconds after the smoke frame-count measurement; the window
+must be foreground and unoccluded`. A foreground, unoccluded window is the
+operator precondition. The Tier-1 gate enforces it by refusing to request a
+readback when actual swapchain acquisition is not continuous.
+
+The nonblack assertion remains outside hosted CI because those environments
+may not provide a foreground window surface. WP17 runs it on both real
+reference machines before release closeout. `TASKS.md` Q18 remains open
+pending D5's ten consecutive passes across two login/boot sessions plus the
+hardware negative control and unit-regression evidence.

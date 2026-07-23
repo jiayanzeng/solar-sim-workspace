@@ -5,7 +5,8 @@
 //! explicit frame-flow ordering, WP5's single command-consumer boundary, and
 //! WP6's retained orbit rendering. Raw device events are isolated in
 //! `input_intent`; camera/control state is private to `control`, which also
-//! supplies the headless replay gate.
+//! supplies the headless replay gate. UIP-9's smoke-only Tier-1 gate observes
+//! actual primary-window swapchain acquisition in Bevy's render world.
 
 mod apparent_size;
 mod control;
@@ -112,6 +113,8 @@ use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
 use bevy::render::renderer::RenderAdapterInfo;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
+use bevy::render::view::window::{prepare_windows, ExtractedWindows};
+use bevy::render::{Render, RenderApp, RenderSystems};
 use bevy::settings::SettingsPlugin;
 use bevy::ui::IsDefaultUiCamera;
 use bevy::window::ExitCondition;
@@ -128,6 +131,10 @@ use sim_core::time::{t_from_unix_utc, SimClock, TickReport};
 use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 pub const DEFAULT_CATALOG_PATH: &str = "assets/catalog.ron";
@@ -137,6 +144,12 @@ const DEFAULT_SMOKE_FRAMES: u32 = 60;
 const SMOKE_READINESS_TIMEOUT_S: f64 = 10.0;
 const SMOKE_READINESS_TIMEOUT_ERROR: &str =
     "referenced textures were not ready within 10 seconds after the smoke frame-count measurement";
+const SMOKE_SURFACE_READY_FRAMES: u32 = 30;
+const SMOKE_SURFACE_TIMEOUT_ERROR: &str =
+    "the primary window surface was not continuously available for 30 frames \
+     within 10 seconds after the smoke frame-count measurement; the window must \
+     be foreground and unoccluded";
+const SMOKE_SURFACE_SIGNAL_TIER: &str = "tier 1 render-world swapchain acquisition";
 pub const DEFAULT_CAMERA_DISTANCE_UNITS: f64 = 250_000.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -676,6 +689,21 @@ struct ClockTickReport(TickReport);
 #[derive(Resource, Default)]
 struct PropagationFault(Option<String>);
 
+#[derive(Resource, Clone, Default)]
+struct SmokeSurfaceSignal {
+    acquisition_serial: Arc<AtomicU64>,
+}
+
+impl SmokeSurfaceSignal {
+    fn acquisition_serial(&self) -> u64 {
+        self.acquisition_serial.load(Ordering::Acquire)
+    }
+
+    fn record_acquisition(&self) {
+        self.acquisition_serial.fetch_add(1, Ordering::Release);
+    }
+}
+
 #[derive(Resource)]
 struct SmokeFrames {
     target: Option<u32>,
@@ -685,6 +713,11 @@ struct SmokeFrames {
     seen: u32,
     started: Option<Instant>,
     readiness_started: Option<Instant>,
+    settle_ready_at_s: Option<f64>,
+    surface_ready_at_s: Option<f64>,
+    surface_available_frames: u32,
+    surface_last_acquisition: u64,
+    surface_last_available: bool,
     screenshot_requested: bool,
     completed: bool,
 }
@@ -704,9 +737,22 @@ impl SmokeFrames {
             seen: 0,
             started: None,
             readiness_started: None,
+            settle_ready_at_s: None,
+            surface_ready_at_s: None,
+            surface_available_frames: 0,
+            surface_last_acquisition: 0,
+            surface_last_available: false,
             screenshot_requested: false,
             completed: false,
         }
+    }
+
+    fn observe_surface_acquisition(&mut self, acquisition_serial: u64) {
+        let available = acquisition_serial > self.surface_last_acquisition;
+        self.surface_last_acquisition = acquisition_serial;
+        self.surface_last_available = available;
+        self.surface_available_frames =
+            next_surface_available_frames(self.surface_available_frames, available);
     }
 }
 
@@ -948,6 +994,7 @@ fn build_app_with_platform<P: Plugin>(
             ..default()
         });
     app.add_plugins(default_plugins);
+    configure_smoke_surface_signal(&mut app, options.assert_nonblack);
     app.register_type::<AppSettings>()
         .add_plugins(SettingsPlugin::new(SETTINGS_IDENTIFIER));
     // Resolve the explicit recovery boundary before any clock, layer, window,
@@ -1087,6 +1134,36 @@ fn build_app_with_platform<P: Plugin>(
     );
 
     app
+}
+
+fn configure_smoke_surface_signal(app: &mut App, enabled: bool) {
+    if !enabled {
+        return;
+    }
+    let signal = SmokeSurfaceSignal::default();
+    app.insert_resource(signal.clone());
+    let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
+        return;
+    };
+    render_app.insert_resource(signal).add_systems(
+        Render,
+        observe_primary_surface_acquisition
+            .after(prepare_windows)
+            .in_set(RenderSystems::PrepareViews),
+    );
+}
+
+fn observe_primary_surface_acquisition(
+    windows: Res<ExtractedWindows>,
+    signal: Res<SmokeSurfaceSignal>,
+) {
+    let acquired = windows
+        .primary
+        .and_then(|primary| windows.get(&primary))
+        .is_some_and(|window| window.swap_chain_texture.is_some());
+    if acquired {
+        signal.record_acquisition();
+    }
 }
 
 fn wall_now_t() -> f64 {
@@ -1524,6 +1601,7 @@ fn smoke_exit(
     mut smoke: ResMut<SmokeFrames>,
     adapter: Option<Res<RenderAdapterInfo>>,
     textures: golden::ReferencedTextureInputs,
+    surface_signal: Option<Res<SmokeSurfaceSignal>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     let Some(target) = smoke.target else {
@@ -1590,6 +1668,9 @@ fn smoke_exit(
         }
         if smoke.assert_nonblack {
             smoke.readiness_started = Some(Instant::now());
+            smoke.surface_last_acquisition = surface_signal
+                .as_deref()
+                .map_or(0, SmokeSurfaceSignal::acquisition_serial);
         } else {
             smoke.completed = true;
             exit.write(AppExit::Success);
@@ -1601,24 +1682,38 @@ fn smoke_exit(
     };
     let readiness_wait_s = readiness_started.elapsed().as_secs_f64();
     let readiness_frames = smoke.seen.saturating_sub(target);
+    let acquisition_serial = surface_signal
+        .as_deref()
+        .map_or(0, SmokeSurfaceSignal::acquisition_serial);
+    smoke.observe_surface_acquisition(acquisition_serial);
+    if smoke.surface_available_frames >= SMOKE_SURFACE_READY_FRAMES
+        && smoke.surface_ready_at_s.is_none()
+    {
+        smoke.surface_ready_at_s = Some(readiness_wait_s);
+    }
     // Do not reintroduce an assets-only gate: on the M2 Pro, all textures were
     // loaded at frame 60 but that immediate one-shot readback was still black.
     // The complete golden initial-readback condition passed after five seconds.
+    let settle_ready = textures.ready_for_initial_readback(readiness_frames, readiness_wait_s);
+    if matches!(settle_ready, Ok(true)) && smoke.settle_ready_at_s.is_none() {
+        smoke.settle_ready_at_s = Some(readiness_wait_s);
+    }
     match smoke_readiness_gate(
-        textures.ready_for_initial_readback(readiness_frames, readiness_wait_s),
+        settle_ready,
+        smoke.surface_available_frames,
         readiness_wait_s,
     ) {
         Ok(false) => {}
         Ok(true) => {
-            println!(
-                "smoke: referenced textures ready after {readiness_wait_s:.3}s; requesting primary window readback"
-            );
+            print_smoke_readiness_diagnostics(&smoke);
+            println!("smoke: readiness conjunction satisfied after {readiness_wait_s:.3}s; requesting primary window readback");
             smoke.screenshot_requested = true;
             commands
                 .spawn(Screenshot::primary_window())
                 .observe(assert_window_nonblack_and_exit);
         }
         Err(error) => {
+            print_smoke_readiness_diagnostics(&smoke);
             eprintln!("smoke: {error}");
             smoke.completed = true;
             exit.write(AppExit::error());
@@ -1626,15 +1721,50 @@ fn smoke_exit(
     }
 }
 
-fn smoke_readiness_gate(all_loaded: Result<bool, String>, elapsed_s: f64) -> Result<bool, String> {
-    match all_loaded {
-        Err(error) => Err(format!("referenced-texture readiness failed: {error}")),
-        Ok(true) => Ok(true),
-        Ok(false) if elapsed_s >= SMOKE_READINESS_TIMEOUT_S => {
-            Err(SMOKE_READINESS_TIMEOUT_ERROR.into())
-        }
-        Ok(false) => Ok(false),
+fn smoke_readiness_gate(
+    all_loaded: Result<bool, String>,
+    surface_available_frames: u32,
+    elapsed_s: f64,
+) -> Result<bool, String> {
+    let assets_ready = match all_loaded {
+        Err(error) => return Err(format!("referenced-texture readiness failed: {error}")),
+        Ok(ready) => ready,
+    };
+    let surface_ready = surface_available_frames >= SMOKE_SURFACE_READY_FRAMES;
+    if assets_ready && surface_ready {
+        return Ok(true);
     }
+    if elapsed_s >= SMOKE_READINESS_TIMEOUT_S {
+        return Err(if !assets_ready {
+            SMOKE_READINESS_TIMEOUT_ERROR.into()
+        } else {
+            SMOKE_SURFACE_TIMEOUT_ERROR.into()
+        });
+    }
+    Ok(false)
+}
+
+fn next_surface_available_frames(current: u32, available: bool) -> u32 {
+    if available {
+        current.saturating_add(1)
+    } else {
+        0
+    }
+}
+
+fn readiness_time_diagnostic(time_s: Option<f64>) -> String {
+    time_s.map_or_else(|| "not-satisfied".into(), |time_s| format!("{time_s:.3}s"))
+}
+
+fn print_smoke_readiness_diagnostics(smoke: &SmokeFrames) {
+    println!(
+        "smoke: readiness diagnostics: settle_ready_after={} surface_ready_after={} surface_available_frames={} last_surface_state=acquisition_serial:{},acquired_since_previous_main_frame:{} surface_signal_tier={SMOKE_SURFACE_SIGNAL_TIER}",
+        readiness_time_diagnostic(smoke.settle_ready_at_s),
+        readiness_time_diagnostic(smoke.surface_ready_at_s),
+        smoke.surface_available_frames,
+        smoke.surface_last_acquisition,
+        smoke.surface_last_available,
+    );
 }
 
 fn assert_window_nonblack_and_exit(
@@ -1656,6 +1786,12 @@ fn assert_window_nonblack_and_exit(
             exit.write(AppExit::Success);
         }
         Err(error) => {
+            eprintln!(
+                "smoke: last observed primary surface state: acquisition_serial={}, acquired_since_previous_main_frame={}, consecutive_available_frames={}, tier={SMOKE_SURFACE_SIGNAL_TIER}",
+                smoke.surface_last_acquisition,
+                smoke.surface_last_available,
+                smoke.surface_available_frames,
+            );
             eprintln!("smoke: {error}");
             exit.write(AppExit::error());
         }
@@ -1858,22 +1994,88 @@ mod tests {
     #[test]
     fn smoke_readiness_timeout_fails_loudly_before_any_readback_request() {
         assert_eq!(
-            smoke_readiness_gate(Ok(false), SMOKE_READINESS_TIMEOUT_S - 0.001),
+            smoke_readiness_gate(
+                Ok(false),
+                SMOKE_SURFACE_READY_FRAMES,
+                SMOKE_READINESS_TIMEOUT_S - 0.001,
+            ),
             Ok(false)
         );
         assert_eq!(
-            smoke_readiness_gate(Ok(false), SMOKE_READINESS_TIMEOUT_S),
+            smoke_readiness_gate(
+                Ok(false),
+                SMOKE_SURFACE_READY_FRAMES,
+                SMOKE_READINESS_TIMEOUT_S,
+            ),
             Err(SMOKE_READINESS_TIMEOUT_ERROR.into())
         );
         assert_eq!(
-            smoke_readiness_gate(Err("fixture load failure".into()), 0.0),
+            smoke_readiness_gate(
+                Err("fixture load failure".into()),
+                SMOKE_SURFACE_READY_FRAMES,
+                0.0,
+            ),
             Err("referenced-texture readiness failed: fixture load failure".into())
         );
         assert_eq!(
-            smoke_readiness_gate(Ok(true), SMOKE_READINESS_TIMEOUT_S),
+            smoke_readiness_gate(
+                Ok(true),
+                SMOKE_SURFACE_READY_FRAMES,
+                SMOKE_READINESS_TIMEOUT_S,
+            ),
             Ok(true),
             "a ready frame remains a single readback request, not a timeout or retry"
         );
+    }
+
+    #[test]
+    fn surface_starvation_fails_loudly_at_the_single_deadline() {
+        assert_eq!(
+            smoke_readiness_gate(
+                Ok(true),
+                SMOKE_SURFACE_READY_FRAMES - 1,
+                SMOKE_READINESS_TIMEOUT_S - 0.001,
+            ),
+            Ok(false)
+        );
+        assert_eq!(
+            smoke_readiness_gate(
+                Ok(true),
+                SMOKE_SURFACE_READY_FRAMES - 1,
+                SMOKE_READINESS_TIMEOUT_S,
+            ),
+            Err(SMOKE_SURFACE_TIMEOUT_ERROR.into())
+        );
+    }
+
+    #[test]
+    fn asset_settle_timeout_precedes_surface_timeout_when_both_are_unsatisfied() {
+        assert_eq!(
+            smoke_readiness_gate(Ok(false), 0, SMOKE_READINESS_TIMEOUT_S),
+            Err(SMOKE_READINESS_TIMEOUT_ERROR.into())
+        );
+    }
+
+    #[test]
+    fn surface_readiness_boundary_is_exact() {
+        assert_eq!(
+            smoke_readiness_gate(Ok(true), SMOKE_SURFACE_READY_FRAMES - 1, 5.0),
+            Ok(false)
+        );
+        assert_eq!(
+            smoke_readiness_gate(Ok(true), SMOKE_SURFACE_READY_FRAMES, 5.0),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn surface_consecutive_counter_resets_on_an_unavailable_observation() {
+        let mut consecutive = 0;
+        for available in [true, true, false, true] {
+            consecutive = next_surface_available_frames(consecutive, available);
+        }
+        assert_eq!(consecutive, 1);
+        assert_eq!(next_surface_available_frames(u32::MAX, true), u32::MAX);
     }
 
     #[test]

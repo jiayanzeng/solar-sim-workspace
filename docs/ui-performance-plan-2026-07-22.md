@@ -288,6 +288,21 @@ not authorize adding surface availability to the readiness rule or imposing a
 foreground-window procedure. No retry, added delay, or assertion weakening is
 permitted without a human ruling.
 
+### UIP-9 — Primary-surface availability conjunct (implements ruling D5)
+
+**Build.** Compose the existing shared initial-readback settle condition with
+a new `--assert-nonblack`-local primary-surface availability predicate;
+readiness is the conjunction. Report the two conjuncts' satisfaction times
+separately so the printed signal measures the binding variable. Preserve the
+single 10 s deadline, the one-shot readback, and the unchanged assertion.
+
+**Out of scope.** `golden.rs` behavior, the shared condition's signature and
+semantics, renderer defaults, the WP17 command text, retry of any kind.
+
+**Acceptance.** As stated in D5: ten consecutive passes across two sessions,
+a hardware negative control, and the unit regressions. Q18 remains open until
+the human closes it on that evidence.
+
 ---
 
 ## Part D — Required ARCHITECTURE Rev D edits (human pastes, commits, done)

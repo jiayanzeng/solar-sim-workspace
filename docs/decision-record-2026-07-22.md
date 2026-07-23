@@ -67,6 +67,57 @@ The credential half of Q13 (partner account, real App ID, Apple Developer ID,
 protected environments) remains open and human-owned; nothing here touches
 it.
 
+## D5 — Q18 amended: primary-surface availability conjunct
+
+**Date:** 2026-07-22. **Amends:** D3.
+
+> **D5 — Q18 amended (supersedes D3's readiness definition for
+> `--assert-nonblack` only)**
+>
+> Scope: the `--assert-nonblack` path only. Golden capture is unchanged.
+>
+> Readiness becomes a conjunction: the existing settle condition (≥30 frames,
+> ≥5 s, materials present, base-color textures loaded) **AND** an explicit
+> primary-surface availability signal holding for ≥30 consecutive frames
+> immediately preceding the readback.
+>
+> Signal, in preference order: (1) a render-world signal that the primary
+> window's swapchain texture was successfully acquired, plumbed to the main
+> world through an existing Bevy mechanism; (2) if Bevy 0.19 does not expose
+> (1) without reaching into render-app internals, a main-world proxy
+> (occlusion state, focus, non-minimized). No new dependency, no `Cargo.toml`
+> edit. The change log must state which tier landed, and a tier-2
+> implementation must be labelled a proxy in the module header and in
+> `TASKS.md` — not as proof.
+>
+> Unchanged from D3: one 10-second deadline total (not a second budget),
+> one-shot readback, no retry, no added delay, assertion unchanged. The
+> surface-unavailable timeout exits nonzero with a message distinct from both
+> the texture-failure and settle-timeout strings.
+>
+> On a black readback, the last observed surface state is printed so the frame
+> is attributable after the fact.
+>
+> A foreground, unoccluded window becomes a documented operator precondition
+> in the WP17 procedure — now enforced by the gate rather than promised by the
+> operator.
+>
+> **Acceptance bar replaced.** D3's "≥5 consecutive passes" has already
+> produced a false green: the five-pass streak was followed by two failures on
+> the same binary. Q18 closes only on (a) ≥10 consecutive passes across ≥2
+> separate sessions separated by a logout/login or reboot, each printing
+> affirmative surface availability; (b) a hardware negative control in which a
+> deliberately occluded window fails with the surface-unavailable message
+> rather than with a black readback; (c) the unit regressions below.
+>
+> **Escalation, pre-authorized to reporting only.** If a run still returns
+> black with surface availability affirmatively observed across 30 consecutive
+> frames, the occlusion hypothesis is dead and this is a Bevy 0.19 screenshot
+> defect. The agent stops, records the evidence under Q18, and does not
+> iterate. Acting on the escalation (upstream report, or a WP17 contract
+> amendment redefining the window check as a composite) requires a further
+> human ruling.
+
 ## D5 — Final-stage on-site Windows test plan (hardware TBD accepted)
 
 Since on-site Windows testing is scheduled for the final stage, the plan is
