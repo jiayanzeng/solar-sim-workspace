@@ -72,7 +72,8 @@ replace a shipped-window check. On local or real release hardware, opt into a
 primary-window readback after the smoke frame count:
 
 ```sh
-cargo run -p solar-sim --release -- --smoke 60 --expect-backend metal --assert-nonblack
+cargo run -p solar-sim --release -- --smoke 60 --expect-backend metal \
+  --reject-software-adapter --assert-nonblack
 ```
 
 Use `dx12` on the Windows reference machine and `vulkan` for a Vulkan release
@@ -103,6 +104,7 @@ readback when actual swapchain acquisition is not continuous.
 
 The nonblack assertion remains outside hosted CI because those environments
 may not provide a foreground window surface. WP17 runs it on both real
-reference machines before release closeout. `TASKS.md` Q18 remains open
-pending D5's ten consecutive passes across two login/boot sessions plus the
-hardware negative control and unit-regression evidence.
+reference machines before release closeout. Q18 closed by explicit human
+instruction on 2026-07-23 after D5's acceptance evidence completed: 14
+consecutive Tier-1/nonblack M2 Pro/Metal passes across two qualifying login
+sessions, the deliberately occluded negative control, and the unit regressions.

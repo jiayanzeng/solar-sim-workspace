@@ -754,6 +754,14 @@ impl SmokeFrames {
         self.surface_available_frames =
             next_surface_available_frames(self.surface_available_frames, available);
     }
+
+    fn begin_screenshot_request(&mut self) -> bool {
+        if self.screenshot_requested || self.completed {
+            return false;
+        }
+        self.screenshot_requested = true;
+        true
+    }
 }
 
 #[derive(Component)]
@@ -1707,10 +1715,11 @@ fn smoke_exit(
         Ok(true) => {
             print_smoke_readiness_diagnostics(&smoke);
             println!("smoke: readiness conjunction satisfied after {readiness_wait_s:.3}s; requesting primary window readback");
-            smoke.screenshot_requested = true;
-            commands
-                .spawn(Screenshot::primary_window())
-                .observe(assert_window_nonblack_and_exit);
+            if smoke.begin_screenshot_request() {
+                commands
+                    .spawn(Screenshot::primary_window())
+                    .observe(assert_window_nonblack_and_exit);
+            }
         }
         Err(error) => {
             print_smoke_readiness_diagnostics(&smoke);
@@ -2026,6 +2035,15 @@ mod tests {
             Ok(true),
             "a ready frame remains a single readback request, not a timeout or retry"
         );
+    }
+
+    #[test]
+    fn ready_state_issues_exactly_one_readback_request() {
+        let mut smoke = SmokeFrames::new(Some(60), None, false, true);
+
+        assert!(smoke.begin_screenshot_request());
+        assert!(!smoke.begin_screenshot_request());
+        assert!(smoke.screenshot_requested);
     }
 
     #[test]

@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 406 passing** (53 `sim-core` · 296 `solar-sim` · 54 `xtask`
+**Test baseline: 407 passing** (53 `sim-core` · 297 `solar-sim` · 54 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -1043,7 +1043,92 @@ restart/launch-time macOS high-DPI policy is acceptable, or whether the
 internal 3D render-scale chain currently excluded by UIP-6 should be revisited.
 Agents must not silently force windowed mode or add a render-scale target.
 
+### Q22 — OPEN.
+
+The requested **Reset Interface** action is broader than the existing
+`ResetView`: it may include clock/rate/play state, camera and selection,
+layers, View Options, panels/modals, Menu expansion, Search state, breadcrumb,
+UI visibility, focus, and transient notices. Approve the recommended
+launch-time gameplay/UI snapshot in
+`docs/ui-playability-optimization-plan-2026-07-23.md` §3, with no factory
+reset and no `settings.toml` write. Also confirm whether the existing global
+Home/Help command path satisfies "from any screen"; otherwise every modal
+requires an additional visible Reset Interface action.
+
+### Q23 — OPEN.
+
+The requested Menu replaces Rev D §9.1's curated-shortlist/full-list contract.
+Approve that architecture change and confirm the ambiguous second-column
+**SHOW ALL MOONS** behavior. Recommendation: column one groups the 26 cataloged
+moons of Earth through Neptune; column two groups the six cataloged moons of
+Pluto, Eris, and Haumea. Duplicating planet-moon groups in both columns is not
+recommended. Exact lists and order are in
+`docs/ui-playability-optimization-plan-2026-07-23.md` §6.
+
+### Q24 — OPEN.
+
+The request for a unique traditional orbit color for every body conflicts with
+Rev D §10.2's shared non-planet category colors. Approve catalog-backed
+`orbit_color_srgb` data and the 65-color candidate palette in
+`docs/ui-playability-optimization-plan-2026-07-23.md` §4, subject to generated
+contrast/perceptual review. Agents must not alter the hand-authored manifest
+or regenerate catalogs until the palette and Rev E architecture wording are
+approved.
+
+### Q25 — OPEN.
+
+The requested recognizable overview appearances and visibly correct
+×1/×10/×50 behavior conflict with Rev D §10.1's universal 3-logical-pixel
+floor applied after exaggeration. Existing assets texture all eight planets
+but no dwarf planet, and several distant dwarfs have no resolved global
+surface imagery. Approve the recommended category floors plus
+floor-before-exaggeration formula, and choose the dwarf asset policy from
+`docs/ui-playability-optimization-plan-2026-07-23.md` §11 (resolved mission
+imagery after the normal license audit, plus explicitly representative albedo,
+is recommended).
+
+### Q26 — OPEN.
+
+The 150-word Wikipedia-linked description request replaces the reviewed
+2–4-sentence WP10 content contract and adds an external platform action absent
+from the catalog schema. Approve original 150–220 word copy independently
+cross-checked against the existing NASA/JPL sources, with Wikipedia used as a
+secondary reference and outbound link, rather than copied/adapted Wikipedia
+prose. Also approve either a command-routed platform URL opener (including any
+dependency/platform mechanism it needs) or the no-browser fallback of visible
+URL plus Copy Link. Licensing and schema details are in
+`docs/ui-playability-optimization-plan-2026-07-23.md` §8.
+
 ## Change log (append-only; newest first)
+
+- **2026-07-23** — Completed a documentation-only design audit for the eight
+  requested UI playability optimizations. Added
+  `docs/ui-playability-optimization-plan-2026-07-23.md` with the proposed
+  Reset Interface snapshot/command, 3×/2×/1× orbit widths, a unique 65-body
+  candidate orbit palette, new-profile visibility and appearance rules,
+  corrected body-size scale order, exact Menu inventories/moon groups,
+  reproduction-first Search acceptance, 66-body 150–220 word
+  Wikipedia-link content workflow, architecture conflicts, phased gates, and
+  definition of done. Source inspection confirmed that fuzzy live Search and
+  click-to-travel already exist, all planets but no dwarfs have texture
+  assets, and the current apparent-size floor can mask ×10/×50. Raised
+  Q22–Q26 for the reset scope, Menu semantics, palette, dwarf/scale policy,
+  and Wikipedia/platform-link decisions. No source, generated catalog,
+  protected document, dependency, or test baseline was changed. Evidence:
+  the focused existing fuzzy-search regression
+  `search::tests::fuzzy_candidates_never_shadow_exact_atlas_keys` passed;
+  the plan contains 65 palette entries and 65 unique RGB values; and
+  `git diff --check` passed.
+
+- **2026-07-23** — Closed the three **UIP-9 conformance-audit findings**.
+  The WP15 operator procedure now uses D5's exact real-GPU command including
+  `--reject-software-adapter`; WP15 and README now agree with the explicit
+  human closure of Q18; and the readback spawn path uses a tested one-shot
+  transition rather than relying only on the outer system guard. New regression
+  `ready_state_issues_exactly_one_readback_request` proves repeated ready-state
+  decisions produce exactly one request. Default `cargo test` passes **407**
+  tests (53 + 297 + 54 + 2 + 1), and Steam-feature tests pass **408**
+  (53 + 298 + 54 + 2 + 1).
 
 - **2026-07-23** — **Q18 closed by explicit human instruction.** The human
   stated, “Close Q18,” accepting the completed D5 evidence: 14 consecutive
