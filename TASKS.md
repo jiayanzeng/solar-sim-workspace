@@ -1147,7 +1147,23 @@ URLs and a dependency-free platform opener behind `PlatformServices`;
 headless/golden/replay use the no-op service and spawn failure exposes the
 visible URL plus Copy Link fallback.
 
+### Q27 — OPEN.
+
+On 2026-07-23 the maintainer explicitly authorized the six exact Revision E
+edits recorded in `docs/playability-review-and-rulings-2026-07-23.md` §4.
+The content decision is therefore resolved, but the root `AGENTS.md` still
+states both that AI coding agents must never edit `ARCHITECTURE.md` and that
+such a conflict must be recorded here instead of improvised around. The
+architecture file remains unchanged. The maintainer must either paste the
+approved text directly or revise the agent rule before an AI coding agent may
+perform the edit.
+
 ## Change log (append-only; newest first)
+
+- **2026-07-23** — Recorded Q27 after the maintainer authorized exact Revision
+  E content while the active root agent rule continued to prohibit any AI edit
+  to `ARCHITECTURE.md`. No source, architecture, generated asset, dashboard
+  status, dependency, or test baseline changed.
 
 - **2026-07-23** — Completed the Wave 0 UIP-6/1 maintenance block under
   Q19–Q21 and returned WP14 to **✅ done**. `QualityPreset::Ultra` retains its
