@@ -364,6 +364,76 @@ impl SessionStartupSnapshot {
     pub(crate) const fn nonpersistent_presentation_override(&self) -> bool {
         self.nonpersistent_presentation_override
     }
+
+    fn initial_layers(&self) -> Option<LayerState> {
+        self.state.as_ref().map(|state| state.layers)
+    }
+}
+
+/// Expands navigation intent into the explicit layer reveal required to make
+/// its destination visible. Expansion happens before recording and reduction,
+/// so desktop input, headless runs, and replay all observe the same command
+/// sequence without a render-only visibility override.
+pub(crate) fn expand_navigation_commands(
+    commands: &[SimCommand],
+    loaded: Option<&LoadedCatalog>,
+    initial_layers: LayerState,
+    navigation: &NavigationStack,
+    startup: Option<&SessionStartupSnapshot>,
+) -> Vec<SimCommand> {
+    let mut expanded = Vec::with_capacity(commands.len().saturating_add(1));
+    let mut predicted_layers = initial_layers;
+
+    for command in commands {
+        let reveal = match command {
+            SimCommand::TravelToBody(body_id) => loaded
+                .and_then(|loaded| {
+                    loaded
+                        .index_of(body_id)
+                        .and_then(|index| loaded.catalog.bodies.get(index))
+                })
+                .and_then(|body| LayerId::for_body_category(body.category)),
+            SimCommand::NavigateBreadcrumb { depth, target_id } => loaded
+                .and_then(|loaded| {
+                    navigation
+                        .destination_at(*depth, target_id)
+                        .and_then(|destination| {
+                            left_panel::resolve_navigation_destination(loaded, destination)
+                        })
+                        .and_then(|resolved| loaded.catalog.bodies.get(resolved.body_index))
+                })
+                .and_then(|body| LayerId::for_body_category(body.category)),
+            SimCommand::TravelToRegionPreset(RegionPreset::Belt) => Some(LayerId::Asteroids),
+            _ => None,
+        };
+        if let Some(layer) = reveal.filter(|layer| !predicted_layers.is_visible(*layer)) {
+            expanded.push(SimCommand::SetLayerVisibility {
+                layer,
+                visible: true,
+            });
+            predicted_layers.set_visible(layer, true);
+        }
+
+        expanded.push(command.clone());
+        match command {
+            SimCommand::SetLayerVisibility { layer, visible } => {
+                predicted_layers.set_visible(*layer, *visible);
+            }
+            SimCommand::ApplySettings(settings) => {
+                predicted_layers = settings.initial_layer_state();
+            }
+            SimCommand::RestorePresentationDefaults => {
+                predicted_layers = LayerState::default();
+            }
+            SimCommand::ResetInterface => {
+                if let Some(layers) = startup.and_then(SessionStartupSnapshot::initial_layers) {
+                    predicted_layers = layers;
+                }
+            }
+            _ => {}
+        }
+    }
+    expanded
 }
 
 /// Monotonic render-side notification derived from `ResetInterface`. UI
@@ -1205,7 +1275,14 @@ impl HeadlessSimulation {
             recorder.record_frame(self.frame, wall_dt_s, wall_now_t);
         }
         let frame_start_t = self.clock.t();
-        for command in commands {
+        let commands = expand_navigation_commands(
+            commands,
+            Some(&self.loaded),
+            self.layers,
+            &self.navigation,
+            Some(&self.startup_snapshot),
+        );
+        for command in &commands {
             if let Some(recorder) = recording.as_deref_mut() {
                 recorder.record(self.frame, frame_start_t, command.clone());
             }
@@ -1964,9 +2041,10 @@ mod tests {
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
     const FRAME_DT_S: f64 = 1.0 / 60.0;
-    // UIP-6 intentionally adds the persisted Retina-rendering identity to the
-    // deterministic settings hash; the mixed replay remains otherwise exact.
-    const PORTABLE_REPLAY_HASH: u64 = 15_702_349_732_272_648_697;
+    // UIP-6 adds persisted Retina identity; UIO-3a adds the reviewed
+    // Asteroids/Comets-off defaults and records navigation reveals explicitly.
+    // The mixed replay remains otherwise exact.
+    const PORTABLE_REPLAY_HASH: u64 = 17_379_024_660_372_243_517;
 
     fn catalog() -> Catalog {
         load_catalog_text(REAL_CATALOG).expect("committed catalog must load")
@@ -2004,6 +2082,157 @@ mod tests {
             tab,
             simulation.navigation.label(),
         )
+    }
+
+    #[test]
+    fn hidden_body_navigation_records_one_reveal_before_travel_for_every_category() {
+        let catalog = catalog();
+        let cases = [
+            ("earth", LayerId::Planets),
+            ("ceres", LayerId::DwarfPlanets),
+            ("pallas", LayerId::Asteroids),
+            ("halley", LayerId::Comets),
+            ("io", LayerId::Moons),
+        ];
+
+        for (body_id, layer) in cases {
+            let mut simulation = HeadlessSimulation::new(&catalog).unwrap();
+            simulation
+                .step(
+                    0.0,
+                    &[SimCommand::SetLayerVisibility {
+                        layer,
+                        visible: false,
+                    }],
+                    None,
+                )
+                .unwrap();
+            let mut recording = CommandRecording::default();
+            simulation
+                .step(
+                    0.0,
+                    &[SimCommand::TravelToBody(body_id.into())],
+                    Some(&mut recording),
+                )
+                .unwrap();
+
+            assert_eq!(
+                recording
+                    .stream
+                    .entries
+                    .iter()
+                    .map(|entry| entry.command.clone())
+                    .collect::<Vec<_>>(),
+                vec![
+                    SimCommand::SetLayerVisibility {
+                        layer,
+                        visible: true,
+                    },
+                    SimCommand::TravelToBody(body_id.into()),
+                ],
+                "{body_id} must reveal {layer:?} before travel"
+            );
+            assert!(simulation.layer_state().is_visible(layer));
+        }
+
+        let mut sun = HeadlessSimulation::new(&catalog).unwrap();
+        let mut recording = CommandRecording::default();
+        sun.step(
+            0.0,
+            &[SimCommand::TravelToBody("sun".into())],
+            Some(&mut recording),
+        )
+        .unwrap();
+        assert_eq!(
+            recording
+                .stream
+                .entries
+                .iter()
+                .map(|entry| entry.command.clone())
+                .collect::<Vec<_>>(),
+            vec![SimCommand::TravelToBody("sun".into())]
+        );
+    }
+
+    #[test]
+    fn belt_preset_records_asteroid_reveal_while_other_presets_stay_pure() {
+        let catalog = catalog();
+        for preset in RegionPreset::ALL {
+            let mut simulation = HeadlessSimulation::new(&catalog).unwrap();
+            let mut recording = CommandRecording::default();
+            simulation
+                .step(
+                    0.0,
+                    &[SimCommand::TravelToRegionPreset(preset)],
+                    Some(&mut recording),
+                )
+                .unwrap();
+            let commands = recording
+                .stream
+                .entries
+                .iter()
+                .map(|entry| entry.command.clone())
+                .collect::<Vec<_>>();
+            if preset == RegionPreset::Belt {
+                assert_eq!(
+                    commands,
+                    vec![
+                        SimCommand::SetLayerVisibility {
+                            layer: LayerId::Asteroids,
+                            visible: true,
+                        },
+                        SimCommand::TravelToRegionPreset(preset),
+                    ]
+                );
+                assert!(simulation.layer_state().is_visible(LayerId::Asteroids));
+            } else {
+                assert_eq!(
+                    commands,
+                    vec![SimCommand::TravelToRegionPreset(preset)],
+                    "{preset:?} remains pure framing"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn hidden_breadcrumb_destination_records_reveal_before_navigation() {
+        let mut simulation = jupiter_collection_simulation();
+        simulation
+            .step(
+                0.0,
+                &[SimCommand::SetLayerVisibility {
+                    layer: LayerId::Planets,
+                    visible: false,
+                }],
+                None,
+            )
+            .unwrap();
+        let mut recording = CommandRecording::default();
+        let breadcrumb = SimCommand::NavigateBreadcrumb {
+            depth: 1,
+            target_id: "jupiter".into(),
+        };
+        simulation
+            .step(0.0, std::slice::from_ref(&breadcrumb), Some(&mut recording))
+            .unwrap();
+
+        assert_eq!(
+            recording
+                .stream
+                .entries
+                .iter()
+                .map(|entry| entry.command.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                SimCommand::SetLayerVisibility {
+                    layer: LayerId::Planets,
+                    visible: true,
+                },
+                breadcrumb,
+            ]
+        );
+        assert!(simulation.layer_state().is_visible(LayerId::Planets));
     }
 
     #[test]

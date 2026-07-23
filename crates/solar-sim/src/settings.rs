@@ -2515,7 +2515,8 @@ mod tests {
     #[test]
     fn persisted_layers_restore_every_layer_exactly() {
         let mut original = LayerState::default();
-        original.set_visible(LayerId::Asteroids, false);
+        original.set_visible(LayerId::Asteroids, true);
+        original.set_visible(LayerId::Comets, true);
         original.set_visible(LayerId::Labels, false);
         let persisted = PersistedLayerState::from_snapshot(original.persistence_snapshot());
         let settings = AppSettings {
@@ -2523,6 +2524,10 @@ mod tests {
             ..default()
         };
         assert_eq!(settings.initial_layer_state(), original);
+        assert!(settings
+            .initial_layer_state()
+            .is_visible(LayerId::Asteroids));
+        assert!(settings.initial_layer_state().is_visible(LayerId::Comets));
     }
 
     #[test]

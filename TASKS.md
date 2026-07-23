@@ -42,7 +42,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 8 | Time bar: detented log slider, editable date/clock, LIVE chip | **✅ done** |
 | 9 | Labels/reticles, tiered declutter, contextual moon visibility, picking | **✅ done** |
 | 10 | Left panel: Info tab, collection pages, View Options | **✅ done** |
-| 11 | Layers quick panel, right rail, Icons layer, UI-off mode | **✅ done** |
+| 11 | Layers quick panel, right rail, Icons layer, UI-off mode | ✅ done |
 | 12 | Search (alias-aware) + Menu browse with live counts | **✅ done** |
 | 13 | Orbit-emphasis high-rate mode; BSC starfield; Sun bloom | **✅ done** |
 | 14 | Settings screen + render-recovery policies | **✅ done** |
@@ -1148,6 +1148,32 @@ headless/golden/replay use the no-op service and spawn failure exposes the
 visible URL plus Copy Link fallback.
 
 ## Change log (append-only; newest first)
+
+- **2026-07-23** — Completed Wave 0 UIO-3a and the R-NAV/R-PRESET rulings
+  under WP11. Factory profiles and RESTORE DEFAULTS now keep User Interface,
+  Planets, Dwarf Planets, Moons, Orbits, Labels, and Icons visible while
+  starting Asteroids and Comets hidden; explicit persisted profiles still
+  restore all nine fields exactly. The shared desktop/headless command gate
+  expands travel to a hidden body category into one recorded
+  `SetLayerVisibility(..., true)` before `TravelToBody`; ancestor breadcrumbs
+  use the same reveal boundary, and the Belt preset similarly reveals
+  Asteroids while Inner/Outer/Kuiper remain pure framing. Added exact
+  factory/default-restoration, persisted-profile, five-category plus Sun,
+  breadcrumb, Belt, and portable replay coverage. The intentional deterministic
+  replay hash change is documented beside its constant. Post-change
+  `cargo test` passes all **415 tests** (53 `sim-core`, 305 `solar-sim`, 54
+  `xtask`, 2 smoke, 1 spot-check); `cargo fmt --all -- --check` and
+  `cargo clippy --workspace --all-targets -- -D warnings` pass. No dependencies
+  were added.
+
+- **2026-07-23** — Reopened WP11 as the sole **in-progress** package for Wave
+  0 UIO-3a and the approved R-NAV/R-PRESET rulings. Scope is factory and
+  RESTORE DEFAULTS visibility with Asteroids/Comets off, exact preservation of
+  explicit persisted profiles, and deterministic expansion of hidden-category
+  body/Belt travel into one recorded `SetLayerVisibility(..., true)` before
+  the travel command. Other presets, Rev-E-gated appearance work, Menu
+  replacement, and catalog composition remain out of scope. Pre-change
+  `cargo test` passes all **411 tests**.
 
 - **2026-07-23** — Completed Wave 0 UIO-1 Reset Interface under Q22. Added one
   replayable `SimCommand::ResetInterface` and a deterministic

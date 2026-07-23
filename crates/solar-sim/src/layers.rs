@@ -109,6 +109,17 @@ impl LayerId {
             .find(|layer| layer.replay_slug() == slug)
     }
 
+    pub const fn for_body_category(category: Category) -> Option<Self> {
+        match category {
+            Category::Star => None,
+            Category::Planet => Some(Self::Planets),
+            Category::DwarfPlanet => Some(Self::DwarfPlanets),
+            Category::Asteroid => Some(Self::Asteroids),
+            Category::Comet => Some(Self::Comets),
+            Category::Moon => Some(Self::Moons),
+        }
+    }
+
     const fn bit(self) -> u16 {
         1_u16 << self as u8
     }
@@ -151,7 +162,9 @@ pub struct LayerState {
 impl Default for LayerState {
     fn default() -> Self {
         Self {
-            visible_mask: (1_u16 << LayerId::ALL.len()) - 1,
+            visible_mask: ((1_u16 << LayerId::ALL.len()) - 1)
+                & !LayerId::Asteroids.bit()
+                & !LayerId::Comets.bit(),
         }
     }
 }
@@ -180,14 +193,7 @@ impl LayerState {
     }
 
     pub fn body_category_visible(self, category: Category) -> bool {
-        match category {
-            Category::Star => true,
-            Category::Planet => self.is_visible(LayerId::Planets),
-            Category::DwarfPlanet => self.is_visible(LayerId::DwarfPlanets),
-            Category::Asteroid => self.is_visible(LayerId::Asteroids),
-            Category::Comet => self.is_visible(LayerId::Comets),
-            Category::Moon => self.is_visible(LayerId::Moons),
-        }
+        LayerId::for_body_category(category).is_none_or(|layer| self.is_visible(layer))
     }
 
     pub const fn persistence_snapshot(self) -> LayerStateSnapshot {
@@ -1663,6 +1669,35 @@ mod tests {
         }
     }
 
+    #[test]
+    fn factory_defaults_show_overview_categories_and_hide_dense_minor_body_layers() {
+        let defaults = LayerState::default();
+        for layer in [
+            LayerId::UserInterface,
+            LayerId::Planets,
+            LayerId::DwarfPlanets,
+            LayerId::Moons,
+            LayerId::Orbits,
+            LayerId::Labels,
+            LayerId::Icons,
+        ] {
+            assert!(defaults.is_visible(layer), "{layer:?} must start visible");
+        }
+        for layer in [LayerId::Asteroids, LayerId::Comets] {
+            assert!(!defaults.is_visible(layer), "{layer:?} must start hidden");
+        }
+
+        let mut restored = defaults;
+        restored.set_visible(LayerId::Asteroids, true);
+        restored.set_visible(LayerId::Comets, true);
+        consume_presentation_command(
+            &SimCommand::RestorePresentationDefaults,
+            &mut restored,
+            &mut PresentationState::default(),
+        );
+        assert_eq!(restored, defaults);
+    }
+
     fn cue_less_layers() -> LayerState {
         let mut layers = LayerState::default();
         for layer in [LayerId::Orbits, LayerId::Labels, LayerId::Icons] {
@@ -2139,6 +2174,7 @@ mod tests {
                     .id()
             })
             .collect();
+        let initial = *app.world().resource::<LayerState>();
 
         app.world_mut()
             .resource_mut::<InputFocus>()
@@ -2152,7 +2188,10 @@ mod tests {
         );
         app.update();
         for layer in LayerId::ALL {
-            assert!(!app.world().resource::<LayerState>().is_visible(layer));
+            assert_eq!(
+                app.world().resource::<LayerState>().is_visible(layer),
+                !initial.is_visible(layer)
+            );
         }
 
         for entity in toggles {
@@ -2229,6 +2268,7 @@ mod tests {
     #[test]
     fn quick_panel_has_exact_grouping_accessibility_and_reducer_state() {
         let mut layers = LayerState::default();
+        layers.set_visible(LayerId::Comets, true);
         layers.set_visible(LayerId::Asteroids, false);
         let mut app = App::new();
         app.add_plugins((

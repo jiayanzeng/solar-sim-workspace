@@ -1244,6 +1244,13 @@ fn apply_sim_commands(gate: SimCommandGate) {
         mut diagnostics_overlay,
     } = gate;
     let commands: Vec<_> = queue.drain().collect();
+    let commands = control::expand_navigation_commands(
+        &commands,
+        loaded.as_deref(),
+        *layers,
+        &navigation,
+        Some(&startup_snapshot),
+    );
     let frame_start_t = clock.0.t();
     for command in commands {
         recording.record(frame.0, frame_start_t, command.clone());
