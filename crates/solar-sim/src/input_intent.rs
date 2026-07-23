@@ -4,7 +4,7 @@
 //! translates each intent into exactly one `SimCommand`. No other module reads
 //! keyboard or mouse state; future UI widgets join at the command queue seam.
 
-use crate::control::{RegionPreset, SimCommand, SimCommandQueue};
+use crate::control::{InterfaceResetSignal, RegionPreset, SimCommand, SimCommandQueue};
 use crate::help::HelpModalRoot;
 use crate::layers::HudSurface;
 use crate::search::{BrowseMenuRoot, BrowseUiState, SearchDropdownRoot};
@@ -303,7 +303,8 @@ pub(crate) enum ModalSurfaceSet {
 
 impl Plugin for InputIntentPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<InputIntentQueue>()
+        app.init_resource::<InterfaceResetSignal>()
+            .init_resource::<InputIntentQueue>()
             .init_resource::<InteractionState>()
             .init_resource::<PointerCaptureState>()
             .init_resource::<PrimaryDragState>()
@@ -326,6 +327,12 @@ impl Plugin for InputIntentPlugin {
                     .chain()
                     .in_set(SimulationSet::Input),
             )
+            .add_systems(
+                Update,
+                reset_interface_input_state
+                    .before(reconcile_modal_focus)
+                    .in_set(SimulationSet::Render),
+            )
             .add_systems(Update, reconcile_modal_focus.in_set(ModalSurfaceSet::Focus))
             .add_systems(
                 Update,
@@ -338,6 +345,23 @@ impl Plugin for InputIntentPlugin {
             .add_observer(collect_primary_drag)
             .add_observer(finish_primary_drag);
     }
+}
+
+fn reset_interface_input_state(
+    signal: Res<InterfaceResetSignal>,
+    mut seen: Local<u64>,
+    mut intents: ResMut<InputIntentQueue>,
+    mut interaction: ResMut<InteractionState>,
+    mut pointer: ResMut<PointerCaptureState>,
+    mut drag: ResMut<PrimaryDragState>,
+) {
+    if !signal.take_if_new(&mut seen) {
+        return;
+    }
+    *intents = InputIntentQueue::default();
+    *interaction = InteractionState::default();
+    *pointer = PointerCaptureState::default();
+    *drag = PrimaryDragState::default();
 }
 
 fn latch_interaction_state(inputs: InteractionInputs, mut state: ResMut<InteractionState>) {
@@ -711,7 +735,7 @@ fn intent_to_command(intent: InputIntent) -> SimCommand {
         InputIntent::Key(KeyIntent::Pause) => SimCommand::Pause,
         InputIntent::Key(KeyIntent::TogglePlay) => SimCommand::TogglePlay,
         InputIntent::Key(KeyIntent::SetDayRate) => SimCommand::SetRate(day_rate()),
-        InputIntent::Key(KeyIntent::ResetView) => SimCommand::ResetView,
+        InputIntent::Key(KeyIntent::ResetView) => SimCommand::ResetInterface,
         InputIntent::Key(KeyIntent::OpenHelp) => SimCommand::OpenHelp,
         InputIntent::Key(KeyIntent::CloseHelp) => SimCommand::CloseHelp,
         InputIntent::Key(KeyIntent::CloseSettings) => SimCommand::CloseSettings,
@@ -856,7 +880,7 @@ mod tests {
             SimCommand::SetRate(day_rate())
         );
         assert_eq!(day_rate().label(), "1 DAY/S");
-        assert_eq!(command_for(KeyCode::Home), SimCommand::ResetView);
+        assert_eq!(command_for(KeyCode::Home), SimCommand::ResetInterface);
         for (key, preset) in [
             (KeyCode::Digit1, RegionPreset::Inner),
             (KeyCode::Digit2, RegionPreset::Belt),

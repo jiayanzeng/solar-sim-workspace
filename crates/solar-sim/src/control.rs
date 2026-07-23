@@ -97,6 +97,7 @@ pub enum SimCommand {
         delta: f64,
     },
     ResetView,
+    ResetInterface,
     SetTime(f64),
     SetRate(RateIndex),
     StepRate(i8),
@@ -311,14 +312,100 @@ impl CameraController {
     }
 }
 
+/// Deterministic session state captured after startup settings and rate have
+/// crossed the command gate. Reset Interface restores this state without
+/// sampling wall time or changing catalog truth.
+#[derive(Resource, Debug, Clone, Default)]
+pub(crate) struct SessionStartupSnapshot {
+    state: Option<SessionStartupState>,
+    nonpersistent_presentation_override: bool,
+}
+
+#[derive(Debug, Clone)]
+struct SessionStartupState {
+    clock: SimClock,
+    camera: CameraController,
+    layers: LayerState,
+    presentation: PresentationState,
+    view_options: crate::ViewOptionsState,
+    left_panel: left_panel::LeftPanelUiState,
+    navigation: NavigationStack,
+    browse: search::BrowseUiState,
+}
+
+impl SessionStartupSnapshot {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn capture_if_missing(
+        &mut self,
+        clock: &SimClock,
+        camera: &CameraController,
+        layers: LayerState,
+        presentation: PresentationState,
+        view_options: &crate::ViewOptionsState,
+        left_panel: &left_panel::LeftPanelUiState,
+        navigation: &NavigationStack,
+        browse: &search::BrowseUiState,
+    ) {
+        if self.state.is_some() {
+            return;
+        }
+        self.state = Some(SessionStartupState {
+            clock: clock.clone(),
+            camera: camera.clone(),
+            layers,
+            presentation,
+            view_options: view_options.clone(),
+            left_panel: left_panel.clone(),
+            navigation: navigation.clone(),
+            browse: browse.clone(),
+        });
+    }
+
+    pub(crate) const fn nonpersistent_presentation_override(&self) -> bool {
+        self.nonpersistent_presentation_override
+    }
+}
+
+/// Monotonic render-side notification derived from `ResetInterface`. UI
+/// owners use it to clear entity-bound transient state after the semantic
+/// command reducer has restored the deterministic snapshot.
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub(crate) struct InterfaceResetSignal(u64);
+
+impl InterfaceResetSignal {
+    pub(crate) fn bump(&mut self) {
+        self.0 = self.0.wrapping_add(1);
+    }
+
+    pub(crate) fn take_if_new(self, seen: &mut u64) -> bool {
+        if self.0 == *seen {
+            return false;
+        }
+        *seen = self.0;
+        true
+    }
+}
+
 /// USER_STATE_MUTATION_GATE: this is the sole match over `SimCommand` that
 /// mutates the clock or camera controller. Input and UI code may only enqueue.
+#[cfg(test)]
 pub(crate) fn consume_sim_command(
     command: &SimCommand,
     clock: &mut SimClock,
     camera: &mut CameraController,
     loaded: &LoadedCatalog,
     navigation: &NavigationStack,
+) -> TickReport {
+    consume_sim_command_with_startup(command, clock, camera, loaded, navigation, None)
+}
+
+pub(crate) fn consume_sim_command_with_startup(
+    command: &SimCommand,
+    clock: &mut SimClock,
+    camera: &mut CameraController,
+    loaded: &LoadedCatalog,
+    navigation: &NavigationStack,
+    startup: Option<&SessionStartupSnapshot>,
 ) -> TickReport {
     let mut report = TickReport::default();
     match command {
@@ -385,6 +472,13 @@ pub(crate) fn consume_sim_command(
             camera.pitch_rad = INITIAL_PITCH_RAD;
             camera.distance_units = full_system_framing_distance_units(loaded);
             camera.travel = None;
+        }
+        SimCommand::ResetInterface => {
+            let Some(state) = startup.and_then(|startup| startup.state.as_ref()) else {
+                return report;
+            };
+            *clock = state.clock.clone();
+            *camera = state.camera.clone();
         }
         SimCommand::SetTime(t_s) => {
             if t_s.is_finite() {
@@ -477,6 +571,7 @@ pub(crate) fn consume_presentation_command(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub(crate) fn consume_application_command(
     command: &SimCommand,
     loaded: Option<&LoadedCatalog>,
@@ -490,6 +585,61 @@ pub(crate) fn consume_application_command(
     settings_screen: &mut settings::SettingsScreenState,
     settings_save: &mut settings::SettingsSaveRequest,
 ) {
+    let mut startup = SessionStartupSnapshot::default();
+    consume_application_command_with_startup(
+        command,
+        loaded,
+        layers,
+        presentation,
+        view_options,
+        left_panel,
+        navigation,
+        browse,
+        app_settings,
+        settings_screen,
+        settings_save,
+        &mut startup,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn consume_application_command_with_startup(
+    command: &SimCommand,
+    loaded: Option<&LoadedCatalog>,
+    layers: &mut LayerState,
+    presentation: &mut PresentationState,
+    view_options: &mut crate::ViewOptionsState,
+    left_panel: &mut left_panel::LeftPanelUiState,
+    navigation: &mut NavigationStack,
+    browse: &mut search::BrowseUiState,
+    app_settings: &mut AppSettings,
+    settings_screen: &mut settings::SettingsScreenState,
+    settings_save: &mut settings::SettingsSaveRequest,
+    startup: &mut SessionStartupSnapshot,
+) {
+    if matches!(command, SimCommand::ResetInterface) {
+        if let Some(state) = startup.state.as_ref() {
+            *layers = state.layers;
+            *presentation = state.presentation;
+            *view_options = state.view_options.clone();
+            left_panel.restore_session_snapshot(&state.left_panel);
+            *navigation = state.navigation.clone();
+            browse.restore_session_snapshot(&state.browse);
+            settings::reset_settings_screen(settings_screen, app_settings);
+            startup.nonpersistent_presentation_override = true;
+        }
+        return;
+    }
+
+    if matches!(
+        command,
+        SimCommand::SetLayerVisibility { .. }
+            | SimCommand::ToggleFullscreen
+            | SimCommand::ApplySettings(_)
+            | SimCommand::RestorePresentationDefaults
+    ) {
+        startup.nonpersistent_presentation_override = false;
+    }
     match command {
         SimCommand::OpenSettings => {
             if browse.is_open() {
@@ -516,7 +666,9 @@ pub(crate) fn consume_application_command(
     left_panel::consume_left_panel_command(command, loaded, view_options, left_panel, navigation);
     search::consume_search_command(command, browse);
     settings::consume_settings_command(command, settings_screen, app_settings, settings_save);
-    if settings::converge_presentation_settings(layers, presentation, app_settings) {
+    if !startup.nonpersistent_presentation_override
+        && settings::converge_presentation_settings(layers, presentation, app_settings)
+    {
         settings_save.request();
     }
 }
@@ -919,6 +1071,7 @@ pub struct HeadlessSimulation {
     navigation: NavigationStack,
     settings_screen: settings::SettingsScreenState,
     settings_save: settings::SettingsSaveRequest,
+    startup_snapshot: SessionStartupSnapshot,
     frame: u64,
     wall_now_t: f64,
 }
@@ -951,21 +1104,37 @@ impl HeadlessSimulation {
             &mut left_panel,
             &mut navigation,
         );
+        let layers = LayerState::default();
+        let presentation = PresentationState::default();
+        let view_options = crate::ViewOptionsState::default();
+        let browse = search::BrowseUiState::default();
+        let mut startup_snapshot = SessionStartupSnapshot::default();
+        startup_snapshot.capture_if_missing(
+            &clock,
+            &camera,
+            layers,
+            presentation,
+            &view_options,
+            &left_panel,
+            &navigation,
+            &browse,
+        );
         Ok(Self {
             loaded,
             clock,
             states,
             propagation,
             camera,
-            layers: LayerState::default(),
-            presentation: PresentationState::default(),
-            view_options: crate::ViewOptionsState::default(),
+            layers,
+            presentation,
+            view_options,
             app_settings: AppSettings::default(),
             left_panel,
-            browse: search::BrowseUiState::default(),
+            browse,
             navigation,
             settings_screen: settings::SettingsScreenState::default(),
             settings_save: settings::SettingsSaveRequest::default(),
+            startup_snapshot,
             frame: 0,
             wall_now_t,
         })
@@ -1040,7 +1209,7 @@ impl HeadlessSimulation {
             if let Some(recorder) = recording.as_deref_mut() {
                 recorder.record(self.frame, frame_start_t, command.clone());
             }
-            consume_application_command(
+            consume_application_command_with_startup(
                 command,
                 Some(&self.loaded),
                 &mut self.layers,
@@ -1052,13 +1221,15 @@ impl HeadlessSimulation {
                 &mut self.app_settings,
                 &mut self.settings_screen,
                 &mut self.settings_save,
+                &mut self.startup_snapshot,
             );
-            consume_sim_command(
+            consume_sim_command_with_startup(
                 command,
                 &mut self.clock,
                 &mut self.camera,
                 &self.loaded,
                 &self.navigation,
+                Some(&self.startup_snapshot),
             );
             left_panel::sync_left_panel_selection_state(
                 &self.camera,
@@ -1116,6 +1287,9 @@ impl HeadlessSimulation {
         hash.u8(u8::from(self.presentation.is_settings_open())
             | (u8::from(self.presentation.is_help_open()) << 1));
         hash.u8(u8::from(self.presentation.is_layers_panel_open()));
+        hash.u8(u8::from(
+            self.startup_snapshot.nonpersistent_presentation_override(),
+        ));
         hash_view_options(&mut hash, &self.view_options);
         hash_app_settings(&mut hash, &self.app_settings);
         let (selected_body_index, left_panel_tab) =
@@ -1359,6 +1533,7 @@ fn serialize_entry(entry: &StampedCommand) -> String {
             format!("{prefix}|dolly|{:016x}", delta.to_bits())
         }
         SimCommand::ResetView => format!("{prefix}|reset-view"),
+        SimCommand::ResetInterface => format!("{prefix}|reset-interface"),
         SimCommand::SetTime(t_s) => format!("{prefix}|set-time|{:016x}", t_s.to_bits()),
         SimCommand::SetRate(rate) => format!("{prefix}|set-rate|{}", rate.get()),
         SimCommand::StepRate(delta) => format!("{prefix}|step-rate|{delta}"),
@@ -1606,6 +1781,7 @@ fn parse_entry(line: &str) -> Result<StampedCommand, String> {
             delta: parse_f64_bits(fields[3], "dolly")?,
         },
         "reset-view" if fields.len() == 3 => SimCommand::ResetView,
+        "reset-interface" if fields.len() == 3 => SimCommand::ResetInterface,
         "set-time" if fields.len() == 4 => {
             let t_s = parse_f64_bits(fields[3], "time")?;
             if !t_s.is_finite() {
@@ -1790,10 +1966,19 @@ mod tests {
     const FRAME_DT_S: f64 = 1.0 / 60.0;
     // UIP-6 intentionally adds the persisted Retina-rendering identity to the
     // deterministic settings hash; the mixed replay remains otherwise exact.
-    const PORTABLE_REPLAY_HASH: u64 = 17_908_512_438_397_036_261;
+    const PORTABLE_REPLAY_HASH: u64 = 15_702_349_732_272_648_697;
 
     fn catalog() -> Catalog {
         load_catalog_text(REAL_CATALOG).expect("committed catalog must load")
+    }
+
+    fn clock_state(clock: &SimClock) -> (u64, RateIndex, bool, bool) {
+        (
+            clock.t().to_bits(),
+            clock.rate(),
+            clock.is_playing(),
+            clock.is_snapping(),
+        )
     }
 
     fn jupiter_collection_simulation() -> HeadlessSimulation {
@@ -2103,6 +2288,175 @@ mod tests {
         assert!(ReplayStream::from_text(concat!(
             "solar-sim-replay-v2\n",
             "0|0000000000000000|reset-view|extra\n"
+        ))
+        .is_err());
+    }
+
+    #[test]
+    fn reset_interface_restores_every_captured_field_idempotently_and_replays() {
+        let catalog = catalog();
+        let mut simulation = HeadlessSimulation::new(&catalog).unwrap();
+        let startup = simulation.startup_snapshot.state.as_ref().unwrap().clone();
+
+        simulation
+            .step_with_wall_time(
+                0.0,
+                0.0,
+                &[
+                    SimCommand::SetTime(startup.clock.t() + 86_400.0),
+                    SimCommand::SetRate(RateIndex::MAX),
+                    SimCommand::Pause,
+                    SimCommand::TravelToBody("jupiter".into()),
+                    SimCommand::Orbit {
+                        delta_yaw: 41.0,
+                        delta_pitch: -17.0,
+                    },
+                    SimCommand::Dolly { delta: 3.0 },
+                    SimCommand::SetLayerVisibility {
+                        layer: LayerId::UserInterface,
+                        visible: false,
+                    },
+                    SimCommand::SetLayersPanelOpen(true),
+                    SimCommand::SetBodySize(BodySizeScale::X50),
+                    SimCommand::SetMoonVisibility {
+                        system_id: "jupiter".into(),
+                        mode: MoonVisibilityMode::All,
+                    },
+                    SimCommand::SetLocalOrbitVisibility {
+                        body_id: "jupiter".into(),
+                        visible: false,
+                    },
+                    SimCommand::SetLeftPanelCollapsed(true),
+                    SimCommand::SetLeftPanelTab(LeftPanelTab::ViewOptions),
+                    SimCommand::SetBrowseOpen(true),
+                    SimCommand::SetBrowseColumnExpanded {
+                        column: 1,
+                        expanded: true,
+                    },
+                    SimCommand::ToggleFullscreen,
+                    SimCommand::OpenSettings,
+                ],
+                None,
+            )
+            .unwrap();
+        // Exercise the complete modal snapshot, including a defensive state
+        // that cannot be reached through the mutually exclusive modal reducer.
+        simulation.presentation.open_help();
+        simulation.navigation.push("synthetic", "Synthetic");
+
+        assert_ne!(clock_state(&simulation.clock), clock_state(&startup.clock));
+        assert_ne!(
+            simulation.camera.semantic_snapshot(),
+            startup.camera.semantic_snapshot()
+        );
+        assert_ne!(simulation.layers, startup.layers);
+        assert_ne!(simulation.presentation, startup.presentation);
+        assert_ne!(simulation.view_options, startup.view_options);
+        assert_ne!(
+            left_panel::left_panel_replay_state(&simulation.left_panel),
+            left_panel::left_panel_replay_state(&startup.left_panel)
+        );
+        assert_ne!(simulation.navigation, startup.navigation);
+        assert_ne!(
+            simulation.browse.replay_state(),
+            startup.browse.replay_state()
+        );
+        let settings_before_reset = simulation.app_settings.clone();
+        let save_before_reset = simulation.settings_save.is_requested();
+
+        simulation
+            .step_with_wall_time(0.0, 0.0, &[SimCommand::ResetInterface], None)
+            .unwrap();
+
+        assert_eq!(clock_state(&simulation.clock), clock_state(&startup.clock));
+        assert_eq!(
+            simulation.camera.semantic_snapshot(),
+            startup.camera.semantic_snapshot()
+        );
+        assert_eq!(simulation.layers, startup.layers);
+        assert_eq!(simulation.presentation, startup.presentation);
+        assert_eq!(simulation.view_options, startup.view_options);
+        assert_eq!(
+            left_panel::left_panel_replay_state(&simulation.left_panel),
+            left_panel::left_panel_replay_state(&startup.left_panel)
+        );
+        assert_eq!(simulation.navigation, startup.navigation);
+        assert_eq!(
+            simulation.browse.replay_state(),
+            startup.browse.replay_state()
+        );
+        assert!(!simulation.settings_screen.is_open());
+        assert_eq!(simulation.app_settings, settings_before_reset);
+        assert_eq!(simulation.settings_save.is_requested(), save_before_reset);
+        assert!(simulation
+            .startup_snapshot
+            .nonpersistent_presentation_override());
+
+        let once = (
+            clock_state(&simulation.clock),
+            simulation.camera.semantic_snapshot(),
+            simulation.layers,
+            simulation.presentation,
+            simulation.view_options.clone(),
+            left_panel::left_panel_replay_state(&simulation.left_panel),
+            simulation.navigation.clone(),
+            simulation.browse.replay_state(),
+        );
+        simulation
+            .step_with_wall_time(0.0, 0.0, &[SimCommand::ResetInterface], None)
+            .unwrap();
+        let twice = (
+            clock_state(&simulation.clock),
+            simulation.camera.semantic_snapshot(),
+            simulation.layers,
+            simulation.presentation,
+            simulation.view_options.clone(),
+            left_panel::left_panel_replay_state(&simulation.left_panel),
+            simulation.navigation.clone(),
+            simulation.browse.replay_state(),
+        );
+        assert_eq!(twice, once);
+
+        let mut clean_reset = HeadlessSimulation::new(&catalog).unwrap();
+        clean_reset
+            .step_with_wall_time(0.0, 0.0, &[SimCommand::ResetInterface], None)
+            .unwrap();
+        assert!(!clean_reset.settings_save.is_requested());
+
+        let mut original = HeadlessSimulation::new(&catalog).unwrap();
+        let mut recording = CommandRecording::default();
+        original
+            .step_with_wall_time(
+                0.0,
+                0.0,
+                &[
+                    SimCommand::TravelToBody("io".into()),
+                    SimCommand::Pause,
+                    SimCommand::SetLayerVisibility {
+                        layer: LayerId::Labels,
+                        visible: false,
+                    },
+                    SimCommand::SetBrowseOpen(true),
+                ],
+                Some(&mut recording),
+            )
+            .unwrap();
+        original
+            .step_with_wall_time(
+                0.0,
+                0.0,
+                &[SimCommand::ResetInterface],
+                Some(&mut recording),
+            )
+            .unwrap();
+        let text = recording.stream().to_text();
+        assert!(text.contains("|reset-interface\n"));
+        let parsed = ReplayStream::from_text(&text).unwrap();
+        let replayed = replay_headless(&catalog, &parsed, 2, 0.0).unwrap();
+        assert_eq!(replayed.state_hash(), original.state_hash());
+        assert!(ReplayStream::from_text(concat!(
+            "solar-sim-replay-v2\n",
+            "0|0000000000000000|reset-interface|extra\n"
         ))
         .is_err());
     }

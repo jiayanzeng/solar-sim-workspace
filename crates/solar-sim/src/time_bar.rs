@@ -4,7 +4,7 @@
 //! `SimCommand`s, while toasts consume transition-only `TickReport`s; neither
 //! path reimplements clock levels or time arithmetic.
 
-use crate::control::{SimCommand, SimCommandQueue};
+use crate::control::{InterfaceResetSignal, SimCommand, SimCommandQueue};
 use crate::layers::HudSurface;
 use crate::scene_polish::OrbitEmphasisSet;
 use crate::ui_kit::{toast, UiColorToken, UiTheme, WidgetSpec, WidgetVisualState};
@@ -19,7 +19,9 @@ use bevy::{
         FocusedInput, InputFocus,
     },
     prelude::*,
-    text::{EditableText, FontSourceTemplate, LetterSpacing, LineBreak, TextEdit, TextLayout},
+    text::{
+        EditableText, FontSourceTemplate, Justify, LetterSpacing, LineBreak, TextEdit, TextLayout,
+    },
     ui_widgets::{
         Activate, Slider, SliderDragState, SliderPrecision, SliderRange, SliderStep, SliderThumb,
         SliderValue, TrackClick, ValueChange,
@@ -61,6 +63,9 @@ struct PlayPauseButton;
 
 #[derive(Component, Debug, Clone, Copy, Default, FromTemplate)]
 struct PlayPauseGlyph;
+
+#[derive(Component, Debug, Clone, Copy, Default, FromTemplate)]
+struct ResetInterfaceButton;
 
 #[derive(Component, Debug, Clone, Copy, Default, FromTemplate)]
 struct LiveChip;
@@ -200,12 +205,14 @@ pub struct TimeBarPlugin;
 impl Plugin for TimeBarPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(TabNavigationPlugin)
+            .init_resource::<InterfaceResetSignal>()
             .init_resource::<TimeEditFocus>()
             .add_systems(Startup, spawn_time_bar)
             .add_systems(Update, update_time_edits.in_set(SimulationSet::Input))
             .add_systems(
                 Update,
                 (
+                    clear_reset_transients,
                     spawn_slider_detents,
                     sync_time_playback_controls,
                     sync_live_chip,
@@ -291,6 +298,7 @@ fn time_bar_scene(theme: UiTheme, clock: &SimClock) -> impl Scene {
                         BackgroundColor({theme.colors.separator.color()})
                     ),
                     play_pause_button(theme, clock.is_playing()),
+                    reset_interface_button(theme),
                     (
                         Node {
                             flex_grow: 1.0,
@@ -332,8 +340,8 @@ fn edit_field(
     accessible_label: &'static str,
 ) -> impl Scene {
     let (width, min_width) = match field {
-        TimeEditField::Date => (154.0, 110.0),
-        TimeEditField::Clock => (92.0, 72.0),
+        TimeEditField::Date => (154.0, 96.0),
+        TimeEditField::Clock => (92.0, 60.0),
     };
     bsn! {
         Node {
@@ -429,7 +437,7 @@ fn rate_slider(theme: UiTheme, clock: &SimClock) -> impl Scene {
         SliderStep(1.0)
         SliderPrecision(0)
         AccessibleLabel("Simulation rate: 24 signed detents and paused center")
-        TabIndex(4)
+        TabIndex(5)
         on(change_rate_slider)
         Children [
             (
@@ -468,6 +476,42 @@ fn rate_slider(theme: UiTheme, clock: &SimClock) -> impl Scene {
     }
 }
 
+fn reset_interface_button(theme: UiTheme) -> impl Scene {
+    bsn! {
+        Node {
+            width: px(112),
+            min_width: px(72),
+            height: px(38),
+            flex_shrink: 1.0,
+            padding: UiRect::horizontal(px(theme.spacing.xs_px)),
+            border: UiRect::all(px(theme.spacing.hairline_px)),
+            border_radius: BorderRadius::all(px(theme.spacing.radius_px)),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+        }
+        bevy::ui_widgets::Button
+        ResetInterfaceButton
+        AccessibleLabel("Reset interface to its launch state")
+        TabIndex(3)
+        BackgroundColor({theme.colors.panel.color()})
+        BorderColor::all(theme.colors.accent.color())
+        on(reset_interface)
+        Children [(
+            Text("RESET\nINTERFACE")
+            TextFont {
+                font: FontSourceTemplate::Handle(INTER_FONT_ASSET),
+                font_size: px(theme.type_scale.caption_px),
+            }
+            TextColor({theme.colors.text_primary.color()})
+            TextLayout {
+                justify: Justify::Center,
+                linebreak: LineBreak::WordBoundary,
+            }
+            Pickable::IGNORE
+        )]
+    }
+}
+
 fn live_chip(theme: UiTheme) -> impl Scene {
     bsn! {
         Node {
@@ -483,7 +527,7 @@ fn live_chip(theme: UiTheme) -> impl Scene {
         bevy::ui_widgets::Button
         LiveChip
         AccessibleLabel("Snap simulation to LIVE time")
-        TabIndex(3)
+        TabIndex(4)
         BackgroundColor({theme.colors.background.color()})
         BorderColor::all(theme.colors.separator.color())
         on(snap_to_live)
@@ -560,6 +604,10 @@ fn finish_time_edit(
 
 fn toggle_play_pause(_activate: On<Activate>, mut commands: ResMut<SimCommandQueue>) {
     commands.push(SimCommand::TogglePlay);
+}
+
+fn reset_interface(_activate: On<Activate>, mut commands: ResMut<SimCommandQueue>) {
+    commands.push(SimCommand::ResetInterface);
 }
 
 fn snap_to_live(_activate: On<Activate>, mut commands: ResMut<SimCommandQueue>) {
@@ -769,6 +817,22 @@ fn sync_live_chip(
 
 type ChangedTimeRateSliders<'w, 's> =
     Query<'w, 's, (Entity, &'static SliderValue), (With<TimeRateSlider>, Changed<SliderValue>)>;
+
+fn clear_reset_transients(
+    signal: Res<InterfaceResetSignal>,
+    mut seen: Local<u64>,
+    mut edit_focus: ResMut<TimeEditFocus>,
+    toasts: Query<Entity, With<TimeToast>>,
+    mut commands: Commands,
+) {
+    if !signal.take_if_new(&mut seen) {
+        return;
+    }
+    *edit_focus = TimeEditFocus::default();
+    for toast in &toasts {
+        commands.entity(toast).despawn();
+    }
+}
 
 fn update_slider_thumb(
     sliders: ChangedTimeRateSliders,
@@ -1095,6 +1159,38 @@ mod tests {
     }
 
     #[test]
+    fn reset_button_queues_one_command_and_signal_clears_time_transients() {
+        let mut app = App::new();
+        app.init_resource::<SimCommandQueue>()
+            .init_resource::<InterfaceResetSignal>()
+            .init_resource::<TimeEditFocus>()
+            .add_systems(Update, clear_reset_transients);
+        let button = app
+            .world_mut()
+            .spawn(ResetInterfaceButton)
+            .observe(reset_interface)
+            .id();
+        let toast = app.world_mut().spawn(TimeToast { remaining_s: 3.0 }).id();
+        app.world_mut().resource_mut::<TimeEditFocus>().original_t_s = Some(42.0);
+
+        app.world_mut().trigger(Activate { entity: button });
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .collect::<Vec<_>>(),
+            vec![SimCommand::ResetInterface]
+        );
+
+        app.world_mut()
+            .resource_mut::<InterfaceResetSignal>()
+            .bump();
+        app.update();
+        assert!(app.world().get_entity(toast).is_err());
+        assert_eq!(app.world().resource::<TimeEditFocus>().original_t_s, None);
+    }
+
+    #[test]
     fn invalid_date_and_time_edits_revert_without_moving_clock() {
         let original_t = t_from_jd_tdb(2_461_233.0);
         let invalid_date = commit_time_edit(original_t, TimeEditField::Date, "2026-02-30");
@@ -1366,11 +1462,12 @@ mod tests {
             let mut controls = world.query_filtered::<Entity, Or<(
                 With<TimeEditFieldComponent>,
                 With<PlayPauseButton>,
+                With<ResetInterfaceButton>,
                 With<TimeRateSlider>,
                 With<LiveChip>,
             )>>();
             let controls: Vec<_> = controls.iter(world).collect();
-            assert_eq!(controls.len(), 5);
+            assert_eq!(controls.len(), 6);
             for entity in controls {
                 let rect = node_rect(world, entity);
                 assert!(
@@ -1381,6 +1478,30 @@ mod tests {
                     "{width}×{height} scale {scale}: time control {entity:?} {rect:?} escaped {dock_rect:?}"
                 );
             }
+            let pause = world
+                .query_filtered::<Entity, With<PlayPauseButton>>()
+                .single(world)
+                .unwrap();
+            let reset = world
+                .query_filtered::<Entity, With<ResetInterfaceButton>>()
+                .single(world)
+                .unwrap();
+            let live = world
+                .query_filtered::<Entity, With<LiveChip>>()
+                .single(world)
+                .unwrap();
+            let row = world.get::<ChildOf>(pause).unwrap().parent();
+            assert_eq!(world.get::<ChildOf>(reset).unwrap().parent(), row);
+            assert_eq!(world.get::<ChildOf>(live).unwrap().parent(), row);
+            let siblings = world.get::<Children>(row).unwrap();
+            let pause_order = siblings.iter().position(|entity| entity == pause).unwrap();
+            let reset_order = siblings.iter().position(|entity| entity == reset).unwrap();
+            let live_order = siblings.iter().position(|entity| entity == live).unwrap();
+            assert!(pause_order < reset_order && reset_order < live_order);
+            assert_eq!(
+                world.get::<AccessibleLabel>(reset).unwrap().0,
+                "Reset interface to its launch state"
+            );
 
             let slider = world
                 .query_filtered::<Entity, With<TimeRateSlider>>()
@@ -1412,12 +1533,13 @@ mod tests {
             let mut indices = world.query_filtered::<&TabIndex, Or<(
                 With<TimeEditFieldComponent>,
                 With<PlayPauseButton>,
+                With<ResetInterfaceButton>,
                 With<TimeRateSlider>,
                 With<LiveChip>,
             )>>();
             let mut indices: Vec<_> = indices.iter(world).map(|index| index.0).collect();
             indices.sort_unstable();
-            assert_eq!(indices, vec![0, 1, 2, 3, 4]);
+            assert_eq!(indices, vec![0, 1, 2, 3, 4, 5]);
         }
     }
 

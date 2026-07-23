@@ -109,6 +109,7 @@ pub use ui_kit::{WidgetGalleryCell, WidgetGalleryRoot};
 
 use bevy::camera::{RenderTarget, ShadowLodOrigin};
 use bevy::ecs::system::SystemParam;
+use bevy::input_focus::InputFocus;
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
 use bevy::render::renderer::RenderAdapterInfo;
@@ -119,8 +120,9 @@ use bevy::settings::SettingsPlugin;
 use bevy::ui::IsDefaultUiCamera;
 use bevy::window::ExitCondition;
 use control::{
-    advance_camera_controller, consume_application_command, consume_sim_command,
-    framing_distance_units, full_system_framing_distance_units, SimCommandQueue, SimulationFrame,
+    advance_camera_controller, consume_application_command_with_startup,
+    consume_sim_command_with_startup, framing_distance_units, full_system_framing_distance_units,
+    InterfaceResetSignal, SessionStartupSnapshot, SimCommandQueue, SimulationFrame,
 };
 use input_intent::InputIntentPlugin;
 #[cfg(debug_assertions)]
@@ -1069,6 +1071,8 @@ fn build_app_with_platform<P: Plugin>(
         .insert_resource(CommandRecording::default())
         .insert_resource(SimulationFrame::default())
         .insert_resource(PropagationFault::default())
+        .insert_resource(SessionStartupSnapshot::default())
+        .insert_resource(InterfaceResetSignal::default())
         .insert_resource(SmokeFrames::new(
             options.smoke_frames,
             options.expected_backend,
@@ -1204,6 +1208,9 @@ struct SimCommandGate<'w> {
     app_settings: ResMut<'w, AppSettings>,
     settings_screen: ResMut<'w, settings::SettingsScreenState>,
     settings_save: ResMut<'w, settings::SettingsSaveRequest>,
+    startup_snapshot: ResMut<'w, SessionStartupSnapshot>,
+    interface_reset: ResMut<'w, InterfaceResetSignal>,
+    input_focus: Option<ResMut<'w, InputFocus>>,
     #[cfg(debug_assertions)]
     debug_device_loss: ResMut<'w, DebugDeviceLossRequest>,
     #[cfg(debug_assertions)]
@@ -1228,6 +1235,9 @@ fn apply_sim_commands(gate: SimCommandGate) {
         mut app_settings,
         mut settings_screen,
         mut settings_save,
+        mut startup_snapshot,
+        mut interface_reset,
+        mut input_focus,
         #[cfg(debug_assertions)]
         mut debug_device_loss,
         #[cfg(debug_assertions)]
@@ -1237,6 +1247,12 @@ fn apply_sim_commands(gate: SimCommandGate) {
     let frame_start_t = clock.0.t();
     for command in commands {
         recording.record(frame.0, frame_start_t, command.clone());
+        if matches!(command, SimCommand::ResetInterface) {
+            interface_reset.bump();
+            if let Some(focus) = input_focus.as_deref_mut() {
+                focus.clear();
+            }
+        }
         #[cfg(debug_assertions)]
         if matches!(command, SimCommand::SimulateDeviceLoss) {
             request_debug_device_loss(&mut debug_device_loss);
@@ -1258,7 +1274,7 @@ fn apply_sim_commands(gate: SimCommandGate) {
         let app_settings_before = (*app_settings).clone();
         let settings_screen_before = (*settings_screen).clone();
         let settings_save_before = settings_save.is_requested();
-        consume_application_command(
+        consume_application_command_with_startup(
             &command,
             loaded.as_deref(),
             layers.bypass_change_detection(),
@@ -1270,14 +1286,16 @@ fn apply_sim_commands(gate: SimCommandGate) {
             app_settings.bypass_change_detection(),
             settings_screen.bypass_change_detection(),
             settings_save.bypass_change_detection(),
+            startup_snapshot.bypass_change_detection(),
         );
         if let (Some(loaded), Some(camera)) = (loaded.as_deref(), camera.as_mut()) {
-            let command_report = consume_sim_command(
+            let command_report = consume_sim_command_with_startup(
                 &command,
                 &mut clock.bypass_change_detection().0,
                 camera.bypass_change_detection(),
                 loaded,
                 &navigation,
+                Some(&startup_snapshot),
             );
             let camera = camera.bypass_change_detection();
             write_tick_report(command_report, &mut reports);
@@ -1323,6 +1341,18 @@ fn apply_sim_commands(gate: SimCommandGate) {
         if settings_save.is_requested() != settings_save_before {
             settings_save.set_changed();
         }
+    }
+    if let Some(camera) = camera.as_deref() {
+        startup_snapshot.capture_if_missing(
+            &clock.0,
+            camera,
+            *layers,
+            *presentation,
+            &view_options,
+            &left_panel,
+            &navigation,
+            &browse,
+        );
     }
 }
 
@@ -2692,6 +2722,9 @@ mod tests {
             .init_resource::<AppSettings>()
             .init_resource::<settings::SettingsScreenState>()
             .init_resource::<settings::SettingsSaveRequest>()
+            .init_resource::<SessionStartupSnapshot>()
+            .init_resource::<InterfaceResetSignal>()
+            .init_resource::<InputFocus>()
             .init_resource::<SemanticChangeProbe>()
             .add_message::<ClockTickReport>()
             .add_systems(
@@ -2741,6 +2774,32 @@ mod tests {
         let replayed = replay_headless(&catalog(), &parsed, 1, 0.0).unwrap();
         assert_eq!(replayed.clock().rate(), settings.startup_rate.rate());
         assert!(replayed.clock().is_playing());
+        app.insert_resource(recording);
+
+        {
+            let mut queue = app.world_mut().resource_mut::<SimCommandQueue>();
+            queue.push(SimCommand::SetRate(RateIndex::MAX));
+            queue.push(SimCommand::Pause);
+        }
+        app.update();
+        let focused = app.world_mut().spawn_empty().id();
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(focused, bevy::input_focus::FocusCause::Navigated);
+        app.world_mut()
+            .resource_mut::<SimCommandQueue>()
+            .push(SimCommand::ResetInterface);
+        app.update();
+        let reset_clock = &app.world().resource::<SimulationClock>().0;
+        assert_eq!(reset_clock.t().to_bits(), initial_t.to_bits());
+        assert_eq!(reset_clock.rate(), settings.startup_rate.rate());
+        assert!(reset_clock.is_playing());
+        assert_eq!(app.world().resource::<InputFocus>().get(), None);
+        let mut seen = 0;
+        assert!(app
+            .world()
+            .resource::<InterfaceResetSignal>()
+            .take_if_new(&mut seen));
     }
 
     #[test]
@@ -2901,6 +2960,8 @@ mod tests {
             .init_resource::<AppSettings>()
             .init_resource::<settings::SettingsScreenState>()
             .init_resource::<settings::SettingsSaveRequest>()
+            .init_resource::<SessionStartupSnapshot>()
+            .init_resource::<InterfaceResetSignal>()
             .add_message::<ClockTickReport>()
             .add_systems(Update, apply_sim_commands);
         #[cfg(debug_assertions)]
@@ -2973,6 +3034,8 @@ mod tests {
             .init_resource::<AppSettings>()
             .init_resource::<settings::SettingsScreenState>()
             .init_resource::<settings::SettingsSaveRequest>()
+            .init_resource::<SessionStartupSnapshot>()
+            .init_resource::<InterfaceResetSignal>()
             .add_message::<ClockTickReport>()
             .add_systems(Update, apply_sim_commands);
         #[cfg(debug_assertions)]

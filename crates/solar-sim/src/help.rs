@@ -39,7 +39,7 @@ struct HelpGuideEntry;
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 enum HelpAction {
     Close,
-    ResetView,
+    ResetInterface,
 }
 
 #[derive(Resource, Debug, Default)]
@@ -61,8 +61,8 @@ const GUIDE_ENTRIES: [GuideEntry; 11] = [
         body: "Left-drag or right-drag the scene to orbit the focused body. Scroll to dolly. A short primary click still selects a body.",
     },
     GuideEntry {
-        heading: "RESET VIEW",
-        body: "Press Home, or use RESET VIEW below, to return to the Sun-focused startup angle and full-system framing.",
+        heading: "RESET INTERFACE",
+        body: "Press Home, or use RESET INTERFACE below, to restore the captured launch-time simulation, camera, panels, layers, and view options.",
     },
     GuideEntry {
         heading: "TIME RATE",
@@ -98,7 +98,7 @@ const GUIDE_ENTRIES: [GuideEntry; 11] = [
     },
     GuideEntry {
         heading: "KEYBOARD AND ESCAPE",
-        body: "Tab and Shift-Tab move through controls. Escape first reverts active text, then closes Browse, Settings, or this guide; from the scene it opens this guide.",
+        body: "Tab and Shift-Tab move through controls. Reset Interface is reachable within one Escape from every screen, and Home also works while the UI is hidden.",
     },
 ];
 
@@ -353,9 +353,9 @@ fn rebuild_help_modal(
         footer,
         *theme,
         font,
-        "RESET VIEW",
-        "Reset camera to the Sun-focused full-system view",
-        HelpAction::ResetView,
+        "RESET INTERFACE",
+        "Reset interface to its launch state",
+        HelpAction::ResetInterface,
         HELP_RESET_TAB_INDEX,
     );
 
@@ -425,7 +425,7 @@ fn activate_help_action(
     };
     commands.push(match action {
         HelpAction::Close => SimCommand::CloseHelp,
-        HelpAction::ResetView => SimCommand::ResetView,
+        HelpAction::ResetInterface => SimCommand::ResetInterface,
     });
 }
 
@@ -500,7 +500,7 @@ mod tests {
             .id();
         let reset = app
             .world_mut()
-            .spawn(HelpAction::ResetView)
+            .spawn(HelpAction::ResetInterface)
             .observe(activate_help_action)
             .id();
 
@@ -512,7 +512,7 @@ mod tests {
                 .resource_mut::<SimCommandQueue>()
                 .drain()
                 .collect::<Vec<_>>(),
-            vec![SimCommand::CloseHelp, SimCommand::ResetView]
+            vec![SimCommand::CloseHelp, SimCommand::ResetInterface]
         );
     }
 
@@ -643,7 +643,7 @@ mod tests {
             assert!(node_rect(app.world(), scroll).height() > 0.0);
 
             let close = action_entity(app.world_mut(), HelpAction::Close);
-            let reset = action_entity(app.world_mut(), HelpAction::ResetView);
+            let reset = action_entity(app.world_mut(), HelpAction::ResetInterface);
             assert!(rect_contains(
                 node_rect(app.world(), root),
                 node_rect(app.world(), close)

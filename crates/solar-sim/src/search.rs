@@ -5,7 +5,7 @@
 //! owns only edit/dropdown/menu state; body and region selections cross their
 //! shared semantic `SimCommand` travel boundaries.
 
-use crate::control::{RegionPreset, SimCommand, SimCommandQueue};
+use crate::control::{InterfaceResetSignal, RegionPreset, SimCommand, SimCommandQueue};
 use crate::input_intent::{ModalSurfaceSet, UiScrollSurface};
 use crate::layers::HudSurface;
 use crate::ui_kit::{
@@ -486,6 +486,17 @@ impl BrowseUiState {
     pub(crate) const fn replay_state(&self) -> (bool, [bool; 3]) {
         (self.open, self.expanded)
     }
+
+    pub(crate) fn restore_session_snapshot(&mut self, snapshot: &Self) {
+        let rendered_root = self.root.take();
+        *self = snapshot.clone();
+        self.root = rendered_root;
+        self.dirty = true;
+        self.scroll_y = [0.0; 3];
+        self.restore_focus = None;
+        self.restore_action = None;
+        self.reset_scroll_column = None;
+    }
 }
 
 pub(crate) fn consume_search_command(command: &SimCommand, state: &mut BrowseUiState) {
@@ -540,7 +551,8 @@ pub struct SearchMenuPlugin;
 impl Plugin for SearchMenuPlugin {
     fn build(&self, app: &mut App) {
         crate::record_architecture_plugin(app, "SearchMenuPlugin");
-        app.init_resource::<SearchUiState>()
+        app.init_resource::<InterfaceResetSignal>()
+            .init_resource::<SearchUiState>()
             .init_resource::<BrowseUiState>()
             .add_systems(
                 Update,
@@ -551,12 +563,44 @@ impl Plugin for SearchMenuPlugin {
             .add_systems(
                 Update,
                 (
+                    reset_search_interface,
                     rebuild_search_dropdown,
                     rebuild_browse_menu.in_set(ModalSurfaceSet::Rebuild),
                 )
                     .chain()
                     .in_set(SimulationSet::Render),
             );
+    }
+}
+
+fn reset_search_interface(
+    signal: Res<InterfaceResetSignal>,
+    mut seen: Local<u64>,
+    mut commands: Commands,
+    roots: Query<Entity, With<SearchDropdownRoot>>,
+    mut state: ResMut<SearchUiState>,
+    mut fields: Query<&mut EditableText, With<SearchInput>>,
+    mut hints: Query<&mut Visibility, With<SearchHint>>,
+) {
+    if !signal.take_if_new(&mut seen) {
+        return;
+    }
+    for root in &roots {
+        commands.entity(root).despawn();
+    }
+    let mut pending_value = None;
+    for mut editable in &mut fields {
+        if !editable.value().to_string().is_empty() {
+            replace_editable_text(&mut editable, "");
+            pending_value = Some(String::new());
+        }
+    }
+    *state = SearchUiState {
+        pending_value,
+        ..default()
+    };
+    for mut visibility in &mut hints {
+        *visibility = Visibility::Visible;
     }
 }
 
@@ -1881,6 +1925,47 @@ mod tests {
         app.world_mut().resource_mut::<SearchHintWrites>().0 = 0;
         app.update();
         assert_eq!(app.world().resource::<SearchHintWrites>().0, 0);
+    }
+
+    #[test]
+    fn reset_signal_clears_search_text_hits_and_dropdown_transients() {
+        let mut app = App::new();
+        app.init_resource::<InterfaceResetSignal>()
+            .init_resource::<SearchUiState>()
+            .add_systems(Update, reset_search_interface);
+        let input = app
+            .world_mut()
+            .spawn((SearchInput, EditableText::new("jupit")))
+            .id();
+        let hint = app.world_mut().spawn((SearchHint, Visibility::Hidden)).id();
+        let dropdown = app.world_mut().spawn(SearchDropdownRoot).id();
+        {
+            let catalog = real_catalog();
+            let mut state = app.world_mut().resource_mut::<SearchUiState>();
+            state.set_query(&catalog, "jupit".into());
+            state.active_input = Some(input);
+            state.dropdown_root = Some(dropdown);
+            state.suppress_dropdown = true;
+        }
+
+        app.world_mut()
+            .resource_mut::<InterfaceResetSignal>()
+            .bump();
+        app.update();
+
+        let state = app.world().resource::<SearchUiState>();
+        assert!(state.query.is_empty());
+        assert!(state.restore_query.is_empty());
+        assert!(state.hits.is_empty());
+        assert_eq!(state.active_input, None);
+        assert_eq!(state.dropdown_root, None);
+        assert!(!state.suppress_dropdown);
+        assert_eq!(queued_or_current_editable_value(app.world(), input), "");
+        assert_eq!(
+            app.world().get::<Visibility>(hint),
+            Some(&Visibility::Visible)
+        );
+        assert!(app.world().get_entity(dropdown).is_err());
     }
 
     #[test]

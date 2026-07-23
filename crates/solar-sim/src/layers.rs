@@ -5,7 +5,7 @@
 //! without owning duplicate switches; only scroll and focus mechanics remain
 //! local to the retained UI surface.
 
-use crate::control::{SimCommand, SimCommandQueue};
+use crate::control::{InterfaceResetSignal, SimCommand, SimCommandQueue};
 use crate::input_intent::{dolly_command, ModalSurfaceSet, UiScrollSurface};
 use crate::search::{BrowseMenuRoot, BrowseUiState, SEARCH_DROPDOWN_Z_INDEX};
 use crate::settings::SettingsScreenRoot;
@@ -456,13 +456,15 @@ pub struct LayersPlugin;
 
 impl Plugin for LayersPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<LayerState>()
+        app.init_resource::<InterfaceResetSignal>()
+            .init_resource::<LayerState>()
             .init_resource::<PresentationState>()
             .init_resource::<RailUiState>()
             .add_systems(Startup, spawn_restore_affordance)
             .add_systems(
                 Update,
                 (
+                    reset_layer_interface,
                     sync_visual_cue_recovery,
                     rebuild_right_rail,
                     sync_rail_button_visuals,
@@ -473,6 +475,22 @@ impl Plugin for LayersPlugin {
                     .in_set(SimulationSet::Render),
             )
             .add_systems(PostUpdate, sync_hud_visibility.before(UiSystems::Prepare));
+    }
+}
+
+fn reset_layer_interface(
+    signal: Res<InterfaceResetSignal>,
+    mut seen: Local<u64>,
+    mut ui_state: ResMut<RailUiState>,
+    recovery_roots: Query<Entity, With<VisualCueRecoveryRoot>>,
+    mut commands: Commands,
+) {
+    if !signal.take_if_new(&mut seen) {
+        return;
+    }
+    *ui_state = RailUiState::default();
+    for root in &recovery_roots {
+        commands.entity(root).despawn();
     }
 }
 

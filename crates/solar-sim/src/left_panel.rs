@@ -541,6 +541,18 @@ pub(crate) struct LeftPanelUiState {
     rendered_units: Option<DistanceUnit>,
 }
 
+impl LeftPanelUiState {
+    pub(crate) fn restore_session_snapshot(&mut self, snapshot: &Self) {
+        *self = snapshot.clone();
+        self.dirty = true;
+        self.scroll_y = 0.0;
+        self.reset_scroll_on_rebuild = true;
+        self.restore_focus = None;
+        self.rendered_view_options = None;
+        self.rendered_units = None;
+    }
+}
+
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 enum PanelAction {
     ToggleCollapsed,

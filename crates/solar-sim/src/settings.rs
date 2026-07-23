@@ -670,6 +670,14 @@ impl SettingsScreenState {
     }
 }
 
+pub(crate) fn reset_settings_screen(screen: &mut SettingsScreenState, settings: &AppSettings) {
+    screen.open = false;
+    screen.draft = settings.clone();
+    screen.dirty = true;
+    screen.scroll_y = 0.0;
+    screen.restore_focus = None;
+}
+
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 enum SettingAction {
     Close,
@@ -954,6 +962,7 @@ fn sync_external_presentation_to_settings(
     layers: Res<LayerState>,
     presentation: Res<PresentationState>,
     persistence: Res<SettingsPersistencePolicy>,
+    startup: Option<Res<crate::control::SessionStartupSnapshot>>,
     mut settings: ResMut<AppSettings>,
     mut commands: Commands,
 ) {
@@ -961,6 +970,12 @@ fn sync_external_presentation_to_settings(
     // command reducer already converges layers/fullscreen into AppSettings, so
     // a changed settings resource must not be overwritten by stale externals.
     if settings.is_changed() {
+        return;
+    }
+    if startup
+        .as_deref()
+        .is_some_and(crate::control::SessionStartupSnapshot::nonpersistent_presentation_override)
+    {
         return;
     }
     if converge_presentation_settings(&layers, &presentation, settings.bypass_change_detection()) {

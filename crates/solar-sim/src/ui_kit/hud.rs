@@ -402,6 +402,10 @@ fn activate_breadcrumb(
     let Ok(action) = actions.get(activate.entity) else {
         return;
     };
+    if matches!(action.destination, NavigationDestination::Root) {
+        commands.push(SimCommand::ResetInterface);
+        return;
+    }
     commands.push(SimCommand::NavigateBreadcrumb {
         depth: action.depth,
         target_id: action.target_id.clone(),
@@ -412,6 +416,7 @@ fn activate_breadcrumb(
 mod tests {
     use super::*;
     use crate::ui_kit::test_layout;
+    use crate::ROOT_NAVIGATION_ID;
 
     #[test]
     fn breadcrumb_text_tracks_navigation_resource_changes() {
@@ -441,6 +446,15 @@ mod tests {
     fn activating_an_ancestor_breadcrumb_queues_one_navigation_command() {
         let mut app = App::new();
         app.init_resource::<SimCommandQueue>();
+        let root = app
+            .world_mut()
+            .spawn(BreadcrumbAction {
+                depth: 0,
+                target_id: ROOT_NAVIGATION_ID.into(),
+                destination: NavigationDestination::Root,
+            })
+            .observe(activate_breadcrumb)
+            .id();
         let jupiter = app
             .world_mut()
             .spawn(BreadcrumbAction {
@@ -453,6 +467,7 @@ mod tests {
             .observe(activate_breadcrumb)
             .id();
 
+        app.world_mut().trigger(Activate { entity: root });
         app.world_mut().trigger(Activate { entity: jupiter });
 
         let queued: Vec<_> = app
@@ -462,10 +477,13 @@ mod tests {
             .collect();
         assert_eq!(
             queued,
-            vec![SimCommand::NavigateBreadcrumb {
-                depth: 1,
-                target_id: "jupiter".into(),
-            }]
+            vec![
+                SimCommand::ResetInterface,
+                SimCommand::NavigateBreadcrumb {
+                    depth: 1,
+                    target_id: "jupiter".into(),
+                },
+            ]
         );
     }
 

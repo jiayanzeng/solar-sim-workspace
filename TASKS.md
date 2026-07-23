@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 408 passing** (53 `sim-core` · 298 `solar-sim` · 54 `xtask`
+**Test baseline: 411 passing** (53 `sim-core` · 301 `solar-sim` · 54 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -1148,6 +1148,36 @@ headless/golden/replay use the no-op service and spawn failure exposes the
 visible URL plus Copy Link fallback.
 
 ## Change log (append-only; newest first)
+
+- **2026-07-23** — Completed Wave 0 UIO-1 Reset Interface under Q22. Added one
+  replayable `SimCommand::ResetInterface` and a deterministic
+  `SessionStartupSnapshot` captured after the startup-rate command. The shared
+  reducer restores captured clock/play/rate, camera/selection/tween,
+  navigation, launch layers/UI visibility, view options, left-panel state,
+  Menu expansions, modals, and panel state; the render-side reset signal
+  clears Search text/results/dropdown, time edits/toasts, rail/recovery
+  transients, input latches, and focus. Presentation reset remains deliberately
+  non-persistent: `AppSettings` and the pending-save bit are unchanged, and
+  external presentation convergence is suppressed until the next explicit
+  layer/fullscreen/settings action, preventing Reset from becoming a deferred
+  `settings.toml` write. The time bar now orders Pause/Play → Reset Interface
+  → Live with the full accessible label and passes the 800×600 × 2.0 layout;
+  root Solar System, Home, and the renamed Help action emit the same command.
+  The deterministic portable replay hash changed from
+  `17908512438397036261` to `15702349732272648697` solely because the hash now
+  covers the reset-presentation persistence override; the 600-frame
+  cross-platform replay equality remains exact. `cargo test` passes all
+  **411 tests**; `cargo fmt --all --check` and `cargo clippy --workspace
+  --all-targets -- -D warnings` pass.
+
+- **2026-07-23** — Reopened WP5 as the sole **in-progress** package for Wave
+  0 UIO-1 Reset Interface under the approved Q22 ruling. Scope is one
+  replayable `SimCommand::ResetInterface`, a deterministic launch-time
+  session snapshot captured after the startup-rate command, the four approved
+  surfaces (time bar, root breadcrumb, Home, Help), and reset of the specified
+  command-visible and transient UI state without a settings write. Existing
+  `ResetView`, factory-reset behavior, Rev-E-gated changes, and unrelated UI
+  work remain out of scope. Pre-change `cargo test` passes all **408 tests**.
 
 - **2026-07-23** — Completed Wave 0 UIO-5 Search reproduction without changing
   the production search engine. A controlled Bevy editable-widget trace now

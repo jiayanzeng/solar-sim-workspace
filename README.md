@@ -64,7 +64,7 @@ Keyboard (see `crates/solar-sim/src/input_intent.rs` for the source of truth):
 | `↓` | select +1 day/s without changing play/pause state |
 | `1` / `2` / `3` / `4` | travel to the Inner / Belt / Outer / Kuiper region preset |
 | `R` / `P` / `Space` | play / pause / toggle |
-| `Home` | reset to the Sun-focused startup angle and full-system framing |
+| `Home` | reset the complete interface and simulation session to its captured launch state |
 | `Escape` | revert text, close the active modal, or open the controls guide from the scene |
 | `F9` | simulate device loss (debug builds only; exercises render recovery) |
 | `F10` | toggle the frame-time overlay (debug builds only; hidden by default) |
