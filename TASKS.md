@@ -1147,18 +1147,33 @@ URLs and a dependency-free platform opener behind `PlatformServices`;
 headless/golden/replay use the no-op service and spawn failure exposes the
 visible URL plus Copy Link fallback.
 
-### Q27 — OPEN.
+### Q27 — CLOSED (explicit human authorization, 2026-07-23).
 
-On 2026-07-23 the maintainer explicitly authorized the six exact Revision E
-edits recorded in `docs/playability-review-and-rulings-2026-07-23.md` §4.
-The content decision is therefore resolved, but the root `AGENTS.md` still
-states both that AI coding agents must never edit `ARCHITECTURE.md` and that
-such a conflict must be recorded here instead of improvised around. The
-architecture file remains unchanged. The maintainer must either paste the
-approved text directly or revise the agent rule before an AI coding agent may
-perform the edit.
+The maintainer explicitly authorized the agent to apply the six exact
+architecture amendments despite the repository's default agent prohibition.
+The approved text is now incorporated in `ARCHITECTURE.md`.
 
 ## Change log (append-only; newest first)
+
+- **2026-07-23** — Moved the duplicated schema amendment from the §5
+  introduction to the end of §5, after §5.6 and immediately before §6, matching
+  the maintainer's append instruction. Evidence: targeted section review and
+  `git diff --check` clean; no executable code changed, so tests were not run.
+
+- **2026-07-23** — Corrected the authorized schema amendment by appending its
+  normative note under both ARCHITECTURE §4.1 and §5, as requested. Evidence:
+  targeted section review and `git diff --check` clean; no executable code
+  changed, so tests were not run.
+
+- **2026-07-23** — Applied the maintainer-authorized architecture amendments:
+  catalog-derived Menu columns and moon expansion counts; launch-snapshot
+  `ResetInterface`; hidden-category/Belt layer enablement through queued
+  `SetLayerVisibility`; category apparent-size floors before exaggeration and
+  dwarf-surface policy; reviewed per-body orbit colors and category widths;
+  and the schema/prose/Wikipedia-reference contract. Q27 is closed by the
+  maintainer's explicit exception. Evidence: targeted `ARCHITECTURE.md` diff
+  review and `git diff --check` clean; no executable code changed, so tests
+  were not run.
 
 - **2026-07-23** — Recorded Q27 after the maintainer authorized exact Revision
   E content while the active root agent rule continued to prohibit any AI edit

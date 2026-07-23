@@ -1,4 +1,4 @@
-# Solar System Simulator — Architecture Specification, Revision D
+# Solar System Simulator — Architecture Specification, Revision E
 
 **NORMATIVE · HUMAN-CHANGE-CONTROLLED.** This file is the design of record.
 AI coding agents MUST treat it as **read-only**: propose changes as an entry
@@ -6,7 +6,7 @@ in `TASKS.md → Open questions`, never as an edit here. Only the human
 maintainer revises this document. On any conflict, precedence is:
 **this file → `TASKS.md` → `AGENTS.md` → code comments**.
 
-Revision D supersedes Rev C in full. It is self-contained — no other design
+Revision E supersedes Rev D in full. It is self-contained — no other design
 document is required to execute it — and it freezes the contracts that
 WP1–WP3 turned from plan into shipped, tested code. Sections marked
 **[AS BUILT]** describe code that exists and passes CI; changing those
@@ -135,6 +135,11 @@ Semantics and rules:
   subset ("3I/ATLAS" and "C/2025 N1" both resolve, uniquely).
 - Constants: `AU_KM = 149_597_870.7`, `J2000_JD_TDB = 2_451_545.0`,
   `SECONDS_PER_DAY = 86_400`, `DAYS_PER_JULIAN_CENTURY = 36_525`.
+
+Schema additions: reviewed `orbit_color_srgb` and validated
+`wikipedia_url` per production body; descriptions are 150–220 words of
+original provenance-checked prose with a Wikipedia reference action routed
+through `PlatformServices`.
 
 ### 4.2 `time`
 
@@ -268,6 +273,11 @@ Halley, 3I/ATLAS; epochs 2026-01-01 and 1986-02-09. Tolerances are
 per-category two-body budgets (planets tightest; comets loosest — ignored
 non-gravitational forces dominate).
 
+Schema additions: reviewed `orbit_color_srgb` and validated
+`wikipedia_url` per production body; descriptions are 150–220 words of
+original provenance-checked prose with a Wikipedia reference action routed
+through `PlatformServices`.
+
 ## 6. Body catalog composition (66)
 
 | Category | Count | Members |
@@ -372,10 +382,12 @@ pixel-perfection beyond it is out of scope for beta.
 1. **Top bar.** Our logo + name; a breadcrumb that *is* the navigation
    stack ("Solar System › Jupiter › Moons"); search (EditableText; fuzzy,
    case-insensitive, alias-aware, instant dropdown, Enter travels to top
-   hit); Menu → full-screen **browse page** with three category columns
-   (Planets & Moons / Dwarf Planets & Asteroids / Comets), curated
-   shortlists, live counts derived from the catalog at load, expandable
-   full lists.
+   hit); Menu → full-screen browse page with three fixed catalog-derived
+   columns: the eight planets (SHOW ALL MOONS expands the 26 planet moons
+   grouped under their parents), all dwarf planets and asteroids under
+   visible subgroup headings (SHOW ALL MOONS expands the six dwarf-planet
+   moons), and all comets (inert styled footer). Live counts derive from
+   the catalog; the Sun does not appear in the lists.
 2. **Left panel** (contextual, collapsible, tabbed; tab set data-driven per
    body class). *Info*: name, category chip with colored dot, radius,
    orbital period, parent, curated description; collection rows ("Moons of
@@ -389,7 +401,10 @@ pixel-perfection beyond it is out of scope for beta.
    settings. Moons (default on) gates contextual moon presentation: moon
    spheres and orbits render only for the focused system, subject to the
    per-system Major/All option; off hides all moons. The persisted key,
-   replay slug, and panel row are unchanged from Rev C.
+   replay slug, and panel row are unchanged from Rev C. Factory defaults
+   start Asteroids and Comets off. Navigation to a body in a hidden
+   category, and the Belt region preset, enable the relevant layer through
+   an explicitly queued `SetLayerVisibility` command.
 4. **Right rail.** Zoom +/−, fullscreen, settings.
 5. **Time bar.** Per §7.
 6. **Toasts.** Non-blocking, bottom-left, auto-dismiss (delayed commands):
@@ -400,6 +415,12 @@ Four region presets — Inner, Belt, Outer, Kuiper — are semantic travel
 commands (focus Sun, canonical pose, fixed framing distances of
 1.8/3.6/35/55 AU), surfaced as keys 1–4, Help entries, and Menu rows.
 
+One `ResetInterface` command restores the launch-time session snapshot
+(time, rate, play state, camera, selection, breadcrumb, layers, view
+options, panel/modal/search state, focus, UI visibility) without writing
+settings; it is surfaced between Pause and Live, on the root breadcrumb,
+on the Home key, and in Help.
+
 ## 10. Rendering **[TO BUILD]**
 
 1. **Bodies.** UV spheres at true radius × optional visual exaggeration;
@@ -407,18 +428,26 @@ commands (focus Sun, canonical pose, fixed framing distances of
    point light + bloom; low ambient for night-side legibility; translucent
    disc for Saturn's rings. 2K public-domain textures (NASA SVS/USGS),
    KTX2; every body renders with its catalog color untextured, so
-   texturing is polish, not a dependency. Render-only minimum apparent size:
-   every non-Sun sphere is scaled so its projected diameter is at least 3
-   logical px, applied after the optional ×10/×50 exaggeration; physical
-   truth, picking, and orbits are unaffected. Comet tails are a specified
-   post-beta fast-follow (see the 2026-07-22 plan, R3c).
+   texturing is polish, not a dependency. Render-only category minimum
+   apparent diameters at ×1 — planets 12, dwarf planets 8, all other
+   non-Sun bodies 3 logical px — are applied before the optional ×10/×50
+   exaggeration (`max(true_radius, floor) × scale`), so exaggeration is
+   always visible; physical truth, picking, and orbits are unaffected.
+   Dwarf-planet surfaces use public-domain resolved textures where
+   available and documented representative albedo otherwise. Comet tails
+   are a specified post-beta fast-follow (see the 2026-07-22 plan, R3c).
 2. **Orbit paths.** Ellipses sampled adaptively (denser near perihelion,
-   256–768 points by eccentricity) in the **parent frame**; per-category
-   color LUT (planets individually colored); distance/angle alpha fade.
-   Hyperbolic (3I/ATLAS): open arc sampled over **±25 years around
-   perihelion** (`Elements::is_hyperbolic` selects the branch). Secular paths
-   may reuse retained geometry under a conservative sub-quarter-pixel
-   screen-space drift bound; non-secular paths reuse exactly.
+   256–768 points by eccentricity) in the **parent frame**. Per-body
+   reviewed orbit colors from the catalog's `orbit_color_srgb` field
+   (unique across all 65 orbiting bodies, perceptual-distance-gated), with
+   category-derived line widths of 3×/2×/1× a 1.5-logical-px base for
+   planets / dwarf planets and moons / asteroids and comets;
+   distance/angle alpha fades and high-rate emphasis modulate brightness
+   and alpha, never the base hue. Hyperbolic (3I/ATLAS): open arc sampled
+   over **±25 years around perihelion** (`Elements::is_hyperbolic` selects
+   the branch). Secular paths may reuse retained geometry under a
+   conservative sub-quarter-pixel screen-space drift bound; non-secular
+   paths reuse exactly.
 3. **Labels, icons, picking.** Labels are Bevy UI nodes repositioned each
    frame from `world_to_viewport`: wide-tracked uppercase for Sun +
    planets; small mixed-case beside a circular reticle (the Icons layer)
