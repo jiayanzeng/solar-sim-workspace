@@ -737,7 +737,7 @@ accepted while its documentation-only commit is prepared.
 | Q1 | Confirm Bevy 0.19.x minimum Rust toolchain and record in WP0 pin | 2026-07-12 | **closed 2026-07-12** — crates.io reports `rust_version = 1.95.0` for bevy 0.19.0 (and all 0.19 RCs); `rust-toolchain.toml` pins `channel = "1.95.0"`, while `crates/sim-core/Cargo.toml` retains `rust-version = "1.75"`. Evidence: `docs/open-questions-brief-2026-07-12.md` §Q1; commit `61896e8`. |
 | Q2 | TNO GM values (Pluto 869.6 / Eris 1108 / Haumea 267 km³/s²) — accept or replace with cited values during curated review? Includes the Pluto-GM semantics decision (Pluto-only vs Pluto+Charon ≈ 975.5 for correct Charon period under μ=parent-GM). | 2026-07-12 | **closed 2026-07-13** — human approved Pluto+Charon system GM 975.5 km³/s² (869.6 + 105.9); Eris/Haumea retain their system values; provenance must state the choice. |
 | Q3 | 3I/ATLAS nucleus radius: literature is uncertain; which value + citation ships? | 2026-07-12 | **closed 2026-07-13** — human approved adopted R = 0.5 km with the HST 0.16–2.8 km range and NGA-based estimate cited in provenance. |
-| Q4 | Constellation-figure line set licensing (fast-follow; Yale BSC-derived in-house vs licensed) | 2026-07-12 | open — options + recommendation in brief §Q4 (recommend in-house over public-domain BSC) |
+| Q4 | Constellation-figure line set licensing (fast-follow; Yale BSC-derived in-house vs licensed) | 2026-07-12 | **closed 2026-07-22** — delegated ruling D1 selects an in-house HR-pair line set over the licensed HEASARC BSC5P starfield; GPL/chart-artwork sources remain prohibited and the post-beta first tranche requires human data review. |
 | Q5 | **Horizons planet routes: switch giant planets from planet centers (599/699/799/899) to system barycenters (5/6/7/8)?** The 2026-07-12 online run failed at Jupiter (`no $$SOE`). Planet-center ephemerides are defined by satellite solutions with limited time spans, while barycenters cover ±9999 yr, and JPL's own manual recommends barycenters for osculating-element output. Giant-planet vs own-barycenter offset ≤ ~100 km — far under two-body display budgets. Requires: manifest route edit, ARCHITECTURE §5.3 wording (human edit), dry-run/spec text updates. Raw capture/diagnostics are now implemented; the JD 2561120 probe confirmed Jupiter-center ends in 2200 while barycenter 5 returns ELEMENTS. Full analysis in brief §Q5. | 2026-07-12 | **closed 2026-07-13** — human approved and saved ARCHITECTURE §5.3; Mercury–Mars remain geometric centers and Jupiter–Neptune now use system barycenters. The mean-motion/secular-fit and SBDB normalization contracts remain binding. |
 | Q6 | **Spot-check epoch semantics after real-vector calibration:** require all 10 bodies at both 2026 and 1986, or use the 2026 point for the full set plus the 1986 point only for Halley? The 20-point interpretation forces non-physical pass budgets (Earth is 144,450,813.9 km off in 1986 because the approved near-pair unwrapped-MA slope is 1.335394656°/day; Phoebe is 14,762,084.4 km off under the declared no-secular moon model). | 2026-07-13 | **closed 2026-07-13** — human approved the full 10-body gate at the catalog epoch plus Halley at its 1986 demo/perihelion epoch, retained all 20 vectors as audit data, and explicitly approved the 1 km planet / 10 km moon / 25,000 km dwarf / 30,000,000 km comet budgets. |
 | Q7 | **Approve the general Sun/planet GM audit?** Adopt the exact JPL DE440 set in `docs/wp3-gm-audit-2026-07-13.md`: eight numeric replacements, with Venus verified unchanged; Mars–Neptune use DE440 system GMs. | 2026-07-13 | **closed 2026-07-13** — human approved all nine rows. The eight replacements and verified Venus value are applied with DE440 provenance; both catalogs were regenerated from captured responses and the active position gate remains green. |
@@ -762,13 +762,17 @@ required: the repository is public, so GitHub-hosted standard runners are free
 and unlimited. Validate the Linux lane on hosted CI by pushing a branch and
 reading the run. Self-hosted runners and local VMs are OFF the table.
 
-### Q12 — OPEN.
+### Q12 — CLOSED (delegated human authority, 2026-07-22).
 
 The 2026-07-14 CI follow-up instructs agents to work tasks CI-1
 through CI-6 in order, but does not define the scope, acceptance evidence, or
 commands for any of those six tasks. Provide the exact CI-1 through CI-6 briefs;
 agents must not infer them from the superseded private-repository Task 1/Task 2
 numbering.
+
+Decision D2 records that the CI restructure has already shipped and the
+CI-1…CI-6 numbering is retired. Future CI changes require fresh, individually
+briefed work; agents must not resurrect the superseded numbering.
 
 ### Q13 — OPEN.
 
@@ -1006,7 +1010,7 @@ availability conjunct resolves the Q18 smoke-readback readiness defect while
 preserving the exact 60-frame command, single readback, hard nonblack result,
 and no-retry policy.
 
-### Q19 — OPEN.
+### Q19 — CLOSED (delegated human authority, 2026-07-23).
 
 UIP-1 requires an M2 Pro baseline at all six canonical views across Low,
 Medium, High, and Ultra. The real Metal runs prove that the current Ultra
@@ -1019,7 +1023,14 @@ for a fast baseline. Human decision required: revise the UIP-6 Ultra mapping
 or fallback policy, or explicitly revise the baseline matrix. Agents must not
 silently clamp Ultra or record timings from the failed render.
 
-### Q20 — OPEN.
+Ruling: Ultra retains an 8× request, while runtime application resolves the
+highest adapter-supported sample count at or below that request before camera
+application. Settings and frame-stats must display requested and effective
+counts. An annotated Ultra-effective measurement may satisfy both Ultra and
+High when their effective counts are identical. Full rationale:
+`docs/playability-review-and-rulings-2026-07-23.md` §2.
+
+### Q20 — CLOSED (delegated human authority, 2026-07-23).
 
 The additional `cargo clippy --workspace --all-targets --release -- -D
 warnings` probe does not compile two existing UIP-1 tests: the tests reference
@@ -1030,7 +1041,11 @@ all-target clippy matrices pass. This is outside UIP-3; decide in UIP-1
 maintenance whether the debug-only assertions should be conditionally compiled
 so release all-target linting is also a supported gate.
 
-### Q21 — OPEN.
+Ruling: gate the two diagnostics-overlay tests with
+`cfg(debug_assertions)`. Release all-target clippy remains an additional
+probe, not a required CI gate.
+
+### Q21 — CLOSED (delegated human authority, 2026-07-23).
 
 UIP-6 correctly sets Bevy's runtime window scale-factor override to 1.0 for
 Low and whenever the explicit Retina-rendering toggle is off. On the M2 Pro's
@@ -1043,7 +1058,12 @@ restart/launch-time macOS high-DPI policy is acceptable, or whether the
 internal 3D render-scale chain currently excluded by UIP-6 should be revisited.
 Agents must not silently force windowed mode or add a render-scale target.
 
-### Q22 — OPEN.
+Ruling: the Retina toggle is windowed-effective. Borderless fullscreen
+renders at display resolution; Settings copy and documentation must state the
+limitation. Revisit an internal render scale only if deferred reference-
+hardware evidence shows resolution is the binding term.
+
+### Q22 — CLOSED (delegated human authority, 2026-07-23).
 
 The requested **Reset Interface** action is broader than the existing
 `ResetView`: it may include clock/rate/play state, camera and selection,
@@ -1055,7 +1075,12 @@ reset and no `settings.toml` write. Also confirm whether the existing global
 Home/Help command path satisfies "from any screen"; otherwise every modal
 requires an additional visible Reset Interface action.
 
-### Q23 — OPEN.
+Ruling: approve the launch-time gameplay/UI snapshot exactly as designed,
+with one replayable `ResetInterface`, no factory reset, and no settings write.
+The global Home/Help path satisfies universal access; every modal is one
+Escape from the reset surfaces, so no duplicate per-modal buttons are added.
+
+### Q23 — CLOSED (delegated human authority, 2026-07-23).
 
 The requested Menu replaces Rev D §9.1's curated-shortlist/full-list contract.
 Approve that architecture change and confirm the ambiguous second-column
@@ -1065,7 +1090,11 @@ Pluto, Eris, and Haumea. Duplicating planet-moon groups in both columns is not
 recommended. Exact lists and order are in
 `docs/ui-playability-optimization-plan-2026-07-23.md` §6.
 
-### Q24 — OPEN.
+Ruling: approve the fixed inventories. Column one expands the 26 planet
+moons; column two expands the six dwarf-planet moons; column three's styled
+footer is inert and non-focusable.
+
+### Q24 — CLOSED (delegated human authority, 2026-07-23).
 
 The request for a unique traditional orbit color for every body conflicts with
 Rev D §10.2's shared non-planet category colors. Approve catalog-backed
@@ -1075,7 +1104,13 @@ contrast/perceptual review. Agents must not alter the hand-authored manifest
 or regenerate catalogs until the palette and Rev E architecture wording are
 approved.
 
-### Q25 — OPEN.
+Ruling: approve catalog-backed per-body orbit colors, with Venus
+`#EDC24F`, Jupiter `#C4854F`, Saturn `#F2E3AE`, and Neptune `#3C55E0`.
+The implementation must enforce exact uniqueness, CIE76 ΔE ≥25 between
+planets, and ΔE ≥4 across all bodies without a dependency, and must correct
+the three near-identical non-planet pairs identified in the review.
+
+### Q25 — CLOSED (delegated human authority, 2026-07-23).
 
 The requested recognizable overview appearances and visibly correct
 ×1/×10/×50 behavior conflict with Rev D §10.1's universal 3-logical-pixel
@@ -1087,7 +1122,13 @@ floor-before-exaggeration formula, and choose the dwarf asset policy from
 imagery after the normal license audit, plus explicitly representative albedo,
 is recommended).
 
-### Q26 — OPEN.
+Ruling: approve 12/8/3 logical-pixel ×1 category floors and
+`max(true_radius, floor) × body_size`, with unchanged picking truth. Asset
+policy 1 is selected: resolved mission textures for Ceres and Pluto, plus
+Charon if cheap in the same audited pass, and documented representative
+albedo for unresolved bodies.
+
+### Q26 — CLOSED (delegated human authority, 2026-07-23).
 
 The 150-word Wikipedia-linked description request replaces the reviewed
 2–4-sentence WP10 content contract and adds an external platform action absent
@@ -1099,7 +1140,27 @@ dependency/platform mechanism it needs) or the no-browser fallback of visible
 URL plus Copy Link. Licensing and schema details are in
 `docs/ui-playability-optimization-plan-2026-07-23.md` §8.
 
+Ruling: approve original 150–220 word copy cross-checked against existing
+NASA/JPL provenance, with Wikipedia as secondary reference and outbound link,
+not copied source text. `OpenBodyReference(body_id)` uses validated catalog
+URLs and a dependency-free platform opener behind `PlatformServices`;
+headless/golden/replay use the no-op service and spawn failure exposes the
+visible URL plus Copy Link fallback.
+
 ## Change log (append-only; newest first)
+
+- **2026-07-23** — Completed Wave 0 housekeeping H1–H3 under
+  `docs/playability-review-and-rulings-2026-07-23.md`. H1's four Q18 cleanup
+  files were already committed on synchronized `main` at `7f98fcc`; the same
+  commit also carries the playability plan and ruling record. Transcribed the
+  delegated closures of Q4, Q12, and Q19–Q26 into this ledger. Added D7/D8 to
+  `docs/decision-record-2026-07-22.md`, referencing the complete ruling record
+  for the effective-MSAA, release-test cfg, Retina scope, Reset Interface,
+  fixed Menu, orbit palette, overview/scale, Wikipedia-link, R-NAV, and
+  R-PRESET decisions. No source, dependency, generated asset, protected file,
+  work-package status, acceptance criterion, or test baseline changed.
+  Pre-change and post-change `cargo test` pass all **407 tests**.
+  Formatting, warning-denied workspace clippy, and `git diff --check` pass.
 
 - **2026-07-23** — Completed a documentation-only design audit for the eight
   requested UI playability optimizations. Added

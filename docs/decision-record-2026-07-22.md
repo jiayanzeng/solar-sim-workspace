@@ -162,3 +162,48 @@ commercial titles ship this way — and make an explicit go/no-go on
 privatizing (with paid macOS CI minutes budgeted) at the 1.0 release
 decision, alongside the already-planned protected-environment handling for
 Steam/Apple secrets. No action required today.
+
+## D7 — Q19–Q21 performance-maintenance rulings
+
+**Date:** 2026-07-23. **Authority and full rationale:**
+`docs/playability-review-and-rulings-2026-07-23.md` §2.
+
+- Q19: Ultra retains an 8× request, but runtime application resolves the
+  highest adapter-supported sample count at or below the request before it
+  reaches the camera. Settings and frame statistics disclose requested and
+  effective counts; an annotated Ultra-effective measurement may also satisfy
+  High when both resolve identically.
+- Q20: the two diagnostics-overlay tests are compiled only under
+  `cfg(debug_assertions)`, allowing the additional release all-target clippy
+  probe to compile without turning it into a required CI gate.
+- Q21: the Retina toggle is declared windowed-effective. Borderless
+  fullscreen renders at the display's physical resolution; the Settings copy
+  and documentation must say so. An internal render-scale chain remains
+  deferred unless reference-hardware evidence makes resolution the binding
+  term.
+
+## D8 — Q22–Q26 playability rulings and reveal interactions
+
+**Date:** 2026-07-23. **Authority and complete acceptance detail:**
+`docs/playability-review-and-rulings-2026-07-23.md` §§3–4.
+
+- Q22: approve one replayable `ResetInterface` command restoring the
+  launch-time session snapshot without writing settings or adding duplicate
+  controls to every modal.
+- Q23: approve fixed Menu inventories; column one expands the 26 planet
+  moons, column two the six dwarf-planet moons, and the comet footer is inert.
+- Q24: approve catalog-backed per-body orbit colors with corrected Venus,
+  Jupiter, Saturn, and Neptune values plus exact uniqueness and CIE76 gates.
+- Q25: approve category-specific overview floors, floor-before-exaggeration,
+  and resolved Ceres/Pluto (optionally Charon) mission textures with honest
+  representative albedo elsewhere.
+- Q26: approve original 150–220 word NASA/JPL-cross-checked descriptions,
+  validated Wikipedia links, and a dependency-free command-routed platform
+  opener behind `PlatformServices`.
+- R-NAV: travel to a body whose category is hidden first queues an explicit
+  category-layer enable command.
+- R-PRESET: Belt travel first enables Asteroids when necessary; the other
+  region presets retain their existing framing-only semantics.
+
+The exact Revision E text remains in the authority document §4 and is
+human-maintainer work. Wave 0 may proceed before that edit; Wave 1 may not.
