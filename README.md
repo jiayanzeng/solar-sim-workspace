@@ -74,7 +74,8 @@ content area scrolls independently of the camera, `REVERT` restores the current
 persisted values, `RESTORE DEFAULTS` explicitly resets the reviewed product and
 presentation defaults, and both `APPLY` and `CLOSE` dismiss the modal. Gameplay
 input is suppressed while Settings or Browse is open and while a text field is
-being edited.
+being edited. The Retina rendering toggle takes effect in windowed mode;
+fullscreen renders at display resolution.
 
 Persisted layer choices still round-trip exactly. If UI is visible but Orbits,
 Labels, and Icons are all disabled, a transient `RESTORE DEFAULT VIEW` notice

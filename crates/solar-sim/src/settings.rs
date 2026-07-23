@@ -24,9 +24,11 @@ use bevy::{
     prelude::*,
     render::{
         error_handler::{ErrorType, RenderError, RenderErrorHandler, RenderErrorPolicy},
-        renderer::RenderDevice,
+        render_resource::TextureFormat,
+        renderer::{RenderAdapter, RenderDevice},
         settings::RenderCreation,
         view::Msaa,
+        RenderApp,
     },
     settings::{ReflectSettingsGroup, SaveSettingsDeferred, SaveSettingsSync, SettingsGroup},
     ui::UiScale,
@@ -204,12 +206,23 @@ impl QualityPreset {
         }
     }
 
-    const fn msaa(self) -> Msaa {
+    pub(crate) const fn requested_msaa(self) -> Msaa {
         match self {
             Self::Low => Msaa::Off,
             Self::Medium => Msaa::Sample2,
             Self::High => Msaa::Sample4,
             Self::Ultra => Msaa::Sample8,
+        }
+    }
+
+    fn display_label(self, capabilities: MsaaCapabilities) -> String {
+        let requested = self.requested_msaa();
+        let effective = capabilities.resolve(requested);
+        let label = format!("{} — {}", self.label(), msaa_ui_label(requested));
+        if requested == effective {
+            label
+        } else {
+            format!("{label} ({} ON THIS DEVICE)", msaa_ui_label(effective))
         }
     }
 
@@ -223,6 +236,84 @@ impl QualityPreset {
         } else {
             None
         }
+    }
+}
+
+const fn msaa_sample_count(msaa: Msaa) -> u8 {
+    match msaa {
+        Msaa::Off => 1,
+        Msaa::Sample2 => 2,
+        Msaa::Sample4 => 4,
+        Msaa::Sample8 => 8,
+    }
+}
+
+const fn msaa_ui_label(msaa: Msaa) -> &'static str {
+    match msaa {
+        Msaa::Off => "OFF",
+        Msaa::Sample2 => "2×",
+        Msaa::Sample4 => "4×",
+        Msaa::Sample8 => "8×",
+    }
+}
+
+/// Intersection of the HDR color and depth-format sample counts reported by
+/// the active adapter. Presets retain stable requests; only this resource
+/// resolves the value that may reach a camera.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MsaaCapabilities {
+    supported_mask: u8,
+}
+
+impl Default for MsaaCapabilities {
+    fn default() -> Self {
+        Self {
+            supported_mask: 1 | 2 | 4 | 8,
+        }
+    }
+}
+
+impl MsaaCapabilities {
+    fn from_adapter(adapter: &RenderAdapter) -> Self {
+        let color = adapter
+            .get_texture_format_features(TextureFormat::Rgba16Float)
+            .flags;
+        let depth = adapter
+            .get_texture_format_features(TextureFormat::Depth32Float)
+            .flags;
+        let mut supported_mask = 1;
+        for count in [2, 4, 8] {
+            if color.sample_count_supported(count) && depth.sample_count_supported(count) {
+                supported_mask |= count as u8;
+            }
+        }
+        Self { supported_mask }
+    }
+
+    #[cfg(test)]
+    fn from_supported_counts(color: &[u8], depth: &[u8]) -> Self {
+        let mut supported_mask = 1;
+        for count in [2, 4, 8] {
+            if color.contains(&count) && depth.contains(&count) {
+                supported_mask |= count;
+            }
+        }
+        Self { supported_mask }
+    }
+
+    pub(crate) fn resolve(self, requested: Msaa) -> Msaa {
+        let requested = msaa_sample_count(requested);
+        for (count, msaa) in [
+            (8, Msaa::Sample8),
+            (4, Msaa::Sample4),
+            (2, Msaa::Sample2),
+            (1, Msaa::Off),
+        ] {
+            if count <= requested && self.supported_mask & count != 0 {
+                return msaa;
+            }
+        }
+        Msaa::Off
     }
 }
 
@@ -595,6 +686,9 @@ struct WinitApplicationThread(ThreadId);
 pub struct SettingsScreenRoot;
 
 #[derive(Component, Debug, Clone, Copy, Default)]
+struct RetinaRenderingDescription;
+
+#[derive(Component, Debug, Clone, Copy, Default)]
 struct SettingsScrollArea;
 
 #[derive(Resource, Debug, Clone, Default, PartialEq)]
@@ -711,6 +805,7 @@ impl Plugin for SettingsUiPlugin {
         app.init_resource::<SettingsScreenState>()
             .init_resource::<SettingsSaveRequest>()
             .init_resource::<SettingsPersistencePolicy>()
+            .init_resource::<MsaaCapabilities>()
             .add_systems(
                 Update,
                 (
@@ -733,6 +828,7 @@ pub(crate) struct PlatformRuntimePlugin;
 impl Plugin for PlatformRuntimePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AppliedRuntimeSettings>()
+            .init_resource::<MsaaCapabilities>()
             .init_resource::<RenderRecoveryStatus>()
             .init_resource::<NativeOomSurface>()
             .insert_resource(WinitApplicationThread(thread::current().id()))
@@ -749,6 +845,16 @@ impl Plugin for PlatformRuntimePlugin {
 
         #[cfg(debug_assertions)]
         install_debug_device_loss(app);
+    }
+
+    fn finish(&self, app: &mut App) {
+        let capabilities = app
+            .get_sub_app(RenderApp)
+            .and_then(|render_app| render_app.world().get_resource::<RenderAdapter>())
+            .map(MsaaCapabilities::from_adapter);
+        if let Some(capabilities) = capabilities {
+            app.insert_resource(capabilities);
+        }
     }
 }
 
@@ -874,8 +980,10 @@ pub(crate) fn converge_presentation_settings(
     true
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_settings_to_runtime(
     settings: Res<AppSettings>,
+    msaa_capabilities: Res<MsaaCapabilities>,
     mut applied: ResMut<AppliedRuntimeSettings>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
     mut ui_scale: ResMut<UiScale>,
@@ -939,7 +1047,7 @@ fn apply_settings_to_runtime(
     if winit.unfocused_mode != update_mode {
         winit.unfocused_mode = update_mode;
     }
-    let desired_msaa = normalized.quality.msaa();
+    let desired_msaa = msaa_capabilities.resolve(normalized.quality.requested_msaa());
     let desired_bloom = normalized.quality.bloom_enabled();
     for (entity, mut msaa, has_bloom) in &mut cameras {
         if *msaa != desired_msaa {
@@ -1023,6 +1131,7 @@ fn rebuild_settings_screen(
     actions: Query<&SettingAction>,
     scroll_areas: Query<&ScrollPosition, With<SettingsScrollArea>>,
     focus: Res<InputFocus>,
+    msaa_capabilities: Res<MsaaCapabilities>,
 ) {
     if !screen.dirty {
         return;
@@ -1181,7 +1290,7 @@ fn rebuild_settings_screen(
         *theme,
         QualityPreset::ALL.map(|value| {
             (
-                value.label().to_string(),
+                value.display_label(*msaa_capabilities),
                 draft.quality == value,
                 SettingAction::SetQuality(value),
             )
@@ -1197,6 +1306,18 @@ fn rebuild_settings_screen(
         SettingAction::ToggleRetinaRendering,
         &mut next_tab_index,
     );
+    commands.spawn((
+        RetinaRenderingDescription,
+        Text::new("Takes effect in windowed mode; fullscreen renders at display resolution."),
+        TextFont {
+            font: asset_server.load(INTER_FONT_ASSET).into(),
+            font_size: theme.type_scale.caption_px.into(),
+            ..default()
+        },
+        TextColor(theme.colors.text_muted.color()),
+        Pickable::IGNORE,
+        ChildOf(content),
+    ));
     let ui_scale_tab_index = next_settings_tab_index(&mut next_tab_index);
     commands
         .spawn_scene(slider(
@@ -2003,6 +2124,10 @@ mod tests {
         .init_asset::<Font>()
         .insert_resource(UiTheme::default())
         .insert_resource(AppSettings::default())
+        .insert_resource(MsaaCapabilities::from_supported_counts(
+            &[1, 2, 4, 8],
+            &[1, 2, 4],
+        ))
         .init_resource::<LayerState>()
         .insert_resource(presentation)
         .init_resource::<SimCommandQueue>()
@@ -2600,6 +2725,7 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(AppSettings::default())
             .init_resource::<AppliedRuntimeSettings>()
+            .init_resource::<MsaaCapabilities>()
             .init_resource::<UiScale>()
             .init_resource::<WinitSettings>()
             .add_systems(Update, apply_settings_to_runtime);
@@ -2642,6 +2768,10 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(defaults)
             .init_resource::<AppliedRuntimeSettings>()
+            .insert_resource(MsaaCapabilities::from_supported_counts(
+                &[1, 2, 4, 8],
+                &[1, 2, 4],
+            ))
             .init_resource::<UiScale>()
             .init_resource::<WinitSettings>()
             .add_systems(Update, apply_settings_to_runtime);
@@ -2658,7 +2788,7 @@ mod tests {
             (QualityPreset::Low, true, Msaa::Off, false, Some(1.0)),
             (QualityPreset::Medium, true, Msaa::Sample2, true, None),
             (QualityPreset::High, false, Msaa::Sample4, true, Some(1.0)),
-            (QualityPreset::Ultra, true, Msaa::Sample8, true, None),
+            (QualityPreset::Ultra, true, Msaa::Sample4, true, None),
         ] {
             *app.world_mut().resource_mut::<AppSettings>() = AppSettings {
                 quality,
@@ -2688,6 +2818,29 @@ mod tests {
                 "{quality:?} Retina composition"
             );
         }
+    }
+
+    #[test]
+    fn adapter_resolution_intersects_color_and_depth_without_changing_requests() {
+        let capabilities = MsaaCapabilities::from_supported_counts(&[1, 2, 4, 8], &[1, 2, 4]);
+
+        assert_eq!(
+            QualityPreset::Ultra.requested_msaa(),
+            Msaa::Sample8,
+            "the stable preset request remains 8x"
+        );
+        assert_eq!(
+            capabilities.resolve(QualityPreset::Ultra.requested_msaa()),
+            Msaa::Sample4
+        );
+        assert_eq!(
+            capabilities.resolve(QualityPreset::High.requested_msaa()),
+            Msaa::Sample4
+        );
+        assert_eq!(
+            QualityPreset::Ultra.display_label(capabilities),
+            "ULTRA — 8× (4× ON THIS DEVICE)"
+        );
     }
 
     #[test]
@@ -3142,6 +3295,7 @@ mod tests {
             let mut app = test_layout::app(width, height, scale);
             app.insert_resource(UiTheme::default())
                 .init_resource::<InputFocus>()
+                .init_resource::<MsaaCapabilities>()
                 .insert_resource(SettingsScreenState {
                     open: true,
                     draft: AppSettings::default(),
@@ -3292,6 +3446,18 @@ mod tests {
             assert!(controls
                 .iter()
                 .all(|(_, _, _, label, _)| !label.0.trim().is_empty()));
+            assert!(controls.iter().any(|(_, _, _, label, _)| {
+                label.0 == "Set ULTRA — 8× (4× ON THIS DEVICE)"
+            }));
+            let mut descriptions =
+                world.query_filtered::<&Text, With<RetinaRenderingDescription>>();
+            assert_eq!(
+                descriptions
+                    .single(world)
+                    .expect("one Retina scope description")
+                    .0,
+                "Takes effect in windowed mode; fullscreen renders at display resolution."
+            );
             close_controls[0]
         };
 

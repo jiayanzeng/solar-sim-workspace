@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 411 passing** (53 `sim-core` · 301 `solar-sim` · 54 `xtask`
+**Test baseline: 416 passing** (53 `sim-core` · 306 `solar-sim` · 54 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -1148,6 +1148,50 @@ headless/golden/replay use the no-op service and spawn failure exposes the
 visible URL plus Copy Link fallback.
 
 ## Change log (append-only; newest first)
+
+- **2026-07-23** — Completed the Wave 0 UIP-6/1 maintenance block under
+  Q19–Q21 and returned WP14 to **✅ done**. `QualityPreset::Ultra` retains its
+  stable 8× request; during plugin finalization, the active adapter's
+  `Rgba16Float` and `Depth32Float` capabilities are intersected and the highest
+  supported count at or below the request is resolved before camera
+  application. Settings displays the exact request/clamp form
+  `ULTRA — 8× (4× ON THIS DEVICE)`. Frame-stats schema v2 and the strict
+  `xtask perf-report` ingester now record and validate separate requested and
+  effective MSAA fields. The two diagnostics-overlay tests are conditional on
+  debug assertions, so the additional release all-targets clippy probe
+  compiles. Settings and README declare that Retina rendering takes effect in
+  windowed mode and fullscreen renders at display resolution.
+
+  Six input-isolated five-second M2 Pro/Metal runs completed the UIP-1 matrix.
+  Every Ultra row requested 8×, resolved to 4×, remained in the healthy
+  renderer state, and wrote a valid report. Per Q19, these Ultra-effective
+  rows share High's effective renderer composition and may also serve as the
+  annotated High-effective measurement:
+
+  | View | Quality | Resolution | MSAA requested | MSAA effective | VSync | Frame cap | Frames | Min ms | Mean ms | P95 ms | P99 ms | FPS | Adapter |
+  |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+  | full-system | ultra | 2560×1440 | 8x | 4x | on | 120 | 570 | 2.182 | 8.782 | 9.699 | 10.683 | 113.9 | Apple M2 Pro (IntegratedGpu, metal) |
+  | inner-orbits | ultra | 2560×1440 | 8x | 4x | on | 120 | 576 | 2.359 | 8.690 | 9.897 | 10.566 | 115.1 | Apple M2 Pro (IntegratedGpu, metal) |
+  | earth-texture | ultra | 2560×1440 | 8x | 4x | on | 120 | 577 | 2.286 | 8.681 | 9.960 | 10.798 | 115.2 | Apple M2 Pro (IntegratedGpu, metal) |
+  | jupiter-system | ultra | 2560×1440 | 8x | 4x | on | 120 | 576 | 2.290 | 8.690 | 9.765 | 10.693 | 115.1 | Apple M2 Pro (IntegratedGpu, metal) |
+  | saturn-rings | ultra | 2560×1440 | 8x | 4x | on | 120 | 576 | 2.404 | 8.682 | 9.841 | 10.476 | 115.2 | Apple M2 Pro (IntegratedGpu, metal) |
+  | sun-bloom | ultra | 2560×1440 | 8x | 4x | on | 120 | 577 | 2.072 | 8.671 | 9.832 | 10.733 | 115.3 | Apple M2 Pro (IntegratedGpu, metal) |
+
+  Post-change `cargo test` passes all **416 tests** (53 `sim-core`, 306
+  `solar-sim`, 54 `xtask`, 2 smoke, 1 spot-check). Debug and release
+  `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo fmt --all -- --check`, the release build, and strict ingestion of all
+  six reports pass. No dependency, architecture, generated catalog, renderer
+  default, preset request, or internal render-scale chain changed.
+
+- **2026-07-23** — Reopened WP14 as the sole **in-progress** package for the
+  final Wave 0 UIP-6/1 maintenance block authorized by Q19–Q21. Scope is
+  adapter-resolved effective MSAA before camera application, requested/effective
+  disclosure in Settings and frame-stats, the two release-test cfg gates, the
+  windowed-only Retina description and documentation note, and completion of
+  the M2 Pro six-view Ultra-effective baseline. No preset request, product
+  default, internal render-scale chain, or architecture file changes.
+  Pre-change `cargo test` passes all **415 tests**.
 
 - **2026-07-23** — Completed Wave 0 UIO-3a and the R-NAV/R-PRESET rulings
   under WP11. Factory profiles and RESTORE DEFAULTS now keep User Interface,

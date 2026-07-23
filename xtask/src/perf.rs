@@ -5,7 +5,7 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const FRAME_STATS_SCHEMA: &str = "solar-sim-frame-stats-v1";
+const FRAME_STATS_SCHEMA: &str = "solar-sim-frame-stats-v2";
 const VIEW_ORDER: [&str; 7] = [
     "full-system",
     "inner-orbits",
@@ -31,7 +31,8 @@ pub struct FrameStatsSummary {
     pub fps: f64,
     pub width_px: u32,
     pub height_px: u32,
-    pub msaa: String,
+    pub msaa_requested: String,
+    pub msaa_effective: String,
     pub quality: String,
     pub vsync: bool,
     pub frame_cap: String,
@@ -142,6 +143,13 @@ fn validate_summary(path: &Path, summary: &FrameStatsSummary) -> Result<(), Perf
     if summary.frames == 0 || summary.width_px == 0 || summary.height_px == 0 {
         return Err(invalid("frame count and resolution must be non-zero"));
     }
+    let requested_msaa = msaa_count(&summary.msaa_requested)
+        .ok_or_else(|| invalid("requested MSAA must be off, 2x, 4x, or 8x"))?;
+    let effective_msaa = msaa_count(&summary.msaa_effective)
+        .ok_or_else(|| invalid("effective MSAA must be off, 2x, 4x, or 8x"))?;
+    if effective_msaa > requested_msaa {
+        return Err(invalid("effective MSAA cannot exceed its preset request"));
+    }
     for (name, value) in [
         ("duration_s", summary.duration_s),
         ("min_ms", summary.min_ms),
@@ -165,6 +173,16 @@ fn validate_summary(path: &Path, summary: &FrameStatsSummary) -> Result<(), Perf
     Ok(())
 }
 
+fn msaa_count(value: &str) -> Option<u8> {
+    match value {
+        "off" => Some(1),
+        "2x" => Some(2),
+        "4x" => Some(4),
+        "8x" => Some(8),
+        _ => None,
+    }
+}
+
 fn order_of(order: &[&str], value: &str) -> usize {
     order
         .iter()
@@ -174,8 +192,8 @@ fn order_of(order: &[&str], value: &str) -> usize {
 
 pub fn format_wp17_table(summaries: &[FrameStatsSummary]) -> String {
     let mut output = String::from(
-        "| View | Quality | Resolution | MSAA | VSync | Frame cap | Frames | Min ms | Mean ms | P95 ms | P99 ms | FPS | Adapter |\n\
-         |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|\n",
+        "| View | Quality | Resolution | MSAA requested | MSAA effective | VSync | Frame cap | Frames | Min ms | Mean ms | P95 ms | P99 ms | FPS | Adapter |\n\
+         |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|\n",
     );
     for summary in summaries {
         let adapter = markdown_cell(&format!(
@@ -183,12 +201,13 @@ pub fn format_wp17_table(summaries: &[FrameStatsSummary]) -> String {
             summary.adapter_name, summary.adapter_type, summary.backend
         ));
         output.push_str(&format!(
-            "| {} | {} | {}×{} | {} | {} | {} | {} | {:.3} | {:.3} | {:.3} | {:.3} | {:.1} | {} |\n",
+            "| {} | {} | {}×{} | {} | {} | {} | {} | {} | {:.3} | {:.3} | {:.3} | {:.3} | {:.1} | {} |\n",
             markdown_cell(&summary.view),
             markdown_cell(&summary.quality),
             summary.width_px,
             summary.height_px,
-            markdown_cell(&summary.msaa),
+            markdown_cell(&summary.msaa_requested),
+            markdown_cell(&summary.msaa_effective),
             if summary.vsync { "on" } else { "off" },
             markdown_cell(&summary.frame_cap),
             summary.frames,
@@ -224,7 +243,8 @@ mod tests {
             fps: 125.0,
             width_px: 3456,
             height_px: 2160,
-            msaa: "4x".into(),
+            msaa_requested: "4x".into(),
+            msaa_effective: "4x".into(),
             quality: quality.into(),
             vsync: true,
             frame_cap: "120".into(),
@@ -243,9 +263,9 @@ mod tests {
         assert_eq!(
             format_wp17_table(&[summary("full-system", "high")]),
             concat!(
-                "| View | Quality | Resolution | MSAA | VSync | Frame cap | Frames | Min ms | Mean ms | P95 ms | P99 ms | FPS | Adapter |\n",
-                "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|\n",
-                "| full-system | high | 3456×2160 | 4x | on | 120 | 600 | 7.000 | 8.000 | 9.000 | 10.000 | 125.0 | Apple M2 Pro (IntegratedGpu, metal) |\n",
+                "| View | Quality | Resolution | MSAA requested | MSAA effective | VSync | Frame cap | Frames | Min ms | Mean ms | P95 ms | P99 ms | FPS | Adapter |\n",
+                "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|\n",
+                "| full-system | high | 3456×2160 | 4x | 4x | on | 120 | 600 | 7.000 | 8.000 | 9.000 | 10.000 | 125.0 | Apple M2 Pro (IntegratedGpu, metal) |\n",
             )
         );
     }
@@ -286,6 +306,10 @@ mod tests {
         invalid.p95_ms = 10.5;
         invalid.p99_ms = 10.0;
         assert!(validate_summary(path, &invalid).is_err());
+        invalid.p95_ms = 9.0;
+        invalid.msaa_requested = "4x".into();
+        invalid.msaa_effective = "8x".into();
+        assert!(validate_summary(path, &invalid).is_err());
     }
 
     #[test]
@@ -303,7 +327,8 @@ mod tests {
             "fps": 125.0,
             "width_px": 1920,
             "height_px": 1080,
-            "msaa": "4x",
+            "msaa_requested": "4x",
+            "msaa_effective": "4x",
             "quality": "high",
             "vsync": true,
             "frame_cap": "120",

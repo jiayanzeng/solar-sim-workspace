@@ -21,7 +21,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-pub(crate) const FRAME_STATS_SCHEMA: &str = "solar-sim-frame-stats-v1";
+pub(crate) const FRAME_STATS_SCHEMA: &str = "solar-sim-frame-stats-v2";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrameStatsOptions {
@@ -79,7 +79,8 @@ struct FrameStatsMetadata {
     view: String,
     width_px: u32,
     height_px: u32,
-    msaa: String,
+    msaa_requested: String,
+    msaa_effective: String,
     quality: String,
     vsync: bool,
     frame_cap: String,
@@ -244,7 +245,8 @@ fn metadata_from_runtime(
         view: options.view.clone().unwrap_or_else(|| "interactive".into()),
         width_px: window.physical_width(),
         height_px: window.physical_height(),
-        msaa: msaa_label(*msaa).into(),
+        msaa_requested: msaa_label(settings.quality.requested_msaa()).into(),
+        msaa_effective: msaa_label(*msaa).into(),
         quality: settings.quality.slug().into(),
         vsync: settings.vsync,
         frame_cap: settings.frame_cap.slug().into(),
@@ -308,7 +310,8 @@ fn summary_line(summary: &FrameStatsSummary) -> String {
             "{{\"schema\":\"{}\",\"view\":{},\"duration_s\":{:.6},",
             "\"frames\":{},\"min_ms\":{:.6},\"mean_ms\":{:.6},",
             "\"p95_ms\":{:.6},\"p99_ms\":{:.6},\"fps\":{:.3},",
-            "\"width_px\":{},\"height_px\":{},\"msaa\":{},",
+            "\"width_px\":{},\"height_px\":{},\"msaa_requested\":{},",
+            "\"msaa_effective\":{},",
             "\"quality\":{},\"vsync\":{},\"frame_cap\":{},",
             "\"adapter_name\":{},\"adapter_type\":{},\"backend\":{},",
             "\"adapter_driver\":{},\"adapter_driver_info\":{},",
@@ -325,7 +328,8 @@ fn summary_line(summary: &FrameStatsSummary) -> String {
         summary.fps,
         metadata.width_px,
         metadata.height_px,
-        json_string(&metadata.msaa),
+        json_string(&metadata.msaa_requested),
+        json_string(&metadata.msaa_effective),
         json_string(&metadata.quality),
         metadata.vsync,
         json_string(&metadata.frame_cap),
@@ -471,8 +475,9 @@ mod tests {
             view: "full-system".into(),
             width_px: 3456,
             height_px: 2160,
-            msaa: "4x".into(),
-            quality: "high".into(),
+            msaa_requested: "8x".into(),
+            msaa_effective: "4x".into(),
+            quality: "ultra".into(),
             vsync: true,
             frame_cap: "120".into(),
             adapter_name: "Apple M2 Pro \"GPU\"".into(),
@@ -485,6 +490,7 @@ mod tests {
         }
     }
 
+    #[cfg(debug_assertions)]
     #[test]
     fn absent_frame_stats_installs_no_measurement_resource() {
         let mut app = App::new();
@@ -504,11 +510,12 @@ mod tests {
         assert_eq!(
             summary_line(&summary),
             concat!(
-                "{\"schema\":\"solar-sim-frame-stats-v1\",\"view\":\"full-system\",",
+                "{\"schema\":\"solar-sim-frame-stats-v2\",\"view\":\"full-system\",",
                 "\"duration_s\":0.100000,\"frames\":4,\"min_ms\":10.000000,",
                 "\"mean_ms\":25.000000,\"p95_ms\":40.000000,",
                 "\"p99_ms\":40.000000,\"fps\":40.000,\"width_px\":3456,",
-                "\"height_px\":2160,\"msaa\":\"4x\",\"quality\":\"high\",",
+                "\"height_px\":2160,\"msaa_requested\":\"8x\",",
+                "\"msaa_effective\":\"4x\",\"quality\":\"ultra\",",
                 "\"vsync\":true,\"frame_cap\":\"120\",",
                 "\"adapter_name\":\"Apple M2 Pro \\\"GPU\\\"\",",
                 "\"adapter_type\":\"IntegratedGpu\",\"backend\":\"metal\",",
@@ -542,6 +549,7 @@ mod tests {
         );
     }
 
+    #[cfg(debug_assertions)]
     #[test]
     fn overlay_is_hidden_until_the_recorded_toggle_command_applies() {
         let mut state = DiagnosticsOverlayState::default();
