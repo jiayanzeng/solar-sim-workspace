@@ -303,6 +303,9 @@ pub struct LayersPanelRoot;
 #[derive(Component, Debug, Clone, Copy)]
 pub struct UiRestoreAffordance;
 
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct HudVisibilitySyncSet;
+
 #[derive(Component, Debug, Clone, Copy)]
 struct UiRestoreTabGroup;
 
@@ -480,7 +483,12 @@ impl Plugin for LayersPlugin {
                     .before(ModalSurfaceSet::Focus)
                     .in_set(SimulationSet::Render),
             )
-            .add_systems(PostUpdate, sync_hud_visibility.before(UiSystems::Prepare));
+            .add_systems(
+                PostUpdate,
+                sync_hud_visibility
+                    .in_set(HudVisibilitySyncSet)
+                    .before(UiSystems::Prepare),
+            );
     }
 }
 

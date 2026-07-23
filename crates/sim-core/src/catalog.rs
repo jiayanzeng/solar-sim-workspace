@@ -174,15 +174,25 @@ pub struct BodyRecord {
     pub gm_km3_s2: Option<f64>,
     /// Mean physical radius, km (curated; review pass per Rev B §4.2).
     pub radius_km: f64,
-    /// Fallback/orbit-line color; every body renders without a texture.
+    /// Fallback body/material color; every body renders without a texture.
     pub color_srgb: (u8, u8, u8),
+    /// Human-reviewed orbit-path color. `(0, 0, 0)` is the reserved
+    /// deserialization sentinel for pre-Rev-E audit fixtures and is rejected
+    /// by validation; every generated production body must provide a value.
+    #[serde(default)]
+    pub orbit_color_srgb: (u8, u8, u8),
     /// KTX2 texture asset path, if any (WP15 polish pass).
     #[serde(default)]
     pub texture: Option<String>,
-    /// Curated 2–4 sentence description (Info tab). Empty = lint, not error,
-    /// until the WP10 content pass.
+    /// Curated description shown in the Info tab. Empty remains a non-fatal
+    /// lint so pre-content-pass audit fixtures stay readable.
     #[serde(default)]
     pub description: String,
+    /// Reviewed English-Wikipedia article used by the Info-panel reference
+    /// action. Optional for backward compatibility with pre-Rev-E fixtures;
+    /// generated production records provide exactly one validated URL.
+    #[serde(default)]
+    pub wikipedia_url: Option<String>,
     /// Orbit around `parent`. `None` only for the star.
     #[serde(default)]
     pub orbit: Option<Orbit>,
@@ -271,6 +281,14 @@ pub enum CatalogError {
         first: String,
         second: String,
     },
+    MissingOrbitColor {
+        id: String,
+    },
+    DuplicateOrbitColor {
+        color: (u8, u8, u8),
+        first: String,
+        second: String,
+    },
     StarCount {
         found: usize,
     },
@@ -330,6 +348,10 @@ pub enum CatalogError {
     EmptySource {
         id: String,
     },
+    InvalidWikipediaUrl {
+        id: String,
+        url: String,
+    },
 }
 
 impl fmt::Display for CatalogError {
@@ -346,6 +368,18 @@ impl fmt::Display for CatalogError {
             DuplicateSearchKey { key, first, second } => write!(
                 f,
                 "search key '{key}' collides between '{first}' and '{second}'"
+            ),
+            MissingOrbitColor { id } => write!(
+                f,
+                "'{id}': orbit_color_srgb is missing or reserved black (0, 0, 0)"
+            ),
+            DuplicateOrbitColor {
+                color,
+                first,
+                second,
+            } => write!(
+                f,
+                "orbit_color_srgb {color:?} is duplicated by '{first}' and '{second}'"
             ),
             StarCount { found } => write!(f, "catalog must contain exactly 1 Star, found {found}"),
             StarHasParentOrOrbit { id } => {
@@ -386,8 +420,33 @@ impl fmt::Display for CatalogError {
                 write!(f, "'{id}': mean_motion_deg_per_day must be finite and > 0")
             }
             EmptySource { id } => write!(f, "'{id}': source must be non-empty (licensing audit)"),
+            InvalidWikipediaUrl { id, url } => write!(
+                f,
+                "'{id}': wikipedia_url '{url}' must be an HTTPS en.wikipedia.org/wiki/ article URL with a non-empty slug"
+            ),
         }
     }
+}
+
+/// Return whether `url` is a direct English-Wikipedia article URL approved
+/// for catalog storage and later platform dispatch.
+///
+/// This deliberately avoids a general URL parser: the catalog contract is a
+/// single exact origin and path prefix, and `sim-core`'s dependency set is
+/// frozen. Query strings, fragments, whitespace, and control characters are
+/// excluded so UI/platform code never receives an ambiguous target.
+pub fn is_valid_wikipedia_url(url: &str) -> bool {
+    const PREFIX: &str = "https://en.wikipedia.org/wiki/";
+    let Some(slug) = url.strip_prefix(PREFIX) else {
+        return false;
+    };
+    !slug.is_empty()
+        && slug != "/"
+        && !slug.starts_with('/')
+        && !slug.chars().any(char::is_whitespace)
+        && !slug.chars().any(char::is_control)
+        && !slug.contains('?')
+        && !slug.contains('#')
 }
 
 impl Catalog {
@@ -470,12 +529,32 @@ impl Catalog {
             .iter()
             .filter_map(|b| b.parent.as_deref())
             .collect();
+        let mut orbit_colors: HashMap<(u8, u8, u8), String> = HashMap::new();
 
         for b in &self.bodies {
             let id = || b.id.clone();
 
             if b.source.trim().is_empty() {
                 errs.push(CatalogError::EmptySource { id: id() });
+            }
+            if let Some(url) = &b.wikipedia_url {
+                if !is_valid_wikipedia_url(url) {
+                    errs.push(CatalogError::InvalidWikipediaUrl {
+                        id: id(),
+                        url: url.clone(),
+                    });
+                }
+            }
+            if b.orbit_color_srgb == (0, 0, 0) {
+                errs.push(CatalogError::MissingOrbitColor { id: id() });
+            } else if b.category != Category::Star {
+                if let Some(first) = orbit_colors.insert(b.orbit_color_srgb, b.id.clone()) {
+                    errs.push(CatalogError::DuplicateOrbitColor {
+                        color: b.orbit_color_srgb,
+                        first,
+                        second: b.id.clone(),
+                    });
+                }
             }
             if !b.radius_km.is_finite() {
                 errs.push(CatalogError::NonFinite {
@@ -688,6 +767,7 @@ Catalog(
             gm_km3_s2: Some(1.32712440018e11),
             radius_km: 695700.0,
             color_srgb: (255, 214, 140),
+            orbit_color_srgb: (255, 214, 140),
             description: "The star at the center of the solar system.",
             source: "IAU nominal constants",
         ),
@@ -699,6 +779,7 @@ Catalog(
             gm_km3_s2: Some(3.986004418e5),
             radius_km: 6371.0,
             color_srgb: (86, 141, 235),
+            orbit_color_srgb: (77, 141, 255),
             description: "Our home planet.",
             orbit: Some(Orbit(
                 epoch_jd_tdb: 2461042.0,
@@ -729,6 +810,7 @@ Catalog(
             parent: Some("earth"),
             radius_km: 1737.4,
             color_srgb: (198, 189, 175),
+            orbit_color_srgb: (199, 194, 184),
             orbit: Some(Orbit(
                 epoch_jd_tdb: 2461042.0,
                 elements: Elements(
@@ -751,6 +833,7 @@ Catalog(
             parent: Some("sun"),
             radius_km: 2.5,
             color_srgb: (166, 216, 232),
+            orbit_color_srgb: (116, 166, 201),
             orbit: Some(Orbit(
                 epoch_jd_tdb: 2460978.0,
                 elements: Elements(
@@ -787,6 +870,10 @@ Catalog(
         c2.validate().unwrap();
         assert_eq!(c2.bodies.len(), c.bodies.len());
         assert_eq!(c2.bodies[3].orbit, c.bodies[3].orbit);
+        assert!(
+            c2.bodies.iter().all(|body| body.wikipedia_url.is_none()),
+            "legacy RON must default the additive field to None"
+        );
     }
 
     #[test]
@@ -818,6 +905,65 @@ Catalog(
         assert!(errs
             .iter()
             .any(|e| matches!(e, CatalogError::DuplicateId { .. })));
+    }
+
+    #[test]
+    fn rejects_missing_and_duplicate_orbit_colors_together() {
+        let mut c = sample();
+        c.bodies[1].orbit_color_srgb = (0, 0, 0);
+        c.bodies[3].orbit_color_srgb = c.bodies[2].orbit_color_srgb;
+        let errs = c.validate().unwrap_err();
+        assert!(errs
+            .iter()
+            .any(|e| matches!(e, CatalogError::MissingOrbitColor { id } if id == "earth")));
+        assert!(errs.iter().any(|e| matches!(
+            e,
+            CatalogError::DuplicateOrbitColor { first, second, .. }
+                if first == "moon" && second == "3i_atlas"
+        )));
+    }
+
+    #[test]
+    fn wikipedia_urls_accept_only_direct_https_english_articles() {
+        let valid = [
+            "https://en.wikipedia.org/wiki/Earth",
+            "https://en.wikipedia.org/wiki/67P/Churyumov%E2%80%93Gerasimenko",
+            "https://en.wikipedia.org/wiki/Hi%CA%BBiaka_(moon)",
+        ];
+        for url in valid {
+            assert!(is_valid_wikipedia_url(url), "{url}");
+        }
+
+        let invalid = [
+            "",
+            "http://en.wikipedia.org/wiki/Earth",
+            "https://wikipedia.org/wiki/Earth",
+            "https://de.wikipedia.org/wiki/Erde",
+            "https://en.wikipedia.org/wiki/",
+            "https://en.wikipedia.org/wiki//",
+            "https://en.wikipedia.org/wiki/Earth?oldid=1",
+            "https://en.wikipedia.org/wiki/Earth#History",
+            "https://en.wikipedia.org/wiki/Earth orbit",
+        ];
+        for url in invalid {
+            assert!(!is_valid_wikipedia_url(url), "{url}");
+        }
+    }
+
+    #[test]
+    fn validation_collects_invalid_wikipedia_urls() {
+        let mut c = sample();
+        c.bodies[0].wikipedia_url = Some("http://en.wikipedia.org/wiki/Sun".into());
+        c.bodies[1].wikipedia_url = Some("https://example.com/Earth".into());
+        let errs = c.validate().unwrap_err();
+        let ids: Vec<&str> = errs
+            .iter()
+            .filter_map(|error| match error {
+                CatalogError::InvalidWikipediaUrl { id, .. } => Some(id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ids, ["sun", "earth"]);
     }
 
     #[test]

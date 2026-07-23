@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "asset": "pluto.ktx2",
+  "title": "Pluto global surface map",
+  "body_ids": [
+    "pluto"
+  ],
+  "usage": "sphere",
+  "creator": "NASA",
+  "source_page": "https://github.com/nasa/NASA-3D-Resources/tree/master/Images%20and%20Textures/Pluto",
+  "source_file": "https://raw.githubusercontent.com/nasa/NASA-3D-Resources/master/Images%20and%20Textures/Pluto/Pluto.jpg",
+  "source_sha256": "a921387426a506b6f6ae8fd24872eeab59b81f963cd9c010b59d825059b29c64",
+  "source_dimensions": [
+    720,
+    360
+  ],
+  "retrieved_utc": "2026-07-23",
+  "license_spdx": "LicenseRef-Public-Domain-USGov",
+  "license_name": "Public Domain - U.S. Government Work",
+  "license_url": "https://github.com/nasa/NASA-3D-Resources",
+  "transform": "Pillow RGB Lanczos resize to 2048x1024 PPM; cargo run -p xtask -- convert-texture --source pluto-2048.ppm --out assets/textures/pluto.ktx2",
+  "output_dimensions": [
+    2048,
+    1024
+  ],
+  "asset_sha256": "f66cf5926b12c9052aa157a5d061c3ae89bb4d874fc202ad70c9ad85770a5ef1"
+}

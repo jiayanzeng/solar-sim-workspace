@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "asset": "ceres.ktx2",
+  "title": "Ceres Dawn Framing Camera global mosaic",
+  "body_ids": [
+    "ceres"
+  ],
+  "usage": "sphere",
+  "creator": "NASA/JPL-Caltech/UCLA/MPS/DLR/IDA; USGS Astrogeology Science Center",
+  "source_page": "https://astrogeology.usgs.gov/search/map/ceres_dawn_fc_global_mosaic_140m",
+  "source_file": "https://astrogeology.usgs.gov/ckan/dataset/6ad84c9a-1fad-4869-b4f6-b52c5c2ace36/resource/9f757a65-8d8a-4349-a72d-8062387574b3/download/ceres_dawn_fc_dlr_global_feb2016_1024.jpg",
+  "source_sha256": "12fe5bf219161b4cc39a9d72040f7400b57b8ae9dd6cb8073ab1b7b26403e73c",
+  "source_dimensions": [
+    1024,
+    512
+  ],
+  "retrieved_utc": "2026-07-23",
+  "license_spdx": "LicenseRef-Public-Domain-USGov",
+  "license_name": "Public Domain - U.S. Government Work",
+  "license_url": "https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits",
+  "transform": "Pillow RGB Lanczos resize to 2048x1024 PPM; cargo run -p xtask -- convert-texture --source ceres-dawn-global-2048.ppm --out assets/textures/ceres.ktx2",
+  "output_dimensions": [
+    2048,
+    1024
+  ],
+  "asset_sha256": "5bf9e76935a4f33de46658119770600c31c7806db96cc5ae63d4a94892b5e0aa"
+}

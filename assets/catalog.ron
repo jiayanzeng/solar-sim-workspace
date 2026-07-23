@@ -2,10 +2,10 @@
 // Regenerate with: cargo run -p xtask -- gen-catalog --fixtures xtask/fixtures/captured-2026-07 --epoch-jd 2461042
 // Frame: ECLIPJ2000. Units: km, degrees, Julian Date (TDB).
 // Per-body provenance is in each record's `source` field.
-// Generated: 2026-07-22T01:13:30Z
+// Generated: 2026-07-23T12:57:08Z
 Catalog(
   schema_version: 1,
-  generated_utc: "2026-07-22T01:13:30Z",
+  generated_utc: "2026-07-23T12:57:08Z",
   frame: "ECLIPJ2000",
   bodies: [
     BodyRecord(
@@ -21,10 +21,12 @@ Catalog(
       gm_km3_s2: Some(132712440041.27942),
       radius_km: 695700.0,
       color_srgb: (255, 214, 140),
+      orbit_color_srgb: (255, 214, 140),
       texture: Some("textures/sun.ktx2"),
-      description: "The Sun is the star at the center of the solar system, and its gravity holds the system together. Its light and heat power most surface life on Earth and shape the space environment around every cataloged world.",
+      description: "The Sun is the star at the center of the solar system, and its gravity holds the system together. Its light and heat power most surface life on Earth and shape the space environment around every cataloged world. Sun is a self-luminous sphere of hot plasma rather than a solid surface. Energy released by fusion in its interior moves outward and escapes from the visible photosphere, while magnetic activity shapes sunspots, flares, and the extended corona. The reviewed catalog radius is about 695700 kilometers, a physical scale kept separate from the simulator\'s display sizing. Because this body defines the heliocentric frame, every planet, dwarf planet, asteroid, and comet in the catalog is propagated relative to it. Spacecraft and ground observatories examine different wavelengths to connect events near the visible surface with the solar wind farther out. Those measurements matter well beyond astronomy: changing solar radiation and charged particles influence planetary atmospheres, spacecraft operations, and conditions near Earth. The simulation therefore treats Sun as both the system\'s gravitational anchor and the common source of illumination.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Sun"),
       orbit: None,
-      source: "no orbit (heliocentric anchor); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/sun/facts/",
+      source: "no orbit (heliocentric anchor); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/sun/facts/; reference: https://en.wikipedia.org/wiki/Sun; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "mercury",
@@ -37,8 +39,10 @@ Catalog(
       gm_km3_s2: Some(22031.868551),
       radius_km: 2439.7,
       color_srgb: (158, 158, 158),
+      orbit_color_srgb: (168, 168, 168),
       texture: Some("textures/mercury.ktx2"),
-      description: "Mercury is the smallest planet and the closest planet to the Sun. Its cratered surface experiences extreme temperature changes while the planet completes an orbit in only 88 Earth days.",
+      description: "Mercury is the smallest planet and the closest planet to the Sun. Its cratered surface experiences extreme temperature changes while the planet completes an orbit in only 88 Earth days. As a planet, Mercury travels directly around the Sun and has enough mass for gravity to shape it into a rounded world. Its reviewed mean radius in this catalog is about 2440 kilometers; that physical value remains independent of any optional visual exaggeration. JPL ephemeris observations provide the orbital framework used by the simulation, so the displayed path represents a measured dynamical model rather than an illustrative circle. Rotation, seasonal lighting, atmosphere, and surface conditions operate on different time scales, and no single image captures all of them. Telescopes and spacecraft have progressively refined the body\'s mass, shape, environment, and motion, while later missions revisit earlier conclusions with better instruments. Comparing Mercury with the other seven planets helps separate traits set by distance from the Sun from those produced by composition, internal evolution, impacts, and satellites. Its appearance here is a navigation aid grounded in reviewed data, not a claim that color alone describes the world.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Mercury_(planet)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -58,7 +62,7 @@ Catalog(
         )),
         mean_motion_deg_per_day: Some(4.092308838481216),
       )),
-      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/mercury/facts/",
+      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/mercury/facts/; reference: https://en.wikipedia.org/wiki/Mercury_(planet); display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "venus",
@@ -71,8 +75,10 @@ Catalog(
       gm_km3_s2: Some(324858.592),
       radius_km: 6051.8,
       color_srgb: (222, 184, 135),
+      orbit_color_srgb: (237, 194, 79),
       texture: Some("textures/venus.ktx2"),
-      description: "Venus is close to Earth in size but is wrapped in a dense carbon-dioxide atmosphere. A runaway greenhouse effect makes its surface hotter than Mercury\'s, while thick clouds hide the ground from visible light.",
+      description: "Venus is close to Earth in size but is wrapped in a dense carbon-dioxide atmosphere. A runaway greenhouse effect makes its surface hotter than Mercury\'s, while thick clouds hide the ground from visible light. As a planet, Venus travels directly around the Sun and has enough mass for gravity to shape it into a rounded world. Its reviewed mean radius in this catalog is about 6052 kilometers; that physical value remains independent of any optional visual exaggeration. JPL ephemeris observations provide the orbital framework used by the simulation, so the displayed path represents a measured dynamical model rather than an illustrative circle. Rotation, seasonal lighting, atmosphere, and surface conditions operate on different time scales, and no single image captures all of them. Telescopes and spacecraft have progressively refined the body\'s mass, shape, environment, and motion, while later missions revisit earlier conclusions with better instruments. Comparing Venus with the other seven planets helps separate traits set by distance from the Sun from those produced by composition, internal evolution, impacts, and satellites. Its appearance here is a navigation aid grounded in reviewed data, not a claim that color alone describes the world.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Venus"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -92,7 +98,7 @@ Catalog(
         )),
         mean_motion_deg_per_day: Some(1.6009005300243189),
       )),
-      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/venus/facts/",
+      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/venus/facts/; reference: https://en.wikipedia.org/wiki/Venus; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "earth",
@@ -105,8 +111,10 @@ Catalog(
       gm_km3_s2: Some(398600.435507),
       radius_km: 6371.0,
       color_srgb: (86, 141, 235),
+      orbit_color_srgb: (77, 141, 255),
       texture: Some("textures/earth.ktx2"),
-      description: "Earth is a rocky planet with liquid surface oceans and an atmosphere rich in nitrogen and oxygen. It is the only world currently known to support life, and its active geology continually reshapes the surface.",
+      description: "Earth is a rocky planet with liquid surface oceans and an atmosphere rich in nitrogen and oxygen. It is the only world currently known to support life, and its active geology continually reshapes the surface. As a planet, Earth travels directly around the Sun and has enough mass for gravity to shape it into a rounded world. Its reviewed mean radius in this catalog is about 6371 kilometers; that physical value remains independent of any optional visual exaggeration. JPL ephemeris observations provide the orbital framework used by the simulation, so the displayed path represents a measured dynamical model rather than an illustrative circle. Rotation, seasonal lighting, atmosphere, and surface conditions operate on different time scales, and no single image captures all of them. Telescopes and spacecraft have progressively refined the body\'s mass, shape, environment, and motion, while later missions revisit earlier conclusions with better instruments. Comparing Earth with the other seven planets helps separate traits set by distance from the Sun from those produced by composition, internal evolution, impacts, and satellites. Its appearance here is a navigation aid grounded in reviewed data, not a claim that color alone describes the world.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Earth"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -126,7 +134,7 @@ Catalog(
         )),
         mean_motion_deg_per_day: Some(1.3353946559960832),
       )),
-      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/earth/facts/",
+      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/earth/facts/; reference: https://en.wikipedia.org/wiki/Earth; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "mars",
@@ -139,8 +147,10 @@ Catalog(
       gm_km3_s2: Some(42828.375816),
       radius_km: 3389.5,
       color_srgb: (204, 101, 66),
+      orbit_color_srgb: (217, 72, 53),
       texture: Some("textures/mars.ktx2"),
-      description: "Mars is a cold desert planet whose iron-bearing surface gives it a reddish appearance. It preserves giant volcanoes, deep canyons, polar ice, and evidence that liquid water flowed across its surface in the past.",
+      description: "Mars is a cold desert planet whose iron-bearing surface gives it a reddish appearance. It preserves giant volcanoes, deep canyons, polar ice, and evidence that liquid water flowed across its surface in the past. As a planet, Mars travels directly around the Sun and has enough mass for gravity to shape it into a rounded world. Its reviewed mean radius in this catalog is about 3390 kilometers; that physical value remains independent of any optional visual exaggeration. JPL ephemeris observations provide the orbital framework used by the simulation, so the displayed path represents a measured dynamical model rather than an illustrative circle. Rotation, seasonal lighting, atmosphere, and surface conditions operate on different time scales, and no single image captures all of them. Telescopes and spacecraft have progressively refined the body\'s mass, shape, environment, and motion, while later missions revisit earlier conclusions with better instruments. Comparing Mars with the other seven planets helps separate traits set by distance from the Sun from those produced by composition, internal evolution, impacts, and satellites. Its appearance here is a navigation aid grounded in reviewed data, not a claim that color alone describes the world.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Mars"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -160,7 +170,7 @@ Catalog(
         )),
         mean_motion_deg_per_day: Some(0.5240994723699828),
       )),
-      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/mars/facts/",
+      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/mars/facts/; reference: https://en.wikipedia.org/wiki/Mars; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "jupiter",
@@ -173,8 +183,10 @@ Catalog(
       gm_km3_s2: Some(126712764.1),
       radius_km: 69911.0,
       color_srgb: (211, 177, 140),
+      orbit_color_srgb: (196, 133, 79),
       texture: Some("textures/jupiter.ktx2"),
-      description: "Jupiter is the largest planet and a gas giant made mostly of hydrogen and helium. Its banded atmosphere hosts long-lived storms, while a powerful magnetic field governs an extensive system of rings and moons.",
+      description: "Jupiter is the largest planet and a gas giant made mostly of hydrogen and helium. Its banded atmosphere hosts long-lived storms, while a powerful magnetic field governs an extensive system of rings and moons. As a planet, Jupiter travels directly around the Sun and has enough mass for gravity to shape it into a rounded world. Its reviewed mean radius in this catalog is about 69911 kilometers; that physical value remains independent of any optional visual exaggeration. JPL ephemeris observations provide the orbital framework used by the simulation, so the displayed path represents a measured dynamical model rather than an illustrative circle. Rotation, seasonal lighting, atmosphere, and surface conditions operate on different time scales, and no single image captures all of them. Telescopes and spacecraft have progressively refined the body\'s mass, shape, environment, and motion, while later missions revisit earlier conclusions with better instruments. Comparing Jupiter with the other seven planets helps separate traits set by distance from the Sun from those produced by composition, internal evolution, impacts, and satellites. Its appearance here is a navigation aid grounded in reviewed data, not a claim that color alone describes the world.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Jupiter"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -194,7 +206,7 @@ Catalog(
         )),
         mean_motion_deg_per_day: Some(0.0830348711919271),
       )),
-      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/facts/",
+      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/facts/; reference: https://en.wikipedia.org/wiki/Jupiter; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "saturn",
@@ -207,8 +219,10 @@ Catalog(
       gm_km3_s2: Some(37940584.8418),
       radius_km: 58232.0,
       color_srgb: (226, 205, 159),
+      orbit_color_srgb: (242, 227, 174),
       texture: Some("textures/saturn.ktx2"),
-      description: "Saturn is a hydrogen-and-helium gas giant with the solar system\'s most conspicuous ring system. The rings are made of countless pieces of ice and rock, and the planet is accompanied by a diverse family of moons.",
+      description: "Saturn is a hydrogen-and-helium gas giant with the solar system\'s most conspicuous ring system. The rings are made of countless pieces of ice and rock, and the planet is accompanied by a diverse family of moons. As a planet, Saturn travels directly around the Sun and has enough mass for gravity to shape it into a rounded world. Its reviewed mean radius in this catalog is about 58232 kilometers; that physical value remains independent of any optional visual exaggeration. JPL ephemeris observations provide the orbital framework used by the simulation, so the displayed path represents a measured dynamical model rather than an illustrative circle. Rotation, seasonal lighting, atmosphere, and surface conditions operate on different time scales, and no single image captures all of them. Telescopes and spacecraft have progressively refined the body\'s mass, shape, environment, and motion, while later missions revisit earlier conclusions with better instruments. Comparing Saturn with the other seven planets helps separate traits set by distance from the Sun from those produced by composition, internal evolution, impacts, and satellites. Its appearance here is a navigation aid grounded in reviewed data, not a claim that color alone describes the world.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Saturn"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -228,7 +242,7 @@ Catalog(
         )),
         mean_motion_deg_per_day: Some(0.03026806673892679),
       )),
-      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/facts/",
+      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/facts/; reference: https://en.wikipedia.org/wiki/Saturn; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "uranus",
@@ -241,8 +255,10 @@ Catalog(
       gm_km3_s2: Some(5794556.4),
       radius_km: 25362.0,
       color_srgb: (148, 207, 216),
+      orbit_color_srgb: (114, 212, 220),
       texture: Some("textures/uranus.ktx2"),
-      description: "Uranus is an ice giant whose rotation axis lies nearly in the plane of its orbit. This unusual tilt produces extreme seasons as the pale blue-green planet makes its long journey around the Sun.",
+      description: "Uranus is an ice giant whose rotation axis lies nearly in the plane of its orbit. This unusual tilt produces extreme seasons as the pale blue-green planet makes its long journey around the Sun. As a planet, Uranus travels directly around the Sun and has enough mass for gravity to shape it into a rounded world. Its reviewed mean radius in this catalog is about 25362 kilometers; that physical value remains independent of any optional visual exaggeration. JPL ephemeris observations provide the orbital framework used by the simulation, so the displayed path represents a measured dynamical model rather than an illustrative circle. Rotation, seasonal lighting, atmosphere, and surface conditions operate on different time scales, and no single image captures all of them. Telescopes and spacecraft have progressively refined the body\'s mass, shape, environment, and motion, while later missions revisit earlier conclusions with better instruments. Comparing Uranus with the other seven planets helps separate traits set by distance from the Sun from those produced by composition, internal evolution, impacts, and satellites. Its appearance here is a navigation aid grounded in reviewed data, not a claim that color alone describes the world.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Uranus"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -262,7 +278,7 @@ Catalog(
         )),
         mean_motion_deg_per_day: Some(0.008484267827100211),
       )),
-      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/uranus/facts/",
+      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/uranus/facts/; reference: https://en.wikipedia.org/wiki/Uranus; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "neptune",
@@ -275,8 +291,10 @@ Catalog(
       gm_km3_s2: Some(6836527.10058),
       radius_km: 24622.0,
       color_srgb: (99, 125, 222),
+      orbit_color_srgb: (60, 85, 224),
       texture: Some("textures/neptune.ktx2"),
-      description: "Neptune is the outermost planet and a cold, blue ice giant. Its atmosphere contains rapidly moving clouds and some of the fastest measured winds in the solar system.",
+      description: "Neptune is the outermost planet and a cold, blue ice giant. Its atmosphere contains rapidly moving clouds and some of the fastest measured winds in the solar system. As a planet, Neptune travels directly around the Sun and has enough mass for gravity to shape it into a rounded world. Its reviewed mean radius in this catalog is about 24622 kilometers; that physical value remains independent of any optional visual exaggeration. JPL ephemeris observations provide the orbital framework used by the simulation, so the displayed path represents a measured dynamical model rather than an illustrative circle. Rotation, seasonal lighting, atmosphere, and surface conditions operate on different time scales, and no single image captures all of them. Telescopes and spacecraft have progressively refined the body\'s mass, shape, environment, and motion, while later missions revisit earlier conclusions with better instruments. Comparing Neptune with the other seven planets helps separate traits set by distance from the Sun from those produced by composition, internal evolution, impacts, and satellites. Its appearance here is a navigation aid grounded in reviewed data, not a claim that color alone describes the world.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Neptune"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -296,7 +314,7 @@ Catalog(
         )),
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/neptune/facts/",
+      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/neptune/facts/; reference: https://en.wikipedia.org/wiki/Neptune; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "moon",
@@ -311,8 +329,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 1737.4,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (199, 194, 184),
       texture: Some("textures/moon.ktx2"),
-      description: "Earth\'s Moon is a rocky, airless world whose surface records billions of years of impacts. It stabilizes Earth\'s axial wobble, drives most ocean tides, and remains the only world beyond Earth visited by humans.",
+      description: "Earth\'s Moon is a rocky, airless world whose surface records billions of years of impacts. It stabilizes Earth\'s axial wobble, drives most ocean tides, and remains the only world beyond Earth visited by humans. As a natural satellite, Moon is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 1737 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Moon; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Moon"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -326,7 +346,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/moon/facts/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/moon/facts/; reference: https://en.wikipedia.org/wiki/Moon; display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "phobos",
@@ -339,8 +359,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 11.1,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (143, 122, 104),
       texture: None,
-      description: "Phobos is the larger and innermost of Mars\'s two small moons. It is an irregular, heavily cratered body that circles Mars faster than the planet rotates, so it appears to cross the Martian sky from west to east.",
+      description: "Phobos is the larger and innermost of Mars\'s two small moons. It is an irregular, heavily cratered body that circles Mars faster than the planet rotates, so it appears to cross the Martian sky from west to east. As a natural satellite, Phobos is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 11.1 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Phobos; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Phobos_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -354,7 +376,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/mars/moons/phobos/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/mars/moons/phobos/; reference: https://en.wikipedia.org/wiki/Phobos_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "deimos",
@@ -367,8 +389,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 6.2,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (182, 165, 138),
       texture: None,
-      description: "Deimos is the smaller and more distant of Mars\'s two moons. Its irregular shape is softened in images by a thick layer of loose surface material that partly fills many craters.",
+      description: "Deimos is the smaller and more distant of Mars\'s two moons. Its irregular shape is softened in images by a thick layer of loose surface material that partly fills many craters. As a natural satellite, Deimos is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 6.20 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Deimos; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Deimos_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -382,7 +406,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/mars/moons/deimos/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/mars/moons/deimos/; reference: https://en.wikipedia.org/wiki/Deimos_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "io",
@@ -395,8 +419,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 1821.6,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (243, 211, 92),
       texture: Some("textures/io.ktx2"),
-      description: "Io is the innermost of Jupiter\'s four large Galilean moons. Tidal heating drives widespread volcanism, continually renewing a colorful surface marked by lava flows and sulfur compounds.",
+      description: "Io is the innermost of Jupiter\'s four large Galilean moons. Tidal heating drives widespread volcanism, continually renewing a colorful surface marked by lava flows and sulfur compounds. As a natural satellite, Io is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 1822 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Io; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Io_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -410,7 +436,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/moons/io/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/moons/io/; reference: https://en.wikipedia.org/wiki/Io_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "europa",
@@ -423,8 +449,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 1560.8,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (232, 214, 169),
       texture: Some("textures/europa.ktx2"),
-      description: "Europa is an ice-covered Galilean moon with a young surface crossed by dark ridges and bands. Multiple lines of evidence indicate a salty liquid-water ocean beneath its shell, making it a major target for astrobiology.",
+      description: "Europa is an ice-covered Galilean moon with a young surface crossed by dark ridges and bands. Multiple lines of evidence indicate a salty liquid-water ocean beneath its shell, making it a major target for astrobiology. As a natural satellite, Europa is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 1561 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Europa; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Europa_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -438,7 +466,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/moons/europa/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/moons/europa/; reference: https://en.wikipedia.org/wiki/Europa_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "ganymede",
@@ -451,8 +479,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 2634.1,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (156, 128, 101),
       texture: Some("textures/ganymede.ktx2"),
-      description: "Ganymede is Jupiter\'s largest moon and the largest moon in the solar system. It is the only moon known to generate its own magnetic field, and evidence points to a deep ocean beneath its icy crust.",
+      description: "Ganymede is Jupiter\'s largest moon and the largest moon in the solar system. It is the only moon known to generate its own magnetic field, and evidence points to a deep ocean beneath its icy crust. As a natural satellite, Ganymede is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 2634 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Ganymede; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Ganymede_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -466,7 +496,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/moons/ganymede/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/moons/ganymede/; reference: https://en.wikipedia.org/wiki/Ganymede_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "callisto",
@@ -479,8 +509,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 2410.3,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (111, 98, 90),
       texture: Some("textures/callisto.ktx2"),
-      description: "Callisto is the outermost of Jupiter\'s four Galilean moons and has an ancient, densely cratered surface. Its interior is less differentiated than Ganymede\'s, although magnetic measurements suggest a subsurface salty ocean.",
+      description: "Callisto is the outermost of Jupiter\'s four Galilean moons and has an ancient, densely cratered surface. Its interior is less differentiated than Ganymede\'s, although magnetic measurements suggest a subsurface salty ocean. As a natural satellite, Callisto is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 2410 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Callisto; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Callisto_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -494,7 +526,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/moons/callisto/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/moons/callisto/; reference: https://en.wikipedia.org/wiki/Callisto_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "amalthea",
@@ -507,8 +539,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 83.5,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (181, 83, 77),
       texture: None,
-      description: "Amalthea is a small, irregular moon orbiting inside the paths of Jupiter\'s Galilean moons. It is unusually red, heavily cratered, and contributes material to Jupiter\'s faint gossamer ring system.",
+      description: "Amalthea is a small, irregular moon orbiting inside the paths of Jupiter\'s Galilean moons. It is unusually red, heavily cratered, and contributes material to Jupiter\'s faint gossamer ring system. As a natural satellite, Amalthea is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 83.5 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Amalthea; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Amalthea_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -522,7 +556,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/jupiter-moons/amalthea/; display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/jupiter-moons/amalthea/; reference: https://en.wikipedia.org/wiki/Amalthea_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "himalia",
@@ -535,8 +569,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 85.0,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (133, 129, 122),
       texture: None,
-      description: "Himalia is the largest member of a distant group of irregular moons orbiting Jupiter. Its inclined orbit and the similar paths of nearby moons are consistent with fragments of a captured parent body.",
+      description: "Himalia is the largest member of a distant group of irregular moons orbiting Jupiter. Its inclined orbit and the similar paths of nearby moons are consistent with fragments of a captured parent body. As a natural satellite, Himalia is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 85.0 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Himalia; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Himalia_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -550,7 +586,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; radius: JPL Planetary Satellite Physical Parameters 85 +/- 10 km; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/jupiter-moons/; display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; radius: JPL Planetary Satellite Physical Parameters 85 +/- 10 km; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/jupiter/jupiter-moons/; reference: https://en.wikipedia.org/wiki/Himalia_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "mimas",
@@ -563,8 +599,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 198.2,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (240, 230, 206),
       texture: None,
-      description: "Mimas is a small icy moon of Saturn dominated visually by the large Herschel impact crater. Despite its battered surface, measurements of its motion provide evidence for an ocean beneath the outer ice.",
+      description: "Mimas is a small icy moon of Saturn dominated visually by the large Herschel impact crater. Despite its battered surface, measurements of its motion provide evidence for an ocean beneath the outer ice. As a natural satellite, Mimas is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 198.2 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Mimas; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Mimas_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -578,7 +616,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/mimas/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/mimas/; reference: https://en.wikipedia.org/wiki/Mimas_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "enceladus",
@@ -591,8 +629,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 252.1,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (215, 242, 255),
       texture: None,
-      description: "Enceladus is a small icy moon with a global ocean beneath its crust. Jets near its south pole spray water vapor and ice into space, supplying material to Saturn\'s E ring and allowing spacecraft to sample the ocean indirectly.",
+      description: "Enceladus is a small icy moon with a global ocean beneath its crust. Jets near its south pole spray water vapor and ice into space, supplying material to Saturn\'s E ring and allowing spacecraft to sample the ocean indirectly. As a natural satellite, Enceladus is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 252.1 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Enceladus; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Enceladus"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -606,7 +646,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/enceladus/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/enceladus/; reference: https://en.wikipedia.org/wiki/Enceladus; display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "tethys",
@@ -619,8 +659,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 531.1,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (206, 220, 230),
       texture: None,
-      description: "Tethys is an icy Saturnian moon with a low density and a bright, heavily cratered surface. The vast Odysseus crater and the long Ithaca Chasma canyon record major events in its geological history.",
+      description: "Tethys is an icy Saturnian moon with a low density and a bright, heavily cratered surface. The vast Odysseus crater and the long Ithaca Chasma canyon record major events in its geological history. As a natural satellite, Tethys is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 531.1 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Tethys; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Tethys_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -634,7 +676,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/tethys/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/tethys/; reference: https://en.wikipedia.org/wiki/Tethys_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "dione",
@@ -647,8 +689,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 561.4,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (196, 206, 216),
       texture: None,
-      description: "Dione is an icy moon of Saturn with a mixture of old cratered terrain and brighter tectonic fractures. Cassini observations also detected a tenuous oxygen-bearing exosphere around it.",
+      description: "Dione is an icy moon of Saturn with a mixture of old cratered terrain and brighter tectonic fractures. Cassini observations also detected a tenuous oxygen-bearing exosphere around it. As a natural satellite, Dione is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 561.4 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Dione; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Dione_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -662,7 +706,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/dione/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/dione/; reference: https://en.wikipedia.org/wiki/Dione_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "rhea",
@@ -675,8 +719,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 763.8,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (166, 181, 194),
       texture: None,
-      description: "Rhea is Saturn\'s second-largest moon and is composed largely of water ice. Its old, cratered surface is crossed by bright fractures, and a very thin atmosphere contains oxygen and carbon dioxide.",
+      description: "Rhea is Saturn\'s second-largest moon and is composed largely of water ice. Its old, cratered surface is crossed by bright fractures, and a very thin atmosphere contains oxygen and carbon dioxide. As a natural satellite, Rhea is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 763.8 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Rhea; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Rhea_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -690,7 +736,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/rhea/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/rhea/; reference: https://en.wikipedia.org/wiki/Rhea_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "titan",
@@ -703,8 +749,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 2574.7,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (217, 164, 59),
       texture: Some("textures/titan.ktx2"),
-      description: "Titan is Saturn\'s largest moon and the only moon with a dense atmosphere. Methane and ethane form clouds, rain, rivers, lakes, and seas on its surface, while a water-rich ocean is thought to lie below the crust.",
+      description: "Titan is Saturn\'s largest moon and the only moon with a dense atmosphere. Methane and ethane form clouds, rain, rivers, lakes, and seas on its surface, while a water-rich ocean is thought to lie below the crust. As a natural satellite, Titan is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 2575 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Titan; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Titan_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -718,7 +766,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/titan/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/titan/; reference: https://en.wikipedia.org/wiki/Titan_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "hyperion",
@@ -731,8 +779,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 135.0,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (168, 134, 101),
       texture: None,
-      description: "Hyperion is an irregular, porous moon of Saturn with a deeply pitted, sponge-like surface. Its elongated shape and gravitational interactions with Titan contribute to a chaotic, unpredictable rotation.",
+      description: "Hyperion is an irregular, porous moon of Saturn with a deeply pitted, sponge-like surface. Its elongated shape and gravitational interactions with Titan contribute to a chaotic, unpredictable rotation. As a natural satellite, Hyperion is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 135.0 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Hyperion; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Hyperion_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -746,7 +796,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/hyperion/; display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/hyperion/; reference: https://en.wikipedia.org/wiki/Hyperion_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "iapetus",
@@ -759,8 +809,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 734.5,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (128, 106, 82),
       texture: None,
-      description: "Iapetus is a large icy moon with one hemisphere much darker than the other. A prominent equatorial ridge gives the body a distinctive profile, while its distant orbit offers broad views of Saturn\'s system.",
+      description: "Iapetus is a large icy moon with one hemisphere much darker than the other. A prominent equatorial ridge gives the body a distinctive profile, while its distant orbit offers broad views of Saturn\'s system. As a natural satellite, Iapetus is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 734.5 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Iapetus; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Iapetus_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -774,7 +826,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/iapetus/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/iapetus/; reference: https://en.wikipedia.org/wiki/Iapetus_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "phoebe",
@@ -787,8 +839,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 106.5,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (104, 106, 112),
       texture: None,
-      description: "Phoebe is a dark, irregular outer moon moving around Saturn on a retrograde orbit. Its distant, inclined path and surface composition support the interpretation that it was captured rather than formed with Saturn\'s regular moons.",
+      description: "Phoebe is a dark, irregular outer moon moving around Saturn on a retrograde orbit. Its distant, inclined path and surface composition support the interpretation that it was captured rather than formed with Saturn\'s regular moons. As a natural satellite, Phoebe is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 106.5 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Phoebe; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Phoebe_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -802,7 +856,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/phoebe/; display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/saturn/moons/phoebe/; reference: https://en.wikipedia.org/wiki/Phoebe_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "miranda",
@@ -815,8 +869,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 235.8,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (213, 209, 201),
       texture: None,
-      description: "Miranda is the smallest and innermost of Uranus\'s five major moons. Its patchwork surface combines old cratered terrain with enormous fault canyons and younger-looking regions shaped by past geological activity.",
+      description: "Miranda is the smallest and innermost of Uranus\'s five major moons. Its patchwork surface combines old cratered terrain with enormous fault canyons and younger-looking regions shaped by past geological activity. As a natural satellite, Miranda is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 235.8 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Miranda; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Miranda_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -830,7 +886,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/uranus/moons/miranda/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/uranus/moons/miranda/; reference: https://en.wikipedia.org/wiki/Miranda_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "ariel",
@@ -843,8 +899,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 578.9,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (200, 225, 228),
       texture: None,
-      description: "Ariel is one of Uranus\'s five major moons and has the brightest surface among them. Fault valleys and comparatively sparse large craters indicate that geological activity resurfaced substantial areas in the past.",
+      description: "Ariel is one of Uranus\'s five major moons and has the brightest surface among them. Fault valleys and comparatively sparse large craters indicate that geological activity resurfaced substantial areas in the past. As a natural satellite, Ariel is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 578.9 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Ariel; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Ariel_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -858,7 +916,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/uranus/moons/ariel/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/uranus/moons/ariel/; reference: https://en.wikipedia.org/wiki/Ariel_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "umbriel",
@@ -871,8 +929,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 584.7,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (122, 126, 130),
       texture: None,
-      description: "Umbriel is the darkest of Uranus\'s five major moons. Its ancient, heavily cratered surface includes a conspicuous bright ring associated with the crater Wunda.",
+      description: "Umbriel is the darkest of Uranus\'s five major moons. Its ancient, heavily cratered surface includes a conspicuous bright ring associated with the crater Wunda. As a natural satellite, Umbriel is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 584.7 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Umbriel; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Umbriel_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -886,7 +946,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/uranus/moons/umbriel/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/uranus/moons/umbriel/; reference: https://en.wikipedia.org/wiki/Umbriel_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "titania",
@@ -899,8 +959,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 788.4,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (185, 196, 198),
       texture: None,
-      description: "Titania is the largest moon of Uranus. Its icy surface is cut by large canyons and fault scarps, evidence that the interior expanded and fractured the crust during its history.",
+      description: "Titania is the largest moon of Uranus. Its icy surface is cut by large canyons and fault scarps, evidence that the interior expanded and fractured the crust during its history. As a natural satellite, Titania is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 788.4 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Titania; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Titania_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -914,7 +976,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/uranus/moons/titania/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/uranus/moons/titania/; reference: https://en.wikipedia.org/wiki/Titania_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "oberon",
@@ -927,8 +989,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 761.4,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (140, 138, 137),
       texture: None,
-      description: "Oberon is the outermost of Uranus\'s five major moons and the second largest. Its old surface is heavily cratered, with dark material visible on the floors of several craters.",
+      description: "Oberon is the outermost of Uranus\'s five major moons and the second largest. Its old surface is heavily cratered, with dark material visible on the floors of several craters. As a natural satellite, Oberon is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 761.4 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Oberon; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Oberon_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -942,7 +1006,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/uranus/moons/oberon/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/uranus/moons/oberon/; reference: https://en.wikipedia.org/wiki/Oberon_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "triton",
@@ -955,8 +1019,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 1353.4,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (201, 183, 196),
       texture: None,
-      description: "Triton is Neptune\'s largest moon and follows a retrograde orbit opposite the planet\'s rotation. Voyager 2 observed a young icy surface and active nitrogen geysers, while its orbit and Pluto-like properties point to capture from the Kuiper Belt.",
+      description: "Triton is Neptune\'s largest moon and follows a retrograde orbit opposite the planet\'s rotation. Voyager 2 observed a young icy surface and active nitrogen geysers, while its orbit and Pluto-like properties point to capture from the Kuiper Belt. As a natural satellite, Triton is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 1353 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Triton; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Triton_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -970,7 +1036,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/neptune/moons/triton/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/neptune/moons/triton/; reference: https://en.wikipedia.org/wiki/Triton_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "nereid",
@@ -983,8 +1049,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 170.0,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (141, 161, 175),
       texture: None,
-      description: "Nereid is a distant Neptunian moon with one of the most eccentric satellite orbits known. That unusual path may reflect capture or a major disturbance when Neptune acquired Triton.",
+      description: "Nereid is a distant Neptunian moon with one of the most eccentric satellite orbits known. That unusual path may reflect capture or a major disturbance when Neptune acquired Triton. As a natural satellite, Nereid is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 170.0 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Nereid; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Nereid_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -998,7 +1066,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/neptune/moons/nereid/; display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/neptune/moons/nereid/; reference: https://en.wikipedia.org/wiki/Nereid_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "proteus",
@@ -1011,8 +1079,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 210.0,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (89, 100, 119),
       texture: None,
-      description: "Proteus is one of Neptune\'s largest moons but remained undiscovered until Voyager 2 imaged it in 1989. It is dark, heavily cratered, and irregularly shaped despite being close to the size at which gravity rounds many worlds.",
+      description: "Proteus is one of Neptune\'s largest moons but remained undiscovered until Voyager 2 imaged it in 1989. It is dark, heavily cratered, and irregularly shaped despite being close to the size at which gravity rounds many worlds. As a natural satellite, Proteus is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 210.0 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Proteus; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Proteus_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -1026,7 +1096,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/neptune/moons/proteus/; display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/neptune/moons/proteus/; reference: https://en.wikipedia.org/wiki/Proteus_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "ceres",
@@ -1040,9 +1110,11 @@ Catalog(
       is_major_moon: false,
       gm_km3_s2: None,
       radius_km: 469.7,
-      color_srgb: (186, 156, 255),
-      texture: None,
-      description: "Ceres is the largest object in the main asteroid belt and the only dwarf planet in the inner solar system. Dawn found a mixture of rock and ice, widespread evidence of past water activity, and bright salt deposits in Occator Crater.",
+      color_srgb: (185, 183, 178),
+      orbit_color_srgb: (185, 183, 178),
+      texture: Some("textures/ceres.ktx2"),
+      description: "Ceres is the largest object in the main asteroid belt and the only dwarf planet in the inner solar system. Dawn found a mixture of rock and ice, widespread evidence of past water activity, and bright salt deposits in Occator Crater. This catalog groups Ceres with dwarf planets and other large trans-Neptunian worlds because it is dynamically distinct from the eight planets while still being a substantial, planet-like body. Its reviewed effective radius is about 469.7 kilometers. The object travels directly around the Sun, and JPL small-body data provide the osculating orbit used in the simulation; the path is therefore time-dependent astronomical data, not a decorative ring. At such distances, size, albedo, composition, and rotation are often inferred by combining thermal measurements, stellar occultations, spectroscopy, and sparse resolved imaging. Mission maps are used only when a public, provenance-audited global product exists. Otherwise the displayed material is an explicitly representative albedo color, not a photograph of resolved terrain. Each improved observation can change estimates of shape or surface properties without changing the object\'s identity. Ceres is valuable for comparing the inner asteroid belt, the Kuiper Belt, and more detached populations preserved from the solar system\'s early evolution.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Ceres_(dwarf_planet)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1056,7 +1128,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/ceres/facts/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/ceres/facts/; reference: https://en.wikipedia.org/wiki/Ceres_(dwarf_planet); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: resolved Dawn global mosaic, audited in assets/textures/ceres.license.json",
     ),
     BodyRecord(
       id: "pluto",
@@ -1070,9 +1142,11 @@ Catalog(
       is_major_moon: false,
       gm_km3_s2: Some(975.5),
       radius_km: 1188.3,
-      color_srgb: (186, 156, 255),
-      texture: None,
-      description: "Pluto is a dwarf planet in the Kuiper Belt with five known moons. New Horizons revealed a varied world of nitrogen-ice plains, mountains of water ice, layered haze, and ongoing surface change.",
+      color_srgb: (213, 165, 138),
+      orbit_color_srgb: (213, 165, 138),
+      texture: Some("textures/pluto.ktx2"),
+      description: "Pluto is a dwarf planet in the Kuiper Belt with five known moons. New Horizons revealed a varied world of nitrogen-ice plains, mountains of water ice, layered haze, and ongoing surface change. This catalog groups Pluto with dwarf planets and other large trans-Neptunian worlds because it is dynamically distinct from the eight planets while still being a substantial, planet-like body. Its reviewed effective radius is about 1188 kilometers. The object travels directly around the Sun, and JPL small-body data provide the osculating orbit used in the simulation; the path is therefore time-dependent astronomical data, not a decorative ring. At such distances, size, albedo, composition, and rotation are often inferred by combining thermal measurements, stellar occultations, spectroscopy, and sparse resolved imaging. Mission maps are used only when a public, provenance-audited global product exists. Otherwise the displayed material is an explicitly representative albedo color, not a photograph of resolved terrain. Each improved observation can change estimates of shape or surface properties without changing the object\'s identity. Pluto is valuable for comparing the inner asteroid belt, the Kuiper Belt, and more detached populations preserved from the solar system\'s early evolution.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Pluto"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2457588.5,
         elements: Elements(
@@ -1086,7 +1160,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; parent GM: Pluto+Charon system 975.5 km^3/s^2 = 869.6 + 105.9 (Brozović et al. 2015); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/pluto/facts/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; parent GM: Pluto+Charon system 975.5 km^3/s^2 = 869.6 + 105.9 (Brozović et al. 2015); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/pluto/facts/; reference: https://en.wikipedia.org/wiki/Pluto; display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: resolved New Horizons global map, audited in assets/textures/pluto.license.json",
     ),
     BodyRecord(
       id: "eris",
@@ -1098,9 +1172,11 @@ Catalog(
       is_major_moon: false,
       gm_km3_s2: Some(1108.0),
       radius_km: 1163.0,
-      color_srgb: (186, 156, 255),
+      color_srgb: (232, 229, 223),
+      orbit_color_srgb: (232, 229, 223),
       texture: None,
-      description: "Eris is a distant dwarf planet in the scattered disc and is close to Pluto in size. Its discovery intensified debate over the meaning of planet and contributed to the adoption of the dwarf-planet category.",
+      description: "Eris is a distant dwarf planet in the scattered disc and is close to Pluto in size. Its discovery intensified debate over the meaning of planet and contributed to the adoption of the dwarf-planet category. This catalog groups Eris with dwarf planets and other large trans-Neptunian worlds because it is dynamically distinct from the eight planets while still being a substantial, planet-like body. Its reviewed effective radius is about 1163 kilometers. The object travels directly around the Sun, and JPL small-body data provide the osculating orbit used in the simulation; the path is therefore time-dependent astronomical data, not a decorative ring. At such distances, size, albedo, composition, and rotation are often inferred by combining thermal measurements, stellar occultations, spectroscopy, and sparse resolved imaging. Mission maps are used only when a public, provenance-audited global product exists. Otherwise the displayed material is an explicitly representative albedo color, not a photograph of resolved terrain. Each improved observation can change estimates of shape or surface properties without changing the object\'s identity. Eris is valuable for comparing the inner asteroid belt, the Kuiper Belt, and more detached populations preserved from the solar system\'s early evolution.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Eris_(dwarf_planet)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1114,7 +1190,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/eris/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/eris/; reference: https://en.wikipedia.org/wiki/Eris_(dwarf_planet); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: flat representative albedo, not resolved imagery; review: docs/dwarf-surface-appearance-2026-07-23.md",
     ),
     BodyRecord(
       id: "haumea",
@@ -1126,9 +1202,11 @@ Catalog(
       is_major_moon: false,
       gm_km3_s2: Some(267.0),
       radius_km: 780.0,
-      color_srgb: (186, 156, 255),
+      color_srgb: (221, 236, 240),
+      orbit_color_srgb: (221, 236, 240),
       texture: None,
-      description: "Haumea is a rapidly rotating dwarf planet with an elongated shape, two moons, and a ring. Its water-ice-rich surface and associated family of small bodies point to a major collision early in its history.",
+      description: "Haumea is a rapidly rotating dwarf planet with an elongated shape, two moons, and a ring. Its water-ice-rich surface and associated family of small bodies point to a major collision early in its history. This catalog groups Haumea with dwarf planets and other large trans-Neptunian worlds because it is dynamically distinct from the eight planets while still being a substantial, planet-like body. Its reviewed effective radius is about 780.0 kilometers. The object travels directly around the Sun, and JPL small-body data provide the osculating orbit used in the simulation; the path is therefore time-dependent astronomical data, not a decorative ring. At such distances, size, albedo, composition, and rotation are often inferred by combining thermal measurements, stellar occultations, spectroscopy, and sparse resolved imaging. Mission maps are used only when a public, provenance-audited global product exists. Otherwise the displayed material is an explicitly representative albedo color, not a photograph of resolved terrain. Each improved observation can change estimates of shape or surface properties without changing the object\'s identity. Haumea is valuable for comparing the inner asteroid belt, the Kuiper Belt, and more detached populations preserved from the solar system\'s early evolution.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Haumea"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1142,7 +1220,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/haumea/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/haumea/; reference: https://en.wikipedia.org/wiki/Haumea; display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: flat representative albedo, not resolved imagery; review: docs/dwarf-surface-appearance-2026-07-23.md",
     ),
     BodyRecord(
       id: "makemake",
@@ -1154,9 +1232,11 @@ Catalog(
       is_major_moon: false,
       gm_km3_s2: None,
       radius_km: 715.0,
-      color_srgb: (186, 156, 255),
+      color_srgb: (184, 110, 82),
+      orbit_color_srgb: (184, 110, 82),
       texture: None,
-      description: "Makemake is a bright, methane-bearing dwarf planet in the Kuiper Belt. It is smaller than Pluto, has one known moon, and takes more than three centuries to complete an orbit around the Sun.",
+      description: "Makemake is a bright, methane-bearing dwarf planet in the Kuiper Belt. It is smaller than Pluto, has one known moon, and takes more than three centuries to complete an orbit around the Sun. This catalog groups Makemake with dwarf planets and other large trans-Neptunian worlds because it is dynamically distinct from the eight planets while still being a substantial, planet-like body. Its reviewed effective radius is about 715.0 kilometers. The object travels directly around the Sun, and JPL small-body data provide the osculating orbit used in the simulation; the path is therefore time-dependent astronomical data, not a decorative ring. At such distances, size, albedo, composition, and rotation are often inferred by combining thermal measurements, stellar occultations, spectroscopy, and sparse resolved imaging. Mission maps are used only when a public, provenance-audited global product exists. Otherwise the displayed material is an explicitly representative albedo color, not a photograph of resolved terrain. Each improved observation can change estimates of shape or surface properties without changing the object\'s identity. Makemake is valuable for comparing the inner asteroid belt, the Kuiper Belt, and more detached populations preserved from the solar system\'s early evolution.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Makemake"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1170,7 +1250,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/makemake/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/makemake/; reference: https://en.wikipedia.org/wiki/Makemake; display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: flat representative albedo, not resolved imagery; review: docs/dwarf-surface-appearance-2026-07-23.md",
     ),
     BodyRecord(
       id: "gonggong",
@@ -1182,9 +1262,11 @@ Catalog(
       is_major_moon: false,
       gm_km3_s2: None,
       radius_km: 615.0,
-      color_srgb: (186, 156, 255),
+      color_srgb: (166, 74, 72),
+      orbit_color_srgb: (166, 74, 72),
       texture: None,
-      description: "Gonggong is a large trans-Neptunian object on an elongated and inclined orbit beyond Neptune. It takes several centuries to circle the Sun and travels much farther away at aphelion than it comes at perihelion.",
+      description: "Gonggong is a large trans-Neptunian object on an elongated and inclined orbit beyond Neptune. It takes several centuries to circle the Sun and travels much farther away at aphelion than it comes at perihelion. This catalog groups Gonggong with dwarf planets and other large trans-Neptunian worlds because it is dynamically distinct from the eight planets while still being a substantial, planet-like body. Its reviewed effective radius is about 615.0 kilometers. The object travels directly around the Sun, and JPL small-body data provide the osculating orbit used in the simulation; the path is therefore time-dependent astronomical data, not a decorative ring. At such distances, size, albedo, composition, and rotation are often inferred by combining thermal measurements, stellar occultations, spectroscopy, and sparse resolved imaging. Mission maps are used only when a public, provenance-audited global product exists. Otherwise the displayed material is an explicitly representative albedo color, not a photograph of resolved terrain. Each improved observation can change estimates of shape or surface properties without changing the object\'s identity. Gonggong is valuable for comparing the inner asteroid belt, the Kuiper Belt, and more detached populations preserved from the solar system\'s early evolution.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Gonggong_(dwarf_planet)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1198,7 +1280,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=Gonggong",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=Gonggong; reference: https://en.wikipedia.org/wiki/Gonggong_(dwarf_planet); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: flat representative albedo, not resolved imagery; review: docs/dwarf-surface-appearance-2026-07-23.md",
     ),
     BodyRecord(
       id: "quaoar",
@@ -1210,9 +1292,11 @@ Catalog(
       is_major_moon: false,
       gm_km3_s2: None,
       radius_km: 545.0,
-      color_srgb: (186, 156, 255),
+      color_srgb: (168, 115, 99),
+      orbit_color_srgb: (168, 115, 99),
       texture: None,
-      description: "Quaoar is a large Kuiper Belt object following a less elongated orbit than many distant catalog worlds. Its heliocentric journey still takes nearly three centuries and remains beyond Neptune throughout the orbit.",
+      description: "Quaoar is a large Kuiper Belt object following a less elongated orbit than many distant catalog worlds. Its heliocentric journey still takes nearly three centuries and remains beyond Neptune throughout the orbit. This catalog groups Quaoar with dwarf planets and other large trans-Neptunian worlds because it is dynamically distinct from the eight planets while still being a substantial, planet-like body. Its reviewed effective radius is about 545.0 kilometers. The object travels directly around the Sun, and JPL small-body data provide the osculating orbit used in the simulation; the path is therefore time-dependent astronomical data, not a decorative ring. At such distances, size, albedo, composition, and rotation are often inferred by combining thermal measurements, stellar occultations, spectroscopy, and sparse resolved imaging. Mission maps are used only when a public, provenance-audited global product exists. Otherwise the displayed material is an explicitly representative albedo color, not a photograph of resolved terrain. Each improved observation can change estimates of shape or surface properties without changing the object\'s identity. Quaoar is valuable for comparing the inner asteroid belt, the Kuiper Belt, and more detached populations preserved from the solar system\'s early evolution.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Quaoar"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1226,7 +1310,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=Quaoar",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=Quaoar; reference: https://en.wikipedia.org/wiki/Quaoar; display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: flat representative albedo, not resolved imagery; review: docs/dwarf-surface-appearance-2026-07-23.md",
     ),
     BodyRecord(
       id: "orcus",
@@ -1238,9 +1322,11 @@ Catalog(
       is_major_moon: false,
       gm_km3_s2: None,
       radius_km: 458.0,
-      color_srgb: (186, 156, 255),
+      color_srgb: (140, 145, 153),
+      orbit_color_srgb: (140, 145, 153),
       texture: None,
-      description: "Orcus is a large Kuiper Belt object trapped in a two-to-three orbital resonance with Neptune. Its orbital period is close to Pluto\'s, but the two objects occupy different parts of their similarly shaped paths.",
+      description: "Orcus is a large Kuiper Belt object trapped in a two-to-three orbital resonance with Neptune. Its orbital period is close to Pluto\'s, but the two objects occupy different parts of their similarly shaped paths. This catalog groups Orcus with dwarf planets and other large trans-Neptunian worlds because it is dynamically distinct from the eight planets while still being a substantial, planet-like body. Its reviewed effective radius is about 458.0 kilometers. The object travels directly around the Sun, and JPL small-body data provide the osculating orbit used in the simulation; the path is therefore time-dependent astronomical data, not a decorative ring. At such distances, size, albedo, composition, and rotation are often inferred by combining thermal measurements, stellar occultations, spectroscopy, and sparse resolved imaging. Mission maps are used only when a public, provenance-audited global product exists. Otherwise the displayed material is an explicitly representative albedo color, not a photograph of resolved terrain. Each improved observation can change estimates of shape or surface properties without changing the object\'s identity. Orcus is valuable for comparing the inner asteroid belt, the Kuiper Belt, and more detached populations preserved from the solar system\'s early evolution.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Orcus_(dwarf_planet)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1254,7 +1340,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=Orcus",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=Orcus; reference: https://en.wikipedia.org/wiki/Orcus_(dwarf_planet); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: flat representative albedo, not resolved imagery; review: docs/dwarf-surface-appearance-2026-07-23.md",
     ),
     BodyRecord(
       id: "sedna",
@@ -1266,9 +1352,11 @@ Catalog(
       is_major_moon: false,
       gm_km3_s2: None,
       radius_km: 500.0,
-      color_srgb: (186, 156, 255),
+      color_srgb: (143, 62, 67),
+      orbit_color_srgb: (143, 62, 67),
       texture: None,
-      description: "Sedna follows an extremely elongated orbit that carries it far beyond the Kuiper Belt. Even near perihelion it remains distant from the Sun, making its orbit an important clue to the structure and early history of the outer solar system.",
+      description: "Sedna follows an extremely elongated orbit that carries it far beyond the Kuiper Belt. Even near perihelion it remains distant from the Sun, making its orbit an important clue to the structure and early history of the outer solar system. This catalog groups Sedna with dwarf planets and other large trans-Neptunian worlds because it is dynamically distinct from the eight planets while still being a substantial, planet-like body. Its reviewed effective radius is about 500.0 kilometers. The object travels directly around the Sun, and JPL small-body data provide the osculating orbit used in the simulation; the path is therefore time-dependent astronomical data, not a decorative ring. At such distances, size, albedo, composition, and rotation are often inferred by combining thermal measurements, stellar occultations, spectroscopy, and sparse resolved imaging. Mission maps are used only when a public, provenance-audited global product exists. Otherwise the displayed material is an explicitly representative albedo color, not a photograph of resolved terrain. Each improved observation can change estimates of shape or surface properties without changing the object\'s identity. Sedna is valuable for comparing the inner asteroid belt, the Kuiper Belt, and more detached populations preserved from the solar system\'s early evolution.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Sedna_(dwarf_planet)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1282,7 +1370,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=Sedna",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=Sedna; reference: https://en.wikipedia.org/wiki/Sedna_(dwarf_planet); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: flat representative albedo, not resolved imagery; review: docs/dwarf-surface-appearance-2026-07-23.md",
     ),
     BodyRecord(
       id: "charon",
@@ -1295,8 +1383,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 606.0,
       color_srgb: (198, 189, 175),
-      texture: None,
-      description: "Charon is Pluto\'s largest moon and is about half Pluto\'s diameter. The two bodies are mutually tidally locked and orbit a common center of mass outside Pluto, giving the pair an unusually balanced relationship.",
+      orbit_color_srgb: (158, 169, 164),
+      texture: Some("textures/charon.ktx2"),
+      description: "Charon is Pluto\'s largest moon and is about half Pluto\'s diameter. The two bodies are mutually tidally locked and orbit a common center of mass outside Pluto, giving the pair an unusually balanced relationship. As a natural satellite, Charon is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 606.0 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Charon; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Charon_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -1310,7 +1400,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/pluto/moons/charon/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/pluto/moons/charon/; reference: https://en.wikipedia.org/wiki/Charon_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: resolved New Horizons global map, audited in assets/textures/charon.license.json; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "nix",
@@ -1323,8 +1413,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 18.0,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (181, 198, 219),
       texture: None,
-      description: "Nix is one of Pluto\'s four small outer moons and follows a nearly circular path around the Pluto-Charon pair. New Horizons found an elongated body with a bright surface and a conspicuous reddish impact crater.",
+      description: "Nix is one of Pluto\'s four small outer moons and follows a nearly circular path around the Pluto-Charon pair. New Horizons found an elongated body with a bright surface and a conspicuous reddish impact crater. As a natural satellite, Nix is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 18.0 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Nix; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Nix_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -1338,7 +1430,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; radius: JPL Planetary Satellite Physical Parameters 18.0 +/- 1.0 km (Stern et al. 2018); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/pluto/moons/nix/; display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; radius: JPL Planetary Satellite Physical Parameters 18.0 +/- 1.0 km (Stern et al. 2018); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/pluto/moons/nix/; reference: https://en.wikipedia.org/wiki/Nix_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "hydra",
@@ -1351,8 +1443,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 18.5,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (208, 196, 216),
       texture: None,
-      description: "Hydra is the outermost of Pluto\'s known moons and circles the Pluto-Charon pair. New Horizons images show an irregular, highly reflective body whose water-ice surface includes two joined-looking lobes.",
+      description: "Hydra is the outermost of Pluto\'s known moons and circles the Pluto-Charon pair. New Horizons images show an irregular, highly reflective body whose water-ice surface includes two joined-looking lobes. As a natural satellite, Hydra is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 18.5 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Hydra; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Hydra_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -1366,7 +1460,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; radius: JPL Planetary Satellite Physical Parameters 18.5 +/- 1.0 km (Stern et al. 2018); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/pluto/moons/hydra/; display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; radius: JPL Planetary Satellite Physical Parameters 18.5 +/- 1.0 km (Stern et al. 2018); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/pluto/moons/hydra/; reference: https://en.wikipedia.org/wiki/Hydra_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=false curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "dysnomia",
@@ -1379,8 +1473,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 350.0,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (163, 171, 181),
       texture: None,
-      description: "Dysnomia is the only known moon of the dwarf planet Eris. Tracking its orbit allowed astronomers to determine the mass of the Eris system, while the moon itself remains only sparsely resolved.",
+      description: "Dysnomia is the only known moon of the dwarf planet Eris. Tracking its orbit allowed astronomers to determine the mass of the Eris system, while the moon itself remains only sparsely resolved. As a natural satellite, Dysnomia is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 350.0 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Dysnomia; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Dysnomia_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -1394,7 +1490,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/eris/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/eris/; reference: https://en.wikipedia.org/wiki/Dysnomia_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "hiiaka",
@@ -1409,8 +1505,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 185.0,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (216, 244, 245),
       texture: None,
-      description: "Hiʻiaka is the larger and outer moon of the dwarf planet Haumea. Its bright water-ice surface links it compositionally with Haumea and other members of the same collisional family.",
+      description: "Hiʻiaka is the larger and outer moon of the dwarf planet Haumea. Its bright water-ice surface links it compositionally with Haumea and other members of the same collisional family. As a natural satellite, Hiʻiaka is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 185.0 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Hiʻiaka; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Hi%CA%BBiaka_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -1424,7 +1522,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup); radius: volume-equivalent diameter 370 +/- 20 km / 2 (Fernandez-Valenzuela et al. 2025); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/haumea/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup); radius: volume-equivalent diameter 370 +/- 20 km / 2 (Fernandez-Valenzuela et al. 2025); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/haumea/; reference: https://en.wikipedia.org/wiki/Hi%CA%BBiaka_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "namaka",
@@ -1437,8 +1535,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 75.0,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (169, 211, 207),
       texture: None,
-      description: "Namaka is the smaller and inner known moon of Haumea. Its orbit is dynamically influenced by Hiʻiaka, helping astronomers investigate the masses and shapes within the Haumea system.",
+      description: "Namaka is the smaller and inner known moon of Haumea. Its orbit is dynamically influenced by Hiʻiaka, helping astronomers investigate the masses and shapes within the Haumea system. As a natural satellite, Namaka is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 75.0 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Namaka; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Namaka_(moon)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -1452,7 +1552,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup); radius: adopted from thermal diameter about 150 +/- 50 km / 2 (Muller et al. 2019); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/haumea/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup); radius: adopted from thermal diameter about 150 +/- 50 km / 2 (Muller et al. 2019); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/haumea/; reference: https://en.wikipedia.org/wiki/Namaka_(moon); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "pallas",
@@ -1467,8 +1567,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 256.0,
       color_srgb: (158, 163, 170),
+      orbit_color_srgb: (159, 160, 184),
       texture: None,
-      description: "2 Pallas is one of the largest objects in the main asteroid belt. Its cataloged path is substantially inclined to the ecliptic, distinguishing its orbit from the flatter paths of many main-belt objects.",
+      description: "2 Pallas is one of the largest objects in the main asteroid belt. Its cataloged path is substantially inclined to the ecliptic, distinguishing its orbit from the flatter paths of many main-belt objects. The catalog classifies 2 Pallas as an asteroid: a small body orbiting the Sun rather than a satellite of a planet. Its reviewed effective radius is about 256.0 kilometers, but irregular shape means a single radius is a compact scale estimate rather than a complete geometric model. JPL small-body elements determine the simulated orbit. Reflected sunlight, thermal emission, radar echoes, occultations, and spacecraft imaging reveal different aspects of an asteroid\'s size, spin, surface texture, and composition. These bodies are remnants and reworked fragments from the era of planet formation, so their craters, boulders, minerals, and internal structure preserve evidence that planets have largely erased. Close approaches and mission encounters also improve orbit solutions by extending the observational arc. In this view, the body color and apparent-size floor keep 2 Pallas legible without altering its propagated center, physical radius, picking geometry, or orbital truth. Its scientific importance comes from both its individual history and the population context supplied by other cataloged small bodies.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/2_Pallas"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1482,7 +1584,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=2%20Pallas",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=2%20Pallas; reference: https://en.wikipedia.org/wiki/2_Pallas; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "juno",
@@ -1497,8 +1599,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 123.0,
       color_srgb: (158, 163, 170),
+      orbit_color_srgb: (167, 124, 90),
       texture: None,
-      description: "3 Juno is a large asteroid orbiting within the main belt between Mars and Jupiter. Its heliocentric path is both more eccentric and more inclined than Earth\'s nearly circular orbit.",
+      description: "3 Juno is a large asteroid orbiting within the main belt between Mars and Jupiter. Its heliocentric path is both more eccentric and more inclined than Earth\'s nearly circular orbit. The catalog classifies 3 Juno as an asteroid: a small body orbiting the Sun rather than a satellite of a planet. Its reviewed effective radius is about 123.0 kilometers, but irregular shape means a single radius is a compact scale estimate rather than a complete geometric model. JPL small-body elements determine the simulated orbit. Reflected sunlight, thermal emission, radar echoes, occultations, and spacecraft imaging reveal different aspects of an asteroid\'s size, spin, surface texture, and composition. These bodies are remnants and reworked fragments from the era of planet formation, so their craters, boulders, minerals, and internal structure preserve evidence that planets have largely erased. Close approaches and mission encounters also improve orbit solutions by extending the observational arc. In this view, the body color and apparent-size floor keep 3 Juno legible without altering its propagated center, physical radius, picking geometry, or orbital truth. Its scientific importance comes from both its individual history and the population context supplied by other cataloged small bodies.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/3_Juno"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1512,7 +1616,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=3%20Juno",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=3%20Juno; reference: https://en.wikipedia.org/wiki/3_Juno; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "vesta",
@@ -1527,8 +1631,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 262.7,
       color_srgb: (158, 163, 170),
+      orbit_color_srgb: (216, 201, 176),
       texture: None,
-      description: "4 Vesta is one of the largest bodies in the asteroid belt and has a differentiated rocky interior. Dawn mapped a giant south-polar impact basin whose ejecta supplied many meteorites later found on Earth.",
+      description: "4 Vesta is one of the largest bodies in the asteroid belt and has a differentiated rocky interior. Dawn mapped a giant south-polar impact basin whose ejecta supplied many meteorites later found on Earth. The catalog classifies 4 Vesta as an asteroid: a small body orbiting the Sun rather than a satellite of a planet. Its reviewed effective radius is about 262.7 kilometers, but irregular shape means a single radius is a compact scale estimate rather than a complete geometric model. JPL small-body elements determine the simulated orbit. Reflected sunlight, thermal emission, radar echoes, occultations, and spacecraft imaging reveal different aspects of an asteroid\'s size, spin, surface texture, and composition. These bodies are remnants and reworked fragments from the era of planet formation, so their craters, boulders, minerals, and internal structure preserve evidence that planets have largely erased. Close approaches and mission encounters also improve orbit solutions by extending the observational arc. In this view, the body color and apparent-size floor keep 4 Vesta legible without altering its propagated center, physical radius, picking geometry, or orbital truth. Its scientific importance comes from both its individual history and the population context supplied by other cataloged small bodies.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/4_Vesta"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1542,7 +1648,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/asteroids/4-vesta/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/asteroids/4-vesta/; reference: https://en.wikipedia.org/wiki/4_Vesta; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "hygiea",
@@ -1557,8 +1663,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 203.56,
       color_srgb: (158, 163, 170),
+      orbit_color_srgb: (94, 102, 71),
       texture: None,
-      description: "10 Hygiea is one of the largest objects in the main asteroid belt. Its reviewed effective diameter is about 407 kilometers, while its cataloged orbit remains entirely between Mars and Jupiter.",
+      description: "10 Hygiea is one of the largest objects in the main asteroid belt. Its reviewed effective diameter is about 407 kilometers, while its cataloged orbit remains entirely between Mars and Jupiter. The catalog classifies 10 Hygiea as an asteroid: a small body orbiting the Sun rather than a satellite of a planet. Its reviewed effective radius is about 203.6 kilometers, but irregular shape means a single radius is a compact scale estimate rather than a complete geometric model. JPL small-body elements determine the simulated orbit. Reflected sunlight, thermal emission, radar echoes, occultations, and spacecraft imaging reveal different aspects of an asteroid\'s size, spin, surface texture, and composition. These bodies are remnants and reworked fragments from the era of planet formation, so their craters, boulders, minerals, and internal structure preserve evidence that planets have largely erased. Close approaches and mission encounters also improve orbit solutions by extending the observational arc. In this view, the body color and apparent-size floor keep 10 Hygiea legible without altering its propagated center, physical radius, picking geometry, or orbital truth. Its scientific importance comes from both its individual history and the population context supplied by other cataloged small bodies.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/10_Hygiea"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1572,7 +1680,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; radius: SBDB diameter 407.12 +/- 6.8 km / 2; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=10%20Hygiea",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; radius: SBDB diameter 407.12 +/- 6.8 km / 2; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=10%20Hygiea; reference: https://en.wikipedia.org/wiki/10_Hygiea; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "psyche",
@@ -1587,8 +1695,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 113.0,
       color_srgb: (158, 163, 170),
+      orbit_color_srgb: (132, 148, 166),
       texture: None,
-      description: "16 Psyche is a large main-belt asteroid containing a substantial mixture of metal and rock. Its composition may preserve evidence about collisions and the interiors of early planetesimals, which is why a dedicated spacecraft is traveling there.",
+      description: "16 Psyche is a large main-belt asteroid containing a substantial mixture of metal and rock. Its composition may preserve evidence about collisions and the interiors of early planetesimals, which is why a dedicated spacecraft is traveling there. The catalog classifies 16 Psyche as an asteroid: a small body orbiting the Sun rather than a satellite of a planet. Its reviewed effective radius is about 113.0 kilometers, but irregular shape means a single radius is a compact scale estimate rather than a complete geometric model. JPL small-body elements determine the simulated orbit. Reflected sunlight, thermal emission, radar echoes, occultations, and spacecraft imaging reveal different aspects of an asteroid\'s size, spin, surface texture, and composition. These bodies are remnants and reworked fragments from the era of planet formation, so their craters, boulders, minerals, and internal structure preserve evidence that planets have largely erased. Close approaches and mission encounters also improve orbit solutions by extending the observational arc. In this view, the body color and apparent-size floor keep 16 Psyche legible without altering its propagated center, physical radius, picking geometry, or orbital truth. Its scientific importance comes from both its individual history and the population context supplied by other cataloged small bodies.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/16_Psyche"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1602,7 +1712,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/asteroids/16-psyche/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/asteroids/16-psyche/; reference: https://en.wikipedia.org/wiki/16_Psyche; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "eros",
@@ -1617,8 +1727,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 8.4,
       color_srgb: (158, 163, 170),
+      orbit_color_srgb: (181, 138, 97),
       texture: None,
-      description: "433 Eros is an elongated near-Earth asteroid with a heavily cratered and boulder-strewn surface. NEAR Shoemaker became the first spacecraft to orbit an asteroid there and later made a controlled touchdown.",
+      description: "433 Eros is an elongated near-Earth asteroid with a heavily cratered and boulder-strewn surface. NEAR Shoemaker became the first spacecraft to orbit an asteroid there and later made a controlled touchdown. The catalog classifies 433 Eros as an asteroid: a small body orbiting the Sun rather than a satellite of a planet. Its reviewed effective radius is about 8.40 kilometers, but irregular shape means a single radius is a compact scale estimate rather than a complete geometric model. JPL small-body elements determine the simulated orbit. Reflected sunlight, thermal emission, radar echoes, occultations, and spacecraft imaging reveal different aspects of an asteroid\'s size, spin, surface texture, and composition. These bodies are remnants and reworked fragments from the era of planet formation, so their craters, boulders, minerals, and internal structure preserve evidence that planets have largely erased. Close approaches and mission encounters also improve orbit solutions by extending the observational arc. In this view, the body color and apparent-size floor keep 433 Eros legible without altering its propagated center, physical radius, picking geometry, or orbital truth. Its scientific importance comes from both its individual history and the population context supplied by other cataloged small bodies.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/433_Eros"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1632,7 +1744,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/asteroids/433-eros/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/asteroids/433-eros/; reference: https://en.wikipedia.org/wiki/433_Eros; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "bennu",
@@ -1647,8 +1759,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 0.245,
       color_srgb: (158, 163, 170),
+      orbit_color_srgb: (83, 87, 91),
       texture: None,
-      description: "101955 Bennu is a carbon-rich near-Earth asteroid assembled as a loosely bound rubble pile. OSIRIS-REx mapped and sampled its unexpectedly boulder-covered surface, returning material to Earth in 2023.",
+      description: "101955 Bennu is a carbon-rich near-Earth asteroid assembled as a loosely bound rubble pile. OSIRIS-REx mapped and sampled its unexpectedly boulder-covered surface, returning material to Earth in 2023. The catalog classifies 101955 Bennu as an asteroid: a small body orbiting the Sun rather than a satellite of a planet. Its reviewed effective radius is about 0.24 kilometers, but irregular shape means a single radius is a compact scale estimate rather than a complete geometric model. JPL small-body elements determine the simulated orbit. Reflected sunlight, thermal emission, radar echoes, occultations, and spacecraft imaging reveal different aspects of an asteroid\'s size, spin, surface texture, and composition. These bodies are remnants and reworked fragments from the era of planet formation, so their craters, boulders, minerals, and internal structure preserve evidence that planets have largely erased. Close approaches and mission encounters also improve orbit solutions by extending the observational arc. In this view, the body color and apparent-size floor keep 101955 Bennu legible without altering its propagated center, physical radius, picking geometry, or orbital truth. Its scientific importance comes from both its individual history and the population context supplied by other cataloged small bodies.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/101955_Bennu"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2455562.5,
         elements: Elements(
@@ -1662,7 +1776,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/asteroids/101955-bennu/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/asteroids/101955-bennu/; reference: https://en.wikipedia.org/wiki/101955_Bennu; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "apophis",
@@ -1677,8 +1791,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 0.17,
       color_srgb: (158, 163, 170),
+      orbit_color_srgb: (125, 112, 104),
       texture: None,
-      description: "99942 Apophis is a stony near-Earth asteroid whose orbit will carry it exceptionally close to Earth in 2029. The encounter is not an impact threat, but Earth\'s gravity will alter the asteroid\'s orbit and rotation enough to create a valuable natural experiment.",
+      description: "99942 Apophis is a stony near-Earth asteroid whose orbit will carry it exceptionally close to Earth in 2029. The encounter is not an impact threat, but Earth\'s gravity will alter the asteroid\'s orbit and rotation enough to create a valuable natural experiment. The catalog classifies 99942 Apophis as an asteroid: a small body orbiting the Sun rather than a satellite of a planet. Its reviewed effective radius is about 0.17 kilometers, but irregular shape means a single radius is a compact scale estimate rather than a complete geometric model. JPL small-body elements determine the simulated orbit. Reflected sunlight, thermal emission, radar echoes, occultations, and spacecraft imaging reveal different aspects of an asteroid\'s size, spin, surface texture, and composition. These bodies are remnants and reworked fragments from the era of planet formation, so their craters, boulders, minerals, and internal structure preserve evidence that planets have largely erased. Close approaches and mission encounters also improve orbit solutions by extending the observational arc. In this view, the body color and apparent-size floor keep 99942 Apophis legible without altering its propagated center, physical radius, picking geometry, or orbital truth. Its scientific importance comes from both its individual history and the population context supplied by other cataloged small bodies.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/99942_Apophis"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461200.5,
         elements: Elements(
@@ -1692,7 +1808,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/asteroids/apophis/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/asteroids/apophis/; reference: https://en.wikipedia.org/wiki/99942_Apophis; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "halley",
@@ -1707,8 +1823,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 5.5,
       color_srgb: (166, 216, 232),
+      orbit_color_srgb: (120, 217, 242),
       texture: None,
-      description: "1P/Halley is a short-period comet that returns to the inner solar system roughly every 76 years. It is the source of the Eta Aquariid and Orionid meteor showers, and spacecraft imaged its dark nucleus during the 1986 passage.",
+      description: "1P/Halley is a short-period comet that returns to the inner solar system roughly every 76 years. It is the source of the Eta Aquariid and Orionid meteor showers, and spacecraft imaged its dark nucleus during the 1986 passage. The catalog treats 1P/Halley as a comet, with a small solid nucleus whose volatile material can become active when heating permits. Its adopted nucleus radius is about 5.50 kilometers; a surrounding coma and tails can grow vastly larger and are not represented by that number. JPL small-body elements supply the simulated heliocentric trajectory. Periodic comets return on bound ellipses, long-period visitors spend most of their time far from the Sun, and interstellar objects can follow open hyperbolic paths, so the category spans very different dynamical histories. Dust reflects sunlight while ionized gas responds to the solar wind, producing structures that change over hours and days. Imaging, spectroscopy, radar, and spacecraft encounters connect those temporary displays to nucleus shape, rotation, composition, and jets. Because activity can complicate astrometry and brightness estimates, continued observations refine both physical interpretation and orbit. 1P/Halley offers a sample of volatile-rich material preserved, transported, and altered since the solar system formed.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Halley%27s_Comet"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2439875.5,
         elements: Elements(
@@ -1722,7 +1840,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/1p-halley/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/1p-halley/; reference: https://en.wikipedia.org/wiki/Halley%27s_Comet; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "encke",
@@ -1737,8 +1855,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 2.4,
       color_srgb: (166, 216, 232),
+      orbit_color_srgb: (95, 196, 214),
       texture: None,
-      description: "2P/Encke has the shortest orbital period of any well-known periodic comet, returning about every 3.3 years. Dust released along its orbit contributes to the Taurid meteor complex.",
+      description: "2P/Encke has the shortest orbital period of any well-known periodic comet, returning about every 3.3 years. Dust released along its orbit contributes to the Taurid meteor complex. The catalog treats 2P/Encke as a comet, with a small solid nucleus whose volatile material can become active when heating permits. Its adopted nucleus radius is about 2.40 kilometers; a surrounding coma and tails can grow vastly larger and are not represented by that number. JPL small-body elements supply the simulated heliocentric trajectory. Periodic comets return on bound ellipses, long-period visitors spend most of their time far from the Sun, and interstellar objects can follow open hyperbolic paths, so the category spans very different dynamical histories. Dust reflects sunlight while ionized gas responds to the solar wind, producing structures that change over hours and days. Imaging, spectroscopy, radar, and spacecraft encounters connect those temporary displays to nucleus shape, rotation, composition, and jets. Because activity can complicate astrometry and brightness estimates, continued observations refine both physical interpretation and orbit. 2P/Encke offers a sample of volatile-rich material preserved, transported, and altered since the solar system formed.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Comet_Encke"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2459847.5,
         elements: Elements(
@@ -1752,7 +1872,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/2p-encke/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/2p-encke/; reference: https://en.wikipedia.org/wiki/Comet_Encke; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "tempel_1",
@@ -1767,8 +1887,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 3.0,
       color_srgb: (166, 216, 232),
+      orbit_color_srgb: (145, 211, 221),
       texture: None,
-      description: "9P/Tempel 1 is a periodic Jupiter-family comet with a dark, irregular nucleus. NASA\'s Deep Impact mission struck it with a probe in 2005, and Stardust later revisited the comet to examine the altered surface.",
+      description: "9P/Tempel 1 is a periodic Jupiter-family comet with a dark, irregular nucleus. NASA\'s Deep Impact mission struck it with a probe in 2005, and Stardust later revisited the comet to examine the altered surface. The catalog treats 9P/Tempel 1 as a comet, with a small solid nucleus whose volatile material can become active when heating permits. Its adopted nucleus radius is about 3.00 kilometers; a surrounding coma and tails can grow vastly larger and are not represented by that number. JPL small-body elements supply the simulated heliocentric trajectory. Periodic comets return on bound ellipses, long-period visitors spend most of their time far from the Sun, and interstellar objects can follow open hyperbolic paths, so the category spans very different dynamical histories. Dust reflects sunlight while ionized gas responds to the solar wind, producing structures that change over hours and days. Imaging, spectroscopy, radar, and spacecraft encounters connect those temporary displays to nucleus shape, rotation, composition, and jets. Because activity can complicate astrometry and brightness estimates, continued observations refine both physical interpretation and orbit. 9P/Tempel 1 offers a sample of volatile-rich material preserved, transported, and altered since the solar system formed.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Tempel_1"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2457470.5,
         elements: Elements(
@@ -1782,7 +1904,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/9p-tempel-1/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/9p-tempel-1/; reference: https://en.wikipedia.org/wiki/Tempel_1; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "churyumov_gerasimenko",
@@ -1797,8 +1919,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 1.7,
       color_srgb: (166, 216, 232),
+      orbit_color_srgb: (112, 201, 182),
       texture: None,
-      description: "67P/Churyumov-Gerasimenko is a Jupiter-family comet with a distinctive two-lobed nucleus. Rosetta orbited it through an active passage near the Sun and deployed the Philae lander, providing extended close-range observations of a comet.",
+      description: "67P/Churyumov-Gerasimenko is a Jupiter-family comet with a distinctive two-lobed nucleus. Rosetta orbited it through an active passage near the Sun and deployed the Philae lander, providing extended close-range observations of a comet. The catalog treats 67P/Churyumov-Gerasimenko as a comet, with a small solid nucleus whose volatile material can become active when heating permits. Its adopted nucleus radius is about 1.70 kilometers; a surrounding coma and tails can grow vastly larger and are not represented by that number. JPL small-body elements supply the simulated heliocentric trajectory. Periodic comets return on bound ellipses, long-period visitors spend most of their time far from the Sun, and interstellar objects can follow open hyperbolic paths, so the category spans very different dynamical histories. Dust reflects sunlight while ionized gas responds to the solar wind, producing structures that change over hours and days. Imaging, spectroscopy, radar, and spacecraft encounters connect those temporary displays to nucleus shape, rotation, composition, and jets. Because activity can complicate astrometry and brightness estimates, continued observations refine both physical interpretation and orbit. 67P/Churyumov-Gerasimenko offers a sample of volatile-rich material preserved, transported, and altered since the solar system formed.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/67P/Churyumov%E2%80%93Gerasimenko"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2457305.5,
         elements: Elements(
@@ -1812,7 +1936,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; radius: SBDB diameter 3.4 +/- 0.1 km / 2 (Sierks et al. 2015); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/67p-churyumov-gerasimenko/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; radius: SBDB diameter 3.4 +/- 0.1 km / 2 (Sierks et al. 2015); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/67p-churyumov-gerasimenko/; reference: https://en.wikipedia.org/wiki/67P/Churyumov%E2%80%93Gerasimenko; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "hartley_2",
@@ -1827,8 +1951,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 0.8,
       color_srgb: (166, 216, 232),
+      orbit_color_srgb: (89, 224, 197),
       texture: None,
-      description: "103P/Hartley 2 is a small, highly active Jupiter-family comet with an elongated nucleus. The EPOXI flyby showed jets driven largely by carbon dioxide carrying icy particles away from the surface.",
+      description: "103P/Hartley 2 is a small, highly active Jupiter-family comet with an elongated nucleus. The EPOXI flyby showed jets driven largely by carbon dioxide carrying icy particles away from the surface. The catalog treats 103P/Hartley 2 as a comet, with a small solid nucleus whose volatile material can become active when heating permits. Its adopted nucleus radius is about 0.80 kilometers; a surrounding coma and tails can grow vastly larger and are not represented by that number. JPL small-body elements supply the simulated heliocentric trajectory. Periodic comets return on bound ellipses, long-period visitors spend most of their time far from the Sun, and interstellar objects can follow open hyperbolic paths, so the category spans very different dynamical histories. Dust reflects sunlight while ionized gas responds to the solar wind, producing structures that change over hours and days. Imaging, spectroscopy, radar, and spacecraft encounters connect those temporary displays to nucleus shape, rotation, composition, and jets. Because activity can complicate astrometry and brightness estimates, continued observations refine both physical interpretation and orbit. 103P/Hartley 2 offers a sample of volatile-rich material preserved, transported, and altered since the solar system formed.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/103P/Hartley"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2457152.5,
         elements: Elements(
@@ -1842,7 +1968,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; radius: SBDB diameter 1.6 km / 2 (Lamy et al. 2004); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/103p-hartley-hartley-2/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; radius: SBDB diameter 1.6 km / 2 (Lamy et al. 2004); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/103p-hartley-hartley-2/; reference: https://en.wikipedia.org/wiki/103P/Hartley; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "hale_bopp",
@@ -1855,8 +1981,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 30.0,
       color_srgb: (166, 216, 232),
+      orbit_color_srgb: (143, 174, 255),
       texture: None,
-      description: "C/1995 O1 Hale-Bopp is a long-period comet with a large nucleus. It remained bright to unaided observers for an unusually long interval during its 1997 passage and displayed prominent dust and ion tails.",
+      description: "C/1995 O1 Hale-Bopp is a long-period comet with a large nucleus. It remained bright to unaided observers for an unusually long interval during its 1997 passage and displayed prominent dust and ion tails. The catalog treats Hale-Bopp as a comet, with a small solid nucleus whose volatile material can become active when heating permits. Its adopted nucleus radius is about 30.0 kilometers; a surrounding coma and tails can grow vastly larger and are not represented by that number. JPL small-body elements supply the simulated heliocentric trajectory. Periodic comets return on bound ellipses, long-period visitors spend most of their time far from the Sun, and interstellar objects can follow open hyperbolic paths, so the category spans very different dynamical histories. Dust reflects sunlight while ionized gas responds to the solar wind, producing structures that change over hours and days. Imaging, spectroscopy, radar, and spacecraft encounters connect those temporary displays to nucleus shape, rotation, composition, and jets. Because activity can complicate astrometry and brightness estimates, continued observations refine both physical interpretation and orbit. Hale-Bopp offers a sample of volatile-rich material preserved, transported, and altered since the solar system formed.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Comet_Hale%E2%80%93Bopp"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2459837.5,
         elements: Elements(
@@ -1870,7 +1998,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/c-1995-o1-hale-bopp/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/c-1995-o1-hale-bopp/; reference: https://en.wikipedia.org/wiki/Comet_Hale%E2%80%93Bopp; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "neowise",
@@ -1883,8 +2011,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 2.5,
       color_srgb: (166, 216, 232),
+      orbit_color_srgb: (181, 221, 244),
       texture: None,
-      description: "C/2020 F3 NEOWISE is a long-period comet discovered by the NEOWISE space telescope in 2020. It survived a close solar passage and became a prominent northern-sky object with visible dust and ion tails.",
+      description: "C/2020 F3 NEOWISE is a long-period comet discovered by the NEOWISE space telescope in 2020. It survived a close solar passage and became a prominent northern-sky object with visible dust and ion tails. The catalog treats NEOWISE as a comet, with a small solid nucleus whose volatile material can become active when heating permits. Its adopted nucleus radius is about 2.50 kilometers; a surrounding coma and tails can grow vastly larger and are not represented by that number. JPL small-body elements supply the simulated heliocentric trajectory. Periodic comets return on bound ellipses, long-period visitors spend most of their time far from the Sun, and interstellar objects can follow open hyperbolic paths, so the category spans very different dynamical histories. Dust reflects sunlight while ionized gas responds to the solar wind, producing structures that change over hours and days. Imaging, spectroscopy, radar, and spacecraft encounters connect those temporary displays to nucleus shape, rotation, composition, and jets. Because activity can complicate astrometry and brightness estimates, continued observations refine both physical interpretation and orbit. NEOWISE offers a sample of volatile-rich material preserved, transported, and altered since the solar system formed.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/C/2020_F3_(NEOWISE)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2459036.5,
         elements: Elements(
@@ -1898,7 +2028,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/mission/neowise/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/mission/neowise/; reference: https://en.wikipedia.org/wiki/C/2020_F3_(NEOWISE); display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "3i_atlas",
@@ -1913,8 +2043,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 0.5,
       color_srgb: (166, 216, 232),
+      orbit_color_srgb: (116, 166, 201),
       texture: None,
-      description: "3I/ATLAS is the third confirmed interstellar object observed passing through the solar system. Its hyperbolic path is not bound to the Sun, and cometary activity revealed an icy body surrounded by a coma.",
+      description: "3I/ATLAS is the third confirmed interstellar object observed passing through the solar system. Its hyperbolic path is not bound to the Sun, and cometary activity revealed an icy body surrounded by a coma. The catalog treats 3I/ATLAS as a comet, with a small solid nucleus whose volatile material can become active when heating permits. Its adopted nucleus radius is about 0.50 kilometers; a surrounding coma and tails can grow vastly larger and are not represented by that number. JPL small-body elements supply the simulated heliocentric trajectory. Periodic comets return on bound ellipses, long-period visitors spend most of their time far from the Sun, and interstellar objects can follow open hyperbolic paths, so the category spans very different dynamical histories. Dust reflects sunlight while ionized gas responds to the solar wind, producing structures that change over hours and days. Imaging, spectroscopy, radar, and spacecraft encounters connect those temporary displays to nucleus shape, rotation, composition, and jets. Because activity can complicate astrometry and brightness estimates, continued observations refine both physical interpretation and orbit. 3I/ATLAS offers a sample of volatile-rich material preserved, transported, and altered since the solar system formed.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/3I/ATLAS"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461090.5,
         elements: Elements(
@@ -1928,7 +2060,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; nucleus radius adopted 0.5 km; HST constraint 0.16-2.8 km at pV=0.04 (NASA/HST 2025; arXiv:2512.22365); NGA-based estimates ~0.3 km; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/3i-atlas/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; nucleus radius adopted 0.5 km; HST constraint 0.16-2.8 km at pV=0.04 (NASA/HST 2025; arXiv:2512.22365); NGA-based estimates ~0.3 km; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/3i-atlas/; reference: https://en.wikipedia.org/wiki/3I/ATLAS; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
   ],
 )

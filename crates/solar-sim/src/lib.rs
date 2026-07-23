@@ -33,7 +33,10 @@ mod time_bar;
 mod ui_kit;
 
 pub use apparent_size::{
-    clamped_body_radius_units, projected_body_diameter_logical_px, MIN_BODY_DIAMETER_LOGICAL_PX,
+    category_min_body_diameter_logical_px, clamped_body_radius_units,
+    density_adjusted_body_diameter_logical_px, projected_body_diameter_logical_px,
+    DWARF_PLANET_MIN_BODY_DIAMETER_LOGICAL_PX, OTHER_MIN_BODY_DIAMETER_LOGICAL_PX,
+    PLANET_MIN_BODY_DIAMETER_LOGICAL_PX,
 };
 pub use control::{
     replay_headless, CameraController, CommandRecording, HeadlessSimulation, RegionPreset,
@@ -45,6 +48,7 @@ pub use formatting::format_distance_km;
 pub use frame_stats::FrameStatsOptions;
 pub use golden::{
     golden_view, GoldenCaptureOptions, GoldenViewSpec, GOLDEN_HEIGHT, GOLDEN_VIEWS, GOLDEN_WIDTH,
+    ORBIT_REVIEW_VIEWS, SCALE_REVIEW_VIEWS,
 };
 pub use labels::{
     declutter_labels, moon_label_is_contextually_visible, ray_sphere_hit_distance, BodyLabel,
@@ -63,11 +67,13 @@ pub use left_panel::{
     ViewOptionsState,
 };
 pub use orbit_lines::{
-    orbit_vertex_count, sample_orbit, OrbitLineBrightness, OrbitLinesPlugin, OrbitPath,
-    HYPERBOLIC_HALF_SPAN_S, MAX_ORBIT_VERTICES, MIN_ORBIT_VERTICES,
+    orbit_line_width_logical_px, orbit_vertex_count, sample_orbit, OrbitLineBrightness,
+    OrbitLinesPlugin, OrbitPath, HYPERBOLIC_HALF_SPAN_S, MAX_ORBIT_VERTICES, MIN_ORBIT_VERTICES,
+    ORBIT_LINE_BASE_WIDTH_LOGICAL_PX,
 };
 pub use platform::{
-    NoopPlatformServices, PlatformPlugin, PlatformServices, PlatformServicesPlugin, PlatformStatus,
+    NativePlatformServices, NoopPlatformServices, PlatformPlugin, PlatformServices,
+    PlatformServicesPlugin, PlatformStatus,
 };
 #[cfg(feature = "steam")]
 pub use platform::{SteamPlatformServices, SteamPlugin};
@@ -78,8 +84,9 @@ pub use scene_polish::{
     EMPHASIZED_ORBIT_BRIGHTNESS, SUN_LIGHT_INTENSITY_LUMENS, SUN_LIGHT_RANGE_UNITS,
 };
 pub use search::{
-    search_catalog, BrowseColumn, BrowseColumnKind, BrowseCounts, BrowseEntry, BrowseMenuRoot,
-    BrowseModel, SearchDropdownRoot, SearchHit, SearchMatchKind, SearchMenuPlugin,
+    search_catalog, BrowseColumn, BrowseColumnKind, BrowseCounts, BrowseEntry, BrowseItem,
+    BrowseMenuRoot, BrowseModel, BrowseSection, SearchDropdownRoot, SearchHit, SearchMatchKind,
+    SearchMenuPlugin,
 };
 pub use settings::{
     AppSettings, DisplayModeSetting, DistanceUnit, FrameCap, PersistedLayerState, QualityPreset,
@@ -937,7 +944,11 @@ pub fn run_from_env() {
     }
     let catalog = load_catalog_from_path(&options.catalog_path);
     #[cfg(feature = "steam")]
-    let mut app = build_app_with_platform(options, catalog, SteamPlugin);
+    let mut app = if requires_noop_platform(&options) {
+        build_app_with_platform(options, catalog, PlatformServicesPlugin::default())
+    } else {
+        build_app_with_platform(options, catalog, SteamPlugin)
+    };
     #[cfg(not(feature = "steam"))]
     let mut app = build_app(options, catalog);
     match app.run() {
@@ -947,7 +958,16 @@ pub fn run_from_env() {
 }
 
 pub fn build_app(options: RunOptions, catalog: Result<Catalog, CatalogLoadError>) -> App {
-    build_app_with_platform(options, catalog, PlatformServicesPlugin::default())
+    let platform = if requires_noop_platform(&options) {
+        PlatformServicesPlugin::default()
+    } else {
+        PlatformServicesPlugin::native()
+    };
+    build_app_with_platform(options, catalog, platform)
+}
+
+fn requires_noop_platform(options: &RunOptions) -> bool {
+    options.golden_capture.is_some() || options.frame_stats.is_some()
 }
 
 fn build_app_with_platform<P: Plugin>(
@@ -1134,6 +1154,11 @@ fn build_app_with_platform<P: Plugin>(
     }
 
     add_architecture_plugins(&mut app);
+    if let Some(view) = golden_spec {
+        app.world_mut()
+            .resource_mut::<ViewOptionsState>()
+            .set_body_size(view.body_size);
+    }
 
     if let Some(capture) = golden_capture {
         golden::configure_golden_capture(&mut app, capture);
@@ -1210,6 +1235,7 @@ struct SimCommandGate<'w> {
     settings_save: ResMut<'w, settings::SettingsSaveRequest>,
     startup_snapshot: ResMut<'w, SessionStartupSnapshot>,
     interface_reset: ResMut<'w, InterfaceResetSignal>,
+    body_references: Option<ResMut<'w, platform::BodyReferenceRequestQueue>>,
     input_focus: Option<ResMut<'w, InputFocus>>,
     #[cfg(debug_assertions)]
     debug_device_loss: ResMut<'w, DebugDeviceLossRequest>,
@@ -1237,6 +1263,7 @@ fn apply_sim_commands(gate: SimCommandGate) {
         mut settings_save,
         mut startup_snapshot,
         mut interface_reset,
+        mut body_references,
         mut input_focus,
         #[cfg(debug_assertions)]
         mut debug_device_loss,
@@ -1254,6 +1281,9 @@ fn apply_sim_commands(gate: SimCommandGate) {
     let frame_start_t = clock.0.t();
     for command in commands {
         recording.record(frame.0, frame_start_t, command.clone());
+        if let Some(requests) = body_references.as_deref_mut() {
+            requests.enqueue_command(&command);
+        }
         if matches!(command, SimCommand::ResetInterface) {
             interface_reset.bump();
             if let Some(focus) = input_focus.as_deref_mut() {
@@ -1953,6 +1983,29 @@ mod tests {
             let invalid = invalid.into_iter().map(str::to_owned).collect::<Vec<_>>();
             assert!(RunOptions::from_args(&invalid).is_err());
         }
+    }
+
+    #[test]
+    fn golden_and_measurement_runs_select_the_noop_platform_boundary() {
+        let mut options = RunOptions::default();
+        assert!(!requires_noop_platform(&options));
+
+        options.golden_capture = Some(GoldenCaptureOptions {
+            view: "full-system".into(),
+            backend: "metal".into(),
+            output: PathBuf::from("target/goldens/test.ppm"),
+            reject_software_adapter: true,
+        });
+        assert!(requires_noop_platform(&options));
+
+        options.golden_capture = None;
+        options.frame_stats = Some(FrameStatsOptions {
+            duration_s: 1.0,
+            output: PathBuf::from("target/perf/test.json"),
+            view: Some("full-system".into()),
+            quality: Some(QualityPreset::High),
+        });
+        assert!(requires_noop_platform(&options));
     }
 
     #[test]

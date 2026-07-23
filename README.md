@@ -110,7 +110,7 @@ cargo run -p solar-sim --release -- --smoke 60 --expect-backend metal --reject-s
 ## Testing & verification
 
 ```
-cargo test                                       # 407 tests, fully offline
+cargo test                                       # 433 tests, fully offline
 cargo fmt --all -- --check                       # rustfmt defaults
 cargo clippy --workspace --all-targets -- -D warnings
 scripts/check-texture-metadata.sh                # texture license/hash audit
@@ -121,8 +121,8 @@ cargo run -p xtask -- gen-catalog \
 cargo run -p xtask -- perf-report target/perf/*.json  # format WP17 evidence table
 ```
 
-The authoritative test baseline lives in `TASKS.md` (currently **398
-passing**: 53 `sim-core` · 288 `solar-sim` · 54 `xtask` lib · 2 xtask smoke ·
+The authoritative test baseline lives in `TASKS.md` (currently **433
+passing**: 56 `sim-core` · 315 `solar-sim` · 59 `xtask` lib · 2 xtask smoke ·
 1 position spot-check gate, **active**). If this README and `TASKS.md`
 disagree, `TASKS.md` wins.
 
@@ -183,7 +183,7 @@ captures are non-blocking.
 | 17 | todo — replay suite, perf gates, demo script, licensing audit |
 | 18 | deferred (Compare Size mode) |
 
-Open questions awaiting the human: **Q12**, **Q13**, and **Q19–Q21**. Q18's
+Open questions awaiting the human: **Q13 and Q28**. Q18's
 exact WP17 nonblack-readback gate closed on 2026-07-23 after the D5 hardware
 and regression evidence completed. Details are in `TASKS.md → Open questions`.
 

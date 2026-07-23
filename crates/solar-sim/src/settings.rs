@@ -1819,6 +1819,7 @@ mod tests {
     }
     use sim_core::time::{DAY_S, T_MAX_S};
     use std::{
+        path::PathBuf,
         process::Command as ProcessCommand,
         sync::Mutex,
         time::{SystemTime, UNIX_EPOCH},
@@ -1879,11 +1880,15 @@ mod tests {
         SaveSettingsSync::Always.apply(app.world_mut());
     }
 
-    fn remove_startup_rate_from_persisted_settings(identifier: &str) {
-        let path = bevy::platform::dirs::preferences_dir()
+    fn settings_file_path(identifier: &str) -> PathBuf {
+        bevy::platform::dirs::preferences_dir()
             .unwrap()
             .join(identifier)
-            .join("settings.toml");
+            .join("settings.toml")
+    }
+
+    fn remove_startup_rate_from_persisted_settings(identifier: &str) {
+        let path = settings_file_path(identifier);
         let text = std::fs::read_to_string(&path).unwrap();
         let mut removed = 0;
         let legacy = text
@@ -2032,6 +2037,129 @@ mod tests {
         // This is the synchronous close-path half of the product's
         // deferred-save plus SaveSettingsSync::IfChanged persistence policy.
         SaveSettingsSync::IfChanged.apply(app.world_mut());
+    }
+
+    fn reset_interface_preserves_settings_bytes(identifier: &str) {
+        let mut app = persistence_test_app(identifier);
+        let initial_settings = app.world().resource::<AppSettings>().clone();
+        assert_eq!(initial_settings, nondefault_settings());
+
+        let clock = initial_settings.initial_clock(0.0);
+        let camera = crate::CameraController::unavailable();
+        let mut layers = initial_settings.initial_layer_state();
+        let startup_layers = layers;
+        let mut presentation = PresentationState::with_fullscreen(
+            initial_settings.display_mode == DisplayModeSetting::BorderlessFullscreen,
+        );
+        let mut view_options = crate::ViewOptionsState::default();
+        let mut left_panel = crate::left_panel::LeftPanelUiState::default();
+        let mut navigation = crate::NavigationStack::default();
+        let mut browse = crate::search::BrowseUiState::default();
+        let mut settings = initial_settings;
+        let mut settings_screen = SettingsScreenState::default();
+        let mut settings_save = SettingsSaveRequest::default();
+        let mut startup = crate::control::SessionStartupSnapshot::default();
+        startup.capture_if_missing(
+            &clock,
+            &camera,
+            layers,
+            presentation,
+            &view_options,
+            &left_panel,
+            &navigation,
+            &browse,
+        );
+
+        crate::control::consume_application_command_with_startup(
+            &SimCommand::SetLayerVisibility {
+                layer: LayerId::Labels,
+                visible: true,
+            },
+            None,
+            &mut layers,
+            &mut presentation,
+            &mut view_options,
+            &mut left_panel,
+            &mut navigation,
+            &mut browse,
+            &mut settings,
+            &mut settings_screen,
+            &mut settings_save,
+            &mut startup,
+        );
+        assert!(layers.is_visible(LayerId::Labels));
+        assert!(settings.layers.labels);
+        assert!(settings_save.is_requested());
+
+        // Establish the exact persisted/runtime state immediately before
+        // Reset Interface, as if the preceding explicit layer action had
+        // already crossed WP14's persistence boundary.
+        *app.world_mut().resource_mut::<AppSettings>() = settings.clone();
+        SaveSettingsSync::Always.apply(app.world_mut());
+        settings_save = SettingsSaveRequest::default();
+        let path = settings_file_path(identifier);
+        let bytes_before_reset = std::fs::read(&path).unwrap();
+
+        crate::control::consume_application_command_with_startup(
+            &SimCommand::ResetInterface,
+            None,
+            &mut layers,
+            &mut presentation,
+            &mut view_options,
+            &mut left_panel,
+            &mut navigation,
+            &mut browse,
+            &mut settings,
+            &mut settings_screen,
+            &mut settings_save,
+            &mut startup,
+        );
+        assert_eq!(layers, startup_layers);
+        assert!(!layers.is_visible(LayerId::Labels));
+        assert!(settings.layers.labels);
+        assert!(!settings_save.is_requested());
+        assert!(startup.nonpersistent_presentation_override());
+
+        // Exercise both ordinary deferred convergence and the synchronous
+        // close path. The restored launch presentation intentionally differs
+        // from AppSettings here; the reset override must keep that difference
+        // session-local and leave the file byte-for-byte untouched.
+        app.insert_resource(layers)
+            .insert_resource(presentation)
+            .insert_resource(settings)
+            .insert_resource(settings_save)
+            .insert_resource(startup)
+            .insert_resource(SettingsPersistencePolicy::Persistent)
+            .insert_resource(TimeUpdateStrategy::ManualDuration(
+                SETTINGS_SAVE_DELAY + Duration::from_millis(1),
+            ))
+            .add_message::<WindowCloseRequested>()
+            .add_message::<AppExit>()
+            .add_systems(
+                Update,
+                (
+                    sync_external_presentation_to_settings,
+                    persist_requested_settings,
+                    save_settings_on_window_close,
+                )
+                    .chain(),
+            );
+        app.update();
+        app.update();
+        app.world_mut().write_message(WindowCloseRequested {
+            window: Entity::PLACEHOLDER,
+        });
+        app.update();
+
+        let expected = AppSettings {
+            layers: PersistedLayerState {
+                labels: true,
+                ..nondefault_settings().layers
+            },
+            ..nondefault_settings()
+        };
+        assert_eq!(app.world().resource::<AppSettings>(), &expected);
+        assert_eq!(std::fs::read(path).unwrap(), bytes_before_reset);
     }
 
     fn exercise_transient_capture_runtime(identifier: &str, reset_requested: bool) {
@@ -2313,6 +2441,22 @@ mod tests {
                 );
                 return;
             }
+            Ok("reset-interface-preserves-bytes") => {
+                reset_interface_preserves_settings_bytes(&child_settings_identifier());
+                return;
+            }
+            Ok("read-after-interface-reset") => {
+                let app = persistence_test_app(&child_settings_identifier());
+                let expected = AppSettings {
+                    layers: PersistedLayerState {
+                        labels: true,
+                        ..nondefault_settings().layers
+                    },
+                    ..nondefault_settings()
+                };
+                assert_eq!(app.world().resource::<AppSettings>(), &expected);
+                return;
+            }
             Ok("capture-transient") => {
                 exercise_transient_capture_runtime(&child_settings_identifier(), false);
                 return;
@@ -2424,6 +2568,9 @@ mod tests {
             "read-before-product-reset",
             "product-reset",
             "read-after-product",
+            "rewrite",
+            "reset-interface-preserves-bytes",
+            "read-after-interface-reset",
             "rewrite",
             "read-before",
             "capture-transient",

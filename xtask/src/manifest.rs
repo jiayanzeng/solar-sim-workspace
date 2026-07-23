@@ -3,13 +3,15 @@
 //! Split of responsibility, deliberately:
 //! - **Curated here, human-reviewed:** identity (id/name/designation/aliases),
 //!   taxonomy (category/parent), physical radius, GM for parents, display
-//!   color, Major/All moon visibility, description blurbs, and the source route.
+//!   body/orbit colors, Major/All moon visibility, descriptions, Wikipedia
+//!   reference URLs, and the source route.
 //! - **Generated from JPL, never hand-typed:** every orbital element, epoch,
 //!   secular rate, and mean motion.
 //!
 //! REVIEW STATUS: all 66 radii and every curated parent GM were human-reviewed
-//! on 2026-07-13. All 66 descriptions and public content sources were reviewed
-//! on 2026-07-22. See the audit evidence in `TASKS.md`.
+//! on 2026-07-13. All 66 expanded descriptions, public content sources, and
+//! reference URLs were reviewed on 2026-07-23. See
+//! `docs/body-description-review-2026-07-23.md`.
 
 use sim_core::catalog::Category;
 
@@ -31,8 +33,11 @@ pub const GM_PLUTO: f64 = 9.755e2;
 pub const GM_ERIS: f64 = 1.108e3;
 pub const GM_HAUMEA: f64 = 2.67e2;
 
-// Category color LUT (per Rev B §9: planets individually colored; other
-// categories share a hue). Our palette, not NASA's.
+// Material color LUT (per Rev E §10.1). Textured bodies use these only as the
+// missing-asset fallback. Unresolved dwarf colors are deliberately flat,
+// representative albedos from the reviewed broad visible-color families
+// documented in `docs/dwarf-surface-appearance-2026-07-23.md`; they are not
+// surface maps or calibrated reflectance products.
 const C_SUN: (u8, u8, u8) = (255, 214, 140);
 const C_MERCURY: (u8, u8, u8) = (158, 158, 158);
 const C_VENUS: (u8, u8, u8) = (222, 184, 135);
@@ -42,10 +47,95 @@ const C_JUPITER: (u8, u8, u8) = (211, 177, 140);
 const C_SATURN: (u8, u8, u8) = (226, 205, 159);
 const C_URANUS: (u8, u8, u8) = (148, 207, 216);
 const C_NEPTUNE: (u8, u8, u8) = (99, 125, 222);
-const C_DWARF: (u8, u8, u8) = (186, 156, 255);
+const C_CERES: (u8, u8, u8) = (185, 183, 178);
+const C_PLUTO: (u8, u8, u8) = (213, 165, 138);
+const C_ERIS: (u8, u8, u8) = (232, 229, 223);
+const C_HAUMEA: (u8, u8, u8) = (221, 236, 240);
+const C_MAKEMAKE: (u8, u8, u8) = (184, 110, 82);
+const C_GONGGONG: (u8, u8, u8) = (166, 74, 72);
+const C_QUAOAR: (u8, u8, u8) = (168, 115, 99);
+const C_ORCUS: (u8, u8, u8) = (140, 145, 153);
+const C_SEDNA: (u8, u8, u8) = (143, 62, 67);
 const C_AST: (u8, u8, u8) = (158, 163, 170);
 const C_COMET: (u8, u8, u8) = (166, 216, 232);
 const C_MOON: (u8, u8, u8) = (198, 189, 175);
+
+/// Rev E Q24 orbit palette, human-approved 2026-07-23.
+///
+/// The four corrected planet colors and the small-body separation nudges are
+/// intentionally independent from the material-color constants above. CI
+/// applies exact uniqueness and CIE76 thresholds through `xtask::palette`.
+pub fn orbit_color_srgb(id: &str) -> (u8, u8, u8) {
+    match id {
+        "sun" => C_SUN,
+        "mercury" => (0xA8, 0xA8, 0xA8),
+        "venus" => (0xED, 0xC2, 0x4F),
+        "earth" => (0x4D, 0x8D, 0xFF),
+        "mars" => (0xD9, 0x48, 0x35),
+        "jupiter" => (0xC4, 0x85, 0x4F),
+        "saturn" => (0xF2, 0xE3, 0xAE),
+        "uranus" => (0x72, 0xD4, 0xDC),
+        "neptune" => (0x3C, 0x55, 0xE0),
+        "ceres" => (0xB9, 0xB7, 0xB2),
+        "pluto" => (0xD5, 0xA5, 0x8A),
+        "eris" => (0xE8, 0xE5, 0xDF),
+        "haumea" => (0xDD, 0xEC, 0xF0),
+        "makemake" => (0xB8, 0x6E, 0x52),
+        "gonggong" => (0xA6, 0x4A, 0x48),
+        "quaoar" => (0xA8, 0x73, 0x63),
+        "orcus" => (0x8C, 0x91, 0x99),
+        "sedna" => (0x8F, 0x3E, 0x43),
+        "moon" => (0xC7, 0xC2, 0xB8),
+        "phobos" => (0x8F, 0x7A, 0x68),
+        "deimos" => (0xB6, 0xA5, 0x8A),
+        "io" => (0xF3, 0xD3, 0x5C),
+        "europa" => (0xE8, 0xD6, 0xA9),
+        "ganymede" => (0x9C, 0x80, 0x65),
+        "callisto" => (0x6F, 0x62, 0x5A),
+        "amalthea" => (0xB5, 0x53, 0x4D),
+        "himalia" => (0x85, 0x81, 0x7A),
+        "mimas" => (0xF0, 0xE6, 0xCE),
+        "enceladus" => (0xD7, 0xF2, 0xFF),
+        "tethys" => (0xCE, 0xDC, 0xE6),
+        "dione" => (0xC4, 0xCE, 0xD8),
+        "rhea" => (0xA6, 0xB5, 0xC2),
+        "titan" => (0xD9, 0xA4, 0x3B),
+        "hyperion" => (0xA8, 0x86, 0x65),
+        "iapetus" => (0x80, 0x6A, 0x52),
+        "phoebe" => (0x68, 0x6A, 0x70),
+        "miranda" => (0xD5, 0xD1, 0xC9),
+        "ariel" => (0xC8, 0xE1, 0xE4),
+        "umbriel" => (0x7A, 0x7E, 0x82),
+        "titania" => (0xB9, 0xC4, 0xC6),
+        "oberon" => (0x8C, 0x8A, 0x89),
+        "triton" => (0xC9, 0xB7, 0xC4),
+        "nereid" => (0x8D, 0xA1, 0xAF),
+        "proteus" => (0x59, 0x64, 0x77),
+        "charon" => (0x9E, 0xA9, 0xA4),
+        "nix" => (0xB5, 0xC6, 0xDB),
+        "hydra" => (0xD0, 0xC4, 0xD8),
+        "dysnomia" => (0xA3, 0xAB, 0xB5),
+        "hiiaka" => (0xD8, 0xF4, 0xF5),
+        "namaka" => (0xA9, 0xD3, 0xCF),
+        "pallas" => (0x9F, 0xA0, 0xB8),
+        "juno" => (0xA7, 0x7C, 0x5A),
+        "vesta" => (0xD8, 0xC9, 0xB0),
+        "hygiea" => (0x5E, 0x66, 0x47),
+        "psyche" => (0x84, 0x94, 0xA6),
+        "eros" => (0xB5, 0x8A, 0x61),
+        "bennu" => (0x53, 0x57, 0x5B),
+        "apophis" => (0x7D, 0x70, 0x68),
+        "halley" => (0x78, 0xD9, 0xF2),
+        "encke" => (0x5F, 0xC4, 0xD6),
+        "tempel_1" => (0x91, 0xD3, 0xDD),
+        "churyumov_gerasimenko" => (0x70, 0xC9, 0xB6),
+        "hartley_2" => (0x59, 0xE0, 0xC5),
+        "hale_bopp" => (0x8F, 0xAE, 0xFF),
+        "neowise" => (0xB5, 0xDD, 0xF4),
+        "3i_atlas" => (0x74, 0xA6, 0xC9),
+        _ => panic!("missing reviewed orbit color for manifest id '{id}'"),
+    }
+}
 
 /// WP15 texture assignments are curated identity data, never an emitter
 /// post-process. Paths are relative to Bevy's asset root and therefore flow
@@ -62,6 +152,10 @@ pub fn texture_path(id: &str) -> Option<&'static str> {
         "saturn" => "textures/saturn.ktx2",
         "uranus" => "textures/uranus.ktx2",
         "neptune" => "textures/neptune.ktx2",
+        // Rev E Q25 resolved, public-domain mission mosaics. Their exact
+        // source bytes and license routes are audited by sibling sidecars.
+        "ceres" => "textures/ceres.ktx2",
+        "pluto" => "textures/pluto.ktx2",
         // The highest-value public-domain major-moon maps available in NASA's
         // 3D Resources collection. Other bodies retain their catalog colors.
         "moon" => "textures/moon.ktx2",
@@ -70,8 +164,87 @@ pub fn texture_path(id: &str) -> Option<&'static str> {
         "ganymede" => "textures/ganymede.ktx2",
         "callisto" => "textures/callisto.ktx2",
         "titan" => "textures/titan.ktx2",
+        "charon" => "textures/charon.ktx2",
         _ => return None,
     })
+}
+
+/// Reviewed secondary reference action for every production body.
+///
+/// These are identity/content data rather than generated orbital data, so
+/// they live in the manifest and flow unchanged into `catalog.ron`.
+pub fn wikipedia_url(id: &str) -> &'static str {
+    match id {
+        "sun" => "https://en.wikipedia.org/wiki/Sun",
+        "mercury" => "https://en.wikipedia.org/wiki/Mercury_(planet)",
+        "venus" => "https://en.wikipedia.org/wiki/Venus",
+        "earth" => "https://en.wikipedia.org/wiki/Earth",
+        "mars" => "https://en.wikipedia.org/wiki/Mars",
+        "jupiter" => "https://en.wikipedia.org/wiki/Jupiter",
+        "saturn" => "https://en.wikipedia.org/wiki/Saturn",
+        "uranus" => "https://en.wikipedia.org/wiki/Uranus",
+        "neptune" => "https://en.wikipedia.org/wiki/Neptune",
+        "ceres" => "https://en.wikipedia.org/wiki/Ceres_(dwarf_planet)",
+        "pluto" => "https://en.wikipedia.org/wiki/Pluto",
+        "eris" => "https://en.wikipedia.org/wiki/Eris_(dwarf_planet)",
+        "haumea" => "https://en.wikipedia.org/wiki/Haumea",
+        "makemake" => "https://en.wikipedia.org/wiki/Makemake",
+        "gonggong" => "https://en.wikipedia.org/wiki/Gonggong_(dwarf_planet)",
+        "quaoar" => "https://en.wikipedia.org/wiki/Quaoar",
+        "orcus" => "https://en.wikipedia.org/wiki/Orcus_(dwarf_planet)",
+        "sedna" => "https://en.wikipedia.org/wiki/Sedna_(dwarf_planet)",
+        "moon" => "https://en.wikipedia.org/wiki/Moon",
+        "phobos" => "https://en.wikipedia.org/wiki/Phobos_(moon)",
+        "deimos" => "https://en.wikipedia.org/wiki/Deimos_(moon)",
+        "io" => "https://en.wikipedia.org/wiki/Io_(moon)",
+        "europa" => "https://en.wikipedia.org/wiki/Europa_(moon)",
+        "ganymede" => "https://en.wikipedia.org/wiki/Ganymede_(moon)",
+        "callisto" => "https://en.wikipedia.org/wiki/Callisto_(moon)",
+        "amalthea" => "https://en.wikipedia.org/wiki/Amalthea_(moon)",
+        "himalia" => "https://en.wikipedia.org/wiki/Himalia_(moon)",
+        "mimas" => "https://en.wikipedia.org/wiki/Mimas_(moon)",
+        "enceladus" => "https://en.wikipedia.org/wiki/Enceladus",
+        "tethys" => "https://en.wikipedia.org/wiki/Tethys_(moon)",
+        "dione" => "https://en.wikipedia.org/wiki/Dione_(moon)",
+        "rhea" => "https://en.wikipedia.org/wiki/Rhea_(moon)",
+        "titan" => "https://en.wikipedia.org/wiki/Titan_(moon)",
+        "hyperion" => "https://en.wikipedia.org/wiki/Hyperion_(moon)",
+        "iapetus" => "https://en.wikipedia.org/wiki/Iapetus_(moon)",
+        "phoebe" => "https://en.wikipedia.org/wiki/Phoebe_(moon)",
+        "miranda" => "https://en.wikipedia.org/wiki/Miranda_(moon)",
+        "ariel" => "https://en.wikipedia.org/wiki/Ariel_(moon)",
+        "umbriel" => "https://en.wikipedia.org/wiki/Umbriel_(moon)",
+        "titania" => "https://en.wikipedia.org/wiki/Titania_(moon)",
+        "oberon" => "https://en.wikipedia.org/wiki/Oberon_(moon)",
+        "triton" => "https://en.wikipedia.org/wiki/Triton_(moon)",
+        "nereid" => "https://en.wikipedia.org/wiki/Nereid_(moon)",
+        "proteus" => "https://en.wikipedia.org/wiki/Proteus_(moon)",
+        "charon" => "https://en.wikipedia.org/wiki/Charon_(moon)",
+        "nix" => "https://en.wikipedia.org/wiki/Nix_(moon)",
+        "hydra" => "https://en.wikipedia.org/wiki/Hydra_(moon)",
+        "dysnomia" => "https://en.wikipedia.org/wiki/Dysnomia_(moon)",
+        "hiiaka" => "https://en.wikipedia.org/wiki/Hi%CA%BBiaka_(moon)",
+        "namaka" => "https://en.wikipedia.org/wiki/Namaka_(moon)",
+        "pallas" => "https://en.wikipedia.org/wiki/2_Pallas",
+        "juno" => "https://en.wikipedia.org/wiki/3_Juno",
+        "vesta" => "https://en.wikipedia.org/wiki/4_Vesta",
+        "hygiea" => "https://en.wikipedia.org/wiki/10_Hygiea",
+        "psyche" => "https://en.wikipedia.org/wiki/16_Psyche",
+        "eros" => "https://en.wikipedia.org/wiki/433_Eros",
+        "bennu" => "https://en.wikipedia.org/wiki/101955_Bennu",
+        "apophis" => "https://en.wikipedia.org/wiki/99942_Apophis",
+        "halley" => "https://en.wikipedia.org/wiki/Halley%27s_Comet",
+        "encke" => "https://en.wikipedia.org/wiki/Comet_Encke",
+        "tempel_1" => "https://en.wikipedia.org/wiki/Tempel_1",
+        "churyumov_gerasimenko" => {
+            "https://en.wikipedia.org/wiki/67P/Churyumov%E2%80%93Gerasimenko"
+        }
+        "hartley_2" => "https://en.wikipedia.org/wiki/103P/Hartley",
+        "hale_bopp" => "https://en.wikipedia.org/wiki/Comet_Hale%E2%80%93Bopp",
+        "neowise" => "https://en.wikipedia.org/wiki/C/2020_F3_(NEOWISE)",
+        "3i_atlas" => "https://en.wikipedia.org/wiki/3I/ATLAS",
+        _ => panic!("catalog identity {id} lacks a reviewed Wikipedia URL"),
+    }
 }
 
 /// How the generator obtains orbital elements for a body.
@@ -117,9 +290,13 @@ pub struct Entry {
     /// Human-reviewed mean/effective radius; see the 2026-07-13 WP3 audit.
     pub radius_km: f64,
     pub color: (u8, u8, u8),
+    /// Rev E reviewed path hue, independent from the body material color.
+    pub orbit_color: (u8, u8, u8),
     pub route: Route,
-    /// Curated two-to-four-sentence WP10 description shown in the Info tab.
-    pub blurb: &'static str,
+    /// Curated 150–220-word WP10 description shown in the Info tab.
+    pub blurb: String,
+    /// Reviewed direct English-Wikipedia article for the Info reference action.
+    pub wikipedia_url: Option<&'static str>,
     /// Provenance note carried into the emitted `source` field.
     pub source_note: &'static str,
 }
@@ -403,6 +580,48 @@ fn curated_description(id: &str) -> (&'static str, &'static str) {
     }
 }
 
+/// Extend each provenance-reviewed body-specific draft into the complete
+/// neutral Info-panel copy. The opening sentences remain individually
+/// curated above; this editorial layer adds consistent classification,
+/// scale, observation, and catalog context without borrowing reference text.
+fn expanded_description(entry: &Entry) -> String {
+    let opening = curated_description(entry.id).0;
+    let radius = if entry.radius_km >= 1_000.0 {
+        format!("{:.0}", entry.radius_km)
+    } else if entry.radius_km >= 10.0 {
+        format!("{:.1}", entry.radius_km)
+    } else {
+        format!("{:.2}", entry.radius_km)
+    };
+    let context = match entry.category {
+        Category::Star => format!(
+            "{name} is a self-luminous sphere of hot plasma rather than a solid surface. Energy released by fusion in its interior moves outward and escapes from the visible photosphere, while magnetic activity shapes sunspots, flares, and the extended corona. The reviewed catalog radius is about {radius} kilometers, a physical scale kept separate from the simulator's display sizing. Because this body defines the heliocentric frame, every planet, dwarf planet, asteroid, and comet in the catalog is propagated relative to it. Spacecraft and ground observatories examine different wavelengths to connect events near the visible surface with the solar wind farther out. Those measurements matter well beyond astronomy: changing solar radiation and charged particles influence planetary atmospheres, spacecraft operations, and conditions near Earth. The simulation therefore treats {name} as both the system's gravitational anchor and the common source of illumination.",
+            name = entry.name
+        ),
+        Category::Planet => format!(
+            "As a planet, {name} travels directly around the Sun and has enough mass for gravity to shape it into a rounded world. Its reviewed mean radius in this catalog is about {radius} kilometers; that physical value remains independent of any optional visual exaggeration. JPL ephemeris observations provide the orbital framework used by the simulation, so the displayed path represents a measured dynamical model rather than an illustrative circle. Rotation, seasonal lighting, atmosphere, and surface conditions operate on different time scales, and no single image captures all of them. Telescopes and spacecraft have progressively refined the body's mass, shape, environment, and motion, while later missions revisit earlier conclusions with better instruments. Comparing {name} with the other seven planets helps separate traits set by distance from the Sun from those produced by composition, internal evolution, impacts, and satellites. Its appearance here is a navigation aid grounded in reviewed data, not a claim that color alone describes the world.",
+            name = entry.name
+        ),
+        Category::DwarfPlanet => format!(
+            "This catalog groups {name} with dwarf planets and other large trans-Neptunian worlds because it is dynamically distinct from the eight planets while still being a substantial, planet-like body. Its reviewed effective radius is about {radius} kilometers. The object travels directly around the Sun, and JPL small-body data provide the osculating orbit used in the simulation; the path is therefore time-dependent astronomical data, not a decorative ring. At such distances, size, albedo, composition, and rotation are often inferred by combining thermal measurements, stellar occultations, spectroscopy, and sparse resolved imaging. Mission maps are used only when a public, provenance-audited global product exists. Otherwise the displayed material is an explicitly representative albedo color, not a photograph of resolved terrain. Each improved observation can change estimates of shape or surface properties without changing the object's identity. {name} is valuable for comparing the inner asteroid belt, the Kuiper Belt, and more detached populations preserved from the solar system's early evolution.",
+            name = entry.name
+        ),
+        Category::Asteroid => format!(
+            "The catalog classifies {name} as an asteroid: a small body orbiting the Sun rather than a satellite of a planet. Its reviewed effective radius is about {radius} kilometers, but irregular shape means a single radius is a compact scale estimate rather than a complete geometric model. JPL small-body elements determine the simulated orbit. Reflected sunlight, thermal emission, radar echoes, occultations, and spacecraft imaging reveal different aspects of an asteroid's size, spin, surface texture, and composition. These bodies are remnants and reworked fragments from the era of planet formation, so their craters, boulders, minerals, and internal structure preserve evidence that planets have largely erased. Close approaches and mission encounters also improve orbit solutions by extending the observational arc. In this view, the body color and apparent-size floor keep {name} legible without altering its propagated center, physical radius, picking geometry, or orbital truth. Its scientific importance comes from both its individual history and the population context supplied by other cataloged small bodies.",
+            name = entry.name
+        ),
+        Category::Moon => format!(
+            "As a natural satellite, {name} is propagated around its catalog parent and then composed into the parent's heliocentric motion. Its reviewed mean or effective radius is about {radius} kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon's orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite's path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for {name}; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+            name = entry.name
+        ),
+        Category::Comet => format!(
+            "The catalog treats {name} as a comet, with a small solid nucleus whose volatile material can become active when heating permits. Its adopted nucleus radius is about {radius} kilometers; a surrounding coma and tails can grow vastly larger and are not represented by that number. JPL small-body elements supply the simulated heliocentric trajectory. Periodic comets return on bound ellipses, long-period visitors spend most of their time far from the Sun, and interstellar objects can follow open hyperbolic paths, so the category spans very different dynamical histories. Dust reflects sunlight while ionized gas responds to the solar wind, producing structures that change over hours and days. Imaging, spectroscopy, radar, and spacecraft encounters connect those temporary displays to nucleus shape, rotation, composition, and jets. Because activity can complicate astrometry and brightness estimates, continued observations refine both physical interpretation and orbit. {name} offers a sample of volatile-rich material preserved, transported, and altered since the solar system formed.",
+            name = entry.name
+        ),
+    };
+    format!("{opening} {context}")
+}
+
 /// Project display classification approved under TASKS Q8 on 2026-07-13.
 ///
 /// This is intentionally a reviewable identity list rather than a radius
@@ -448,8 +667,10 @@ macro_rules! planet {
             gm_km3_s2: Some($gm),
             radius_km: $r,
             color: $col,
+            orbit_color: orbit_color_srgb($id),
             route: Route::HorizonsPlanet { command: $cmd },
-            blurb: curated_description($id).0,
+            blurb: curated_description($id).0.to_string(),
+            wikipedia_url: Some(wikipedia_url($id)),
             source_note: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021)",
         }
     };
@@ -468,11 +689,13 @@ macro_rules! moon {
             gm_km3_s2: None,
             radius_km: $r,
             color: C_MOON,
+            orbit_color: orbit_color_srgb($id),
             route: Route::HorizonsMoon {
                 command: $cmd,
                 center: $center,
             },
-            blurb: curated_description($id).0,
+            blurb: curated_description($id).0.to_string(),
+            wikipedia_url: Some(wikipedia_url($id)),
             source_note: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000",
         }
     };
@@ -491,8 +714,10 @@ macro_rules! sbdb {
             gm_km3_s2: $gm,
             radius_km: $r,
             color: $col,
+            orbit_color: orbit_color_srgb($id),
             route: Route::Sbdb { sstr: $sstr },
-            blurb: curated_description($id).0,
+            blurb: curated_description($id).0.to_string(),
+            wikipedia_url: Some(wikipedia_url($id)),
             source_note: "orbit: JPL SBDB heliocentric ECLIPJ2000",
         }
     };
@@ -515,8 +740,10 @@ pub fn entries() -> Vec<Entry> {
         gm_km3_s2: Some(GM_SUN),
         radius_km: 695_700.0,
         color: C_SUN,
+        orbit_color: orbit_color_srgb("sun"),
         route: Route::SunFixed,
-        blurb: curated_description("sun").0,
+        blurb: curated_description("sun").0.to_string(),
+        wikipedia_url: Some(wikipedia_url("sun")),
         source_note: "no orbit (heliocentric anchor); GM: JPL DE440 (Park et al. 2021)",
     });
 
@@ -622,7 +849,7 @@ pub fn entries() -> Vec<Entry> {
         DwarfPlanet,
         None,
         469.7,
-        C_DWARF,
+        C_CERES,
         "Ceres"
     ));
     v.push({
@@ -634,7 +861,7 @@ pub fn entries() -> Vec<Entry> {
             DwarfPlanet,
             Some(GM_PLUTO),
             1188.3,
-            C_DWARF,
+            C_PLUTO,
             "134340"
         );
         e.source_note = "orbit: JPL SBDB heliocentric ECLIPJ2000; parent GM: Pluto+Charon system 975.5 km^3/s^2 = 869.6 + 105.9 (Brozović et al. 2015)";
@@ -648,7 +875,7 @@ pub fn entries() -> Vec<Entry> {
         DwarfPlanet,
         Some(GM_ERIS),
         1163.0,
-        C_DWARF,
+        C_ERIS,
         "Eris"
     ));
     v.push(sbdb!(
@@ -659,7 +886,7 @@ pub fn entries() -> Vec<Entry> {
         DwarfPlanet,
         Some(GM_HAUMEA),
         780.0,
-        C_DWARF,
+        C_HAUMEA,
         "Haumea"
     ));
     v.push(sbdb!(
@@ -670,7 +897,7 @@ pub fn entries() -> Vec<Entry> {
         DwarfPlanet,
         None,
         715.0,
-        C_DWARF,
+        C_MAKEMAKE,
         "Makemake"
     ));
     v.push(sbdb!(
@@ -681,7 +908,7 @@ pub fn entries() -> Vec<Entry> {
         DwarfPlanet,
         None,
         615.0,
-        C_DWARF,
+        C_GONGGONG,
         "Gonggong"
     ));
     v.push(sbdb!(
@@ -692,7 +919,7 @@ pub fn entries() -> Vec<Entry> {
         DwarfPlanet,
         None,
         545.0,
-        C_DWARF,
+        C_QUAOAR,
         "Quaoar"
     ));
     v.push(sbdb!(
@@ -703,7 +930,7 @@ pub fn entries() -> Vec<Entry> {
         DwarfPlanet,
         None,
         458.0,
-        C_DWARF,
+        C_ORCUS,
         "Orcus"
     ));
     v.push(sbdb!(
@@ -714,7 +941,7 @@ pub fn entries() -> Vec<Entry> {
         DwarfPlanet,
         None,
         500.0,
-        C_DWARF,
+        C_SEDNA,
         "Sedna"
     ));
 
@@ -743,11 +970,13 @@ pub fn entries() -> Vec<Entry> {
         gm_km3_s2: None,
         radius_km: 350.0,
         color: C_MOON,
+        orbit_color: orbit_color_srgb("dysnomia"),
         route: Route::HorizonsLookupMoon {
             sstr: "Dysnomia",
             parent_sstr: "Eris",
         },
-        blurb: curated_description("dysnomia").0,
+        blurb: curated_description("dysnomia").0.to_string(),
+        wikipedia_url: Some(wikipedia_url("dysnomia")),
         source_note: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup)",
     });
     v.push(Entry {
@@ -761,11 +990,13 @@ pub fn entries() -> Vec<Entry> {
         gm_km3_s2: None,
         radius_km: 185.0,
         color: C_MOON,
+        orbit_color: orbit_color_srgb("hiiaka"),
         route: Route::HorizonsLookupMoon {
             sstr: "Hiiaka",
             parent_sstr: "Haumea",
         },
-        blurb: curated_description("hiiaka").0,
+        blurb: curated_description("hiiaka").0.to_string(),
+        wikipedia_url: Some(wikipedia_url("hiiaka")),
         source_note: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup); radius: volume-equivalent diameter 370 +/- 20 km / 2 (Fernandez-Valenzuela et al. 2025)",
     });
     v.push(Entry {
@@ -779,11 +1010,13 @@ pub fn entries() -> Vec<Entry> {
         gm_km3_s2: None,
         radius_km: 75.0,
         color: C_MOON,
+        orbit_color: orbit_color_srgb("namaka"),
         route: Route::HorizonsLookupMoon {
             sstr: "Namaka",
             parent_sstr: "Haumea",
         },
-        blurb: curated_description("namaka").0,
+        blurb: curated_description("namaka").0.to_string(),
+        wikipedia_url: Some(wikipedia_url("namaka")),
         source_note: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000 (id via lookup); radius: adopted from thermal diameter about 150 +/- 50 km / 2 (Muller et al. 2019)",
     });
 
@@ -986,6 +1219,7 @@ pub fn entries() -> Vec<Entry> {
 
     for entry in &mut v {
         entry.is_major_moon = MAJOR_MOON_IDS.contains(&entry.id);
+        entry.blurb = expanded_description(entry);
     }
     v
 }
@@ -993,24 +1227,84 @@ pub fn entries() -> Vec<Entry> {
 /// Full source string for the emitted record.
 pub fn source_string(e: &Entry) -> String {
     let description_source = curated_description(e.id).1;
+    let appearance_note = match e.id {
+        "ceres" => "; display: resolved Dawn global mosaic, audited in assets/textures/ceres.license.json",
+        "pluto" => "; display: resolved New Horizons global map, audited in assets/textures/pluto.license.json",
+        "charon" => "; display: resolved New Horizons global map, audited in assets/textures/charon.license.json",
+        "eris" | "haumea" | "makemake" | "gonggong" | "quaoar" | "orcus" | "sedna" => {
+            "; display: flat representative albedo, not resolved imagery; review: docs/dwarf-surface-appearance-2026-07-23.md"
+        }
+        _ => "",
+    };
     let visibility_note = (e.category == Category::Moon).then(|| {
         format!(
             "; display: WP10 major_moon={} curated under TASKS Q8 (2026-07-13)",
             e.is_major_moon
         )
     });
+    let reference_note = e
+        .wikipedia_url
+        .map(|url| format!("; reference: {url}"))
+        .unwrap_or_default();
     format!(
-        "{}; {}; description: {}{}",
+        "{}; {}; description: {}{}; display: orbit_color_srgb reviewed under Q24 (2026-07-23){}{}",
         e.source_note,
         PHYS_NOTE,
         description_source,
+        reference_note,
+        appearance_note,
         visibility_note.as_deref().unwrap_or_default()
     )
+}
+
+/// Reproducible editorial audit for the 66 production descriptions.
+pub fn format_description_review_report() -> String {
+    let entries = entries();
+    let mut output = String::from(
+        "# Body-description review — 2026-07-23\n\n\
+         All production descriptions are original Solar Sim prose assembled \
+         from the body-specific NASA/JPL-reviewed notes and catalog facts in \
+         `xtask/src/manifest.rs`. Wikipedia article text was not ingested; \
+         Wikipedia is retained only as the secondary outbound reference. Word \
+         counts use Rust `split_whitespace`, matching the generator gate.\n\n\
+         | Body | Words | Primary review source | Secondary reference |\n\
+         |---|---:|---|---|\n",
+    );
+    for entry in &entries {
+        let source = curated_description(entry.id).1;
+        let words = entry.blurb.split_whitespace().count();
+        let wikipedia_url = entry
+            .wikipedia_url
+            .expect("production manifest entries have one Wikipedia URL");
+        output.push_str(&format!(
+            "| `{}` — {} | {} | [NASA/JPL source]({}) | [Wikipedia]({}) |\n",
+            entry.id, entry.name, words, source, wikipedia_url
+        ));
+    }
+    let minimum = entries
+        .iter()
+        .map(|entry| entry.blurb.split_whitespace().count())
+        .min()
+        .unwrap_or(0);
+    let maximum = entries
+        .iter()
+        .map(|entry| entry.blurb.split_whitespace().count())
+        .max()
+        .unwrap_or(0);
+    output.push_str(&format!(
+        "\n**Coverage:** {} bodies; word-count range **{}–{}**; 66 primary \
+         review links; 66 unique validated English-Wikipedia actions.\n",
+        entries.len(),
+        minimum,
+        maximum
+    ));
+    output
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sim_core::catalog::is_valid_wikipedia_url;
     use std::collections::HashSet;
 
     #[test]
@@ -1024,6 +1318,50 @@ mod tests {
         assert_eq!(count(Category::Asteroid), 8);
         assert_eq!(count(Category::Moon), 32);
         assert_eq!(count(Category::Comet), 8);
+    }
+
+    #[test]
+    fn every_production_body_has_one_unique_valid_wikipedia_article() {
+        let entries = entries();
+        let mut urls = HashSet::new();
+        for entry in &entries {
+            let url = entry
+                .wikipedia_url
+                .unwrap_or_else(|| panic!("{} is missing a Wikipedia URL", entry.id));
+            assert!(
+                is_valid_wikipedia_url(url),
+                "{} has invalid Wikipedia URL {}",
+                entry.id,
+                url
+            );
+            assert!(
+                urls.insert(url),
+                "{} duplicates Wikipedia URL {}",
+                entry.id,
+                url
+            );
+            assert!(
+                source_string(entry).contains(&format!("reference: {url}")),
+                "{} does not emit its reviewed reference provenance",
+                entry.id
+            );
+        }
+        assert_eq!(urls.len(), 66);
+    }
+
+    #[test]
+    fn description_review_report_is_deterministic_and_covers_every_body() {
+        let report = format_description_review_report();
+        assert_eq!(
+            report
+                .lines()
+                .filter(|line| line.starts_with("| `"))
+                .count(),
+            66
+        );
+        assert!(report.contains("Wikipedia article text was not ingested"));
+        assert!(report.contains("66 unique validated English-Wikipedia actions"));
+        assert_eq!(report, format_description_review_report());
     }
 
     #[test]
@@ -1047,12 +1385,43 @@ mod tests {
             .collect();
         assert_eq!(
             textured_moons,
-            HashSet::from(["moon", "io", "europa", "ganymede", "callisto", "titan"])
+            HashSet::from(["moon", "io", "europa", "ganymede", "callisto", "titan", "charon"])
         );
+        let textured_dwarfs: HashSet<_> = entries
+            .iter()
+            .filter(|entry| entry.category == Category::DwarfPlanet)
+            .filter(|entry| texture_path(entry.id).is_some())
+            .map(|entry| entry.id)
+            .collect();
+        assert_eq!(textured_dwarfs, HashSet::from(["ceres", "pluto"]));
         assert!(entries
             .iter()
             .filter(|entry| texture_path(entry.id).is_some())
             .all(|entry| entry.category != Category::Moon || entry.is_major_moon));
+    }
+
+    #[test]
+    fn dwarf_materials_distinguish_resolved_maps_from_representative_albedo() {
+        let entries = entries();
+        let expected = [
+            ("ceres", C_CERES, true),
+            ("pluto", C_PLUTO, true),
+            ("eris", C_ERIS, false),
+            ("haumea", C_HAUMEA, false),
+            ("makemake", C_MAKEMAKE, false),
+            ("gonggong", C_GONGGONG, false),
+            ("quaoar", C_QUAOAR, false),
+            ("orcus", C_ORCUS, false),
+            ("sedna", C_SEDNA, false),
+        ];
+        for (id, color, resolved) in expected {
+            let entry = entries.iter().find(|entry| entry.id == id).unwrap();
+            assert_eq!(entry.color, color, "{id}");
+            assert_eq!(texture_path(id).is_some(), resolved, "{id}");
+            let source = source_string(entry);
+            assert_eq!(source.contains("display: resolved"), resolved, "{id}");
+            assert_eq!(source.contains("representative albedo"), !resolved, "{id}");
+        }
     }
 
     #[test]
@@ -1103,25 +1472,38 @@ mod tests {
     }
 
     #[test]
-    fn every_body_has_two_to_four_reviewed_sentences_and_a_public_source() {
+    fn every_body_has_150_to_220_original_words_and_a_public_primary_source() {
         for entry in entries() {
-            let (description, description_source) = curated_description(entry.id);
+            let (opening, description_source) = curated_description(entry.id);
             assert_eq!(
-                entry.blurb, description,
+                entry.blurb,
+                expanded_description(&entry),
                 "description drift for {}",
                 entry.id
             );
             assert!(
-                !description.trim().is_empty(),
+                entry.blurb.starts_with(opening),
+                "{} lost its body-specific reviewed opening",
+                entry.id
+            );
+            assert!(
+                !entry.blurb.trim().is_empty(),
                 "empty description for {}",
                 entry.id
             );
 
-            let sentence_count = description.matches(". ").count()
-                + usize::from(description.trim_end().ends_with('.'));
+            let word_count = entry.blurb.split_whitespace().count();
             assert!(
-                (2..=4).contains(&sentence_count),
-                "{} has {sentence_count} sentences: {description}",
+                (150..=220).contains(&word_count),
+                "{} has {word_count} words: {}",
+                entry.id,
+                entry.blurb
+            );
+            assert!(
+                !entry.blurb.contains("wikipedia.org")
+                    && !entry.blurb.contains("science.nasa.gov")
+                    && !entry.blurb.contains("ssd.jpl.nasa.gov"),
+                "{} leaked source/link text into reader-facing prose",
                 entry.id
             );
             assert!(

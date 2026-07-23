@@ -1,4 +1,4 @@
-//! UIP-7 — bounded-error temporal reuse for retained orbit lines (Rev D §10.2).
+//! WP6/UIO-2/UIP-7 — retained orbit hierarchy and bounded reuse (Rev E §10.2).
 //!
 //! Orbit geometry stays in f64 kilometers in the orbiting body's parent
 //! frame (Rev C §3 invariant 6). Only the retained gizmo asset contains f32
@@ -32,7 +32,7 @@ pub const MIN_ORBIT_VERTICES: usize = 256;
 pub const MAX_ORBIT_VERTICES: usize = 768;
 pub const HYPERBOLIC_HALF_SPAN_S: f64 = 25.0 * JULIAN_YEAR_S;
 
-const LINE_WIDTH_PX: f32 = 1.5;
+pub const ORBIT_LINE_BASE_WIDTH_LOGICAL_PX: f32 = 1.5;
 // A small negative bias brings a line forward just enough to avoid flicker
 // where the path crosses its body without turning it into an overlay.
 const ORBIT_DEPTH_BIAS: f32 = -0.001;
@@ -40,6 +40,16 @@ const FADE_OUT_ANGULAR_RADIUS: f64 = 0.000_1;
 const FULL_ALPHA_ANGULAR_RADIUS: f64 = 0.002;
 const EDGE_ON_ALPHA_FACTOR: f64 = 0.2;
 const MAX_TEMPORAL_REUSE_ERROR_LOGICAL_PX: f64 = 0.25;
+
+/// Rev E's category hierarchy. The star has no orbit path.
+pub const fn orbit_line_width_logical_px(category: Category) -> f32 {
+    match category {
+        Category::Star => 0.0,
+        Category::Planet => ORBIT_LINE_BASE_WIDTH_LOGICAL_PX * 3.0,
+        Category::DwarfPlanet | Category::Moon => ORBIT_LINE_BASE_WIDTH_LOGICAL_PX * 2.0,
+        Category::Asteroid | Category::Comet => ORBIT_LINE_BASE_WIDTH_LOGICAL_PX,
+    }
+}
 
 /// Parent-frame f64 truth for one sampled conic.
 #[derive(Debug, Clone, PartialEq)]
@@ -326,22 +336,8 @@ struct OrbitPaletteEntry {
 }
 
 fn orbit_palette(body: &BodyRecord) -> OrbitPaletteEntry {
-    let rgb = match (body.category, body.id.as_str()) {
-        (Category::Planet, "mercury") => [158, 158, 158],
-        (Category::Planet, "venus") => [222, 184, 135],
-        (Category::Planet, "earth") => [86, 141, 235],
-        (Category::Planet, "mars") => [204, 101, 66],
-        (Category::Planet, "jupiter") => [211, 177, 140],
-        (Category::Planet, "saturn") => [226, 205, 159],
-        (Category::Planet, "uranus") => [148, 207, 216],
-        (Category::Planet, "neptune") => [99, 125, 222],
-        (Category::Planet, _) => [150, 180, 230],
-        (Category::DwarfPlanet, _) => [186, 156, 255],
-        (Category::Asteroid, _) => [214, 160, 92],
-        (Category::Moon, _) => [198, 189, 175],
-        (Category::Comet, _) => [96, 220, 238],
-        (Category::Star, _) => [255, 214, 140],
-    };
+    let (red, green, blue) = body.orbit_color_srgb;
+    let rgb = [red, green, blue];
     let base_alpha = match body.category {
         Category::Planet => 0.8,
         Category::DwarfPlanet => 0.6,
@@ -541,7 +537,7 @@ fn spawn_orbit_lines(
             Gizmo {
                 handle,
                 line_config: GizmoLineConfig {
-                    width: LINE_WIDTH_PX,
+                    width: orbit_line_width_logical_px(body.category),
                     perspective: false,
                     style: GizmoLineStyle::Solid,
                     joints: GizmoLineJoint::Round(2),
@@ -1247,30 +1243,55 @@ mod tests {
     }
 
     #[test]
-    fn palette_has_distinct_planets_and_shared_category_defaults() {
+    fn category_widths_and_manifest_colors_reach_all_sixty_five_paths() {
+        assert_eq!(orbit_line_width_logical_px(Category::Star), 0.0);
+        assert_eq!(orbit_line_width_logical_px(Category::Planet), 4.5);
+        assert_eq!(orbit_line_width_logical_px(Category::DwarfPlanet), 3.0);
+        assert_eq!(orbit_line_width_logical_px(Category::Moon), 3.0);
+        assert_eq!(orbit_line_width_logical_px(Category::Asteroid), 1.5);
+        assert_eq!(orbit_line_width_logical_px(Category::Comet), 1.5);
+
         let catalog = catalog();
-        let index = catalog.id_index();
-        let mut planet_colors: Vec<_> = [
-            "mercury", "venus", "earth", "mars", "jupiter", "saturn", "uranus", "neptune",
-        ]
-        .iter()
-        .map(|id| orbit_palette(&catalog.bodies[*index.get(*id).unwrap()]).rgb)
-        .collect();
-        planet_colors.sort_unstable();
-        planet_colors.dedup();
-        assert_eq!(planet_colors.len(), 8);
-
-        let nereid = orbit_palette(&catalog.bodies[*index.get("nereid").unwrap()]);
-        let triton = orbit_palette(&catalog.bodies[*index.get("triton").unwrap()]);
-        assert_eq!(nereid, triton);
-
-        let mut category_defaults: Vec<_> = ["pluto", "pallas", "nereid", "halley"]
+        let expected = catalog
+            .bodies
             .iter()
-            .map(|id| orbit_palette(&catalog.bodies[*index.get(*id).unwrap()]).rgb)
-            .collect();
-        category_defaults.sort_unstable();
-        category_defaults.dedup();
-        assert_eq!(category_defaults.len(), 4);
+            .enumerate()
+            .filter(|(_, body)| body.category != Category::Star)
+            .map(|(index, body)| {
+                (
+                    index,
+                    body.category,
+                    body.orbit_color_srgb,
+                    body.orbit.as_ref().map(|orbit| orbit.elements),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(expected.len(), 65);
+
+        let mut app = emphasis_orbit_app();
+        let world = app.world_mut();
+        let mut query = world.query::<(&OrbitLine, &Gizmo)>();
+        let mut rendered = query
+            .iter(world)
+            .map(|(line, gizmo)| {
+                (
+                    line.body_index,
+                    line.palette.rgb,
+                    gizmo.line_config.width,
+                    line.path.elements(),
+                )
+            })
+            .collect::<Vec<_>>();
+        rendered.sort_by_key(|row| row.0);
+        assert_eq!(rendered.len(), 65);
+
+        for ((body_index, category, rgb, elements), rendered) in expected.into_iter().zip(rendered)
+        {
+            assert_eq!(rendered.0, body_index);
+            assert_eq!(rendered.1, [rgb.0, rgb.1, rgb.2]);
+            assert_eq!(rendered.2, orbit_line_width_logical_px(category));
+            assert_eq!(rendered.3, elements.unwrap());
+        }
     }
 
     #[test]

@@ -8,6 +8,7 @@ pub mod horizons;
 pub mod lookup;
 pub mod manifest;
 pub mod normalize;
+pub mod palette;
 pub mod perf;
 pub mod sbdb;
 pub mod starfield;
@@ -112,8 +113,10 @@ fn record_shell(e: &Entry) -> BodyRecord {
         gm_km3_s2: e.gm_km3_s2,
         radius_km: e.radius_km,
         color_srgb: e.color,
+        orbit_color_srgb: e.orbit_color,
         texture: manifest::texture_path(e.id).map(str::to_string),
         description: e.blurb.to_string(),
+        wikipedia_url: e.wikipedia_url.map(str::to_string),
         orbit: None,
         source: manifest::source_string(e),
     }

@@ -12,13 +12,20 @@ use bevy::{
     render::render_resource::TextureFormat,
     render::renderer::RenderAdapterInfo,
     render::view::screenshot::{Screenshot, ScreenshotCaptured},
+    ui::UiSystems,
 };
 use std::{fs, path::PathBuf, time::Instant};
 
-use crate::layers::{HudSurface, UiRestoreAffordance};
-use crate::{LayerId, LayerState, SimulationSet};
+use crate::layers::{HudSurface, HudVisibilitySyncSet, UiRestoreAffordance};
+use crate::ui_kit::SearchHint;
+use crate::{BodySizeScale, LayerId, LayerState, SimulationSet, SimulationTickAdvance};
+use sim_core::time::RateIndex;
 
-type GoldenHudFilter = Or<(With<HudSurface>, With<UiRestoreAffordance>)>;
+type GoldenHudFilter = Or<(
+    With<HudSurface>,
+    With<UiRestoreAffordance>,
+    With<SearchHint>,
+)>;
 
 pub const GOLDEN_WIDTH: u32 = 960;
 pub const GOLDEN_HEIGHT: u32 = 600;
@@ -27,6 +34,7 @@ const MIN_SETTLE_SECONDS: f64 = 5.0;
 const RETRY_SETTLE_SECONDS: f64 = 2.0;
 const MAX_SETTLE_SECONDS: f64 = 30.0;
 const MAX_CAPTURE_ATTEMPTS: u8 = 3;
+const EMPHASIS_REVIEW_REFERENCE_FPS: f64 = 30.0;
 
 fn readback_settle_complete(
     settled_frames: u32,
@@ -60,8 +68,14 @@ pub struct GoldenViewSpec {
     pub face_sun: bool,
     pub show_ui: bool,
     pub show_orbits: bool,
+    pub show_asteroids: bool,
+    pub show_comets: bool,
     pub show_labels: bool,
     pub show_icons: bool,
+    pub body_size: BodySizeScale,
+    /// Capture-only fixed phase step used to review high-rate emphasis
+    /// without advancing catalog truth or making the image wall-time-dependent.
+    pub force_high_rate_emphasis: bool,
 }
 
 pub const GOLDEN_VIEWS: [GoldenViewSpec; 6] = [
@@ -74,8 +88,12 @@ pub const GOLDEN_VIEWS: [GoldenViewSpec; 6] = [
         face_sun: false,
         show_ui: true,
         show_orbits: true,
+        show_asteroids: false,
+        show_comets: false,
         show_labels: true,
         show_icons: true,
+        body_size: BodySizeScale::X1,
+        force_high_rate_emphasis: false,
     },
     GoldenViewSpec {
         slug: "inner-orbits",
@@ -86,8 +104,12 @@ pub const GOLDEN_VIEWS: [GoldenViewSpec; 6] = [
         face_sun: false,
         show_ui: false,
         show_orbits: true,
+        show_asteroids: false,
+        show_comets: false,
         show_labels: false,
         show_icons: false,
+        body_size: BodySizeScale::X1,
+        force_high_rate_emphasis: false,
     },
     GoldenViewSpec {
         slug: "earth-texture",
@@ -98,8 +120,12 @@ pub const GOLDEN_VIEWS: [GoldenViewSpec; 6] = [
         face_sun: true,
         show_ui: false,
         show_orbits: false,
+        show_asteroids: false,
+        show_comets: false,
         show_labels: false,
         show_icons: false,
+        body_size: BodySizeScale::X1,
+        force_high_rate_emphasis: false,
     },
     GoldenViewSpec {
         slug: "jupiter-system",
@@ -110,8 +136,12 @@ pub const GOLDEN_VIEWS: [GoldenViewSpec; 6] = [
         face_sun: true,
         show_ui: false,
         show_orbits: true,
+        show_asteroids: false,
+        show_comets: false,
         show_labels: true,
         show_icons: true,
+        body_size: BodySizeScale::X1,
+        force_high_rate_emphasis: false,
     },
     GoldenViewSpec {
         slug: "saturn-rings",
@@ -122,8 +152,12 @@ pub const GOLDEN_VIEWS: [GoldenViewSpec; 6] = [
         face_sun: true,
         show_ui: false,
         show_orbits: false,
+        show_asteroids: false,
+        show_comets: false,
         show_labels: false,
         show_icons: false,
+        body_size: BodySizeScale::X1,
+        force_high_rate_emphasis: false,
     },
     GoldenViewSpec {
         slug: "sun-bloom",
@@ -134,18 +168,205 @@ pub const GOLDEN_VIEWS: [GoldenViewSpec; 6] = [
         face_sun: false,
         show_ui: false,
         show_orbits: false,
+        show_asteroids: false,
+        show_comets: false,
         show_labels: false,
         show_icons: false,
+        body_size: BodySizeScale::X1,
+        force_high_rate_emphasis: false,
     },
 ];
 
+pub const ORBIT_REVIEW_VIEWS: [GoldenViewSpec; 10] = [
+    orbit_review_view("orbit-full-normal", "sun", None, 0.0, 0.35, false),
+    orbit_review_view("orbit-full-emphasis", "sun", None, 0.0, 0.35, true),
+    orbit_review_view(
+        "orbit-belt-normal",
+        "sun",
+        Some(crate::BELT_REGION_FRAMING_DISTANCE_KM / crate::KM_PER_RENDER_UNIT),
+        0.35,
+        1.05,
+        false,
+    ),
+    orbit_review_view(
+        "orbit-belt-emphasis",
+        "sun",
+        Some(crate::BELT_REGION_FRAMING_DISTANCE_KM / crate::KM_PER_RENDER_UNIT),
+        0.35,
+        1.05,
+        true,
+    ),
+    orbit_review_view(
+        "orbit-jupiter-normal",
+        "jupiter",
+        Some(5_500.0),
+        0.1,
+        0.42,
+        false,
+    ),
+    orbit_review_view(
+        "orbit-jupiter-emphasis",
+        "jupiter",
+        Some(5_500.0),
+        0.1,
+        0.42,
+        true,
+    ),
+    orbit_review_view(
+        "orbit-saturn-normal",
+        "saturn",
+        Some(5_500.0),
+        0.3,
+        0.32,
+        false,
+    ),
+    orbit_review_view(
+        "orbit-saturn-emphasis",
+        "saturn",
+        Some(5_500.0),
+        0.3,
+        0.32,
+        true,
+    ),
+    orbit_review_view(
+        "orbit-comet-normal",
+        "halley",
+        Some(50_000.0),
+        0.2,
+        0.5,
+        false,
+    ),
+    orbit_review_view(
+        "orbit-comet-emphasis",
+        "halley",
+        Some(50_000.0),
+        0.2,
+        0.5,
+        true,
+    ),
+];
+
+const fn orbit_review_view(
+    slug: &'static str,
+    focus_id: &'static str,
+    distance_units: Option<f64>,
+    yaw_rad: f64,
+    pitch_rad: f64,
+    force_high_rate_emphasis: bool,
+) -> GoldenViewSpec {
+    GoldenViewSpec {
+        slug,
+        focus_id,
+        yaw_rad,
+        pitch_rad,
+        distance_units,
+        face_sun: true,
+        show_ui: false,
+        show_orbits: true,
+        show_asteroids: true,
+        show_comets: true,
+        show_labels: true,
+        show_icons: true,
+        body_size: BodySizeScale::X1,
+        force_high_rate_emphasis,
+    }
+}
+
+pub const SCALE_REVIEW_VIEWS: [GoldenViewSpec; 14] = [
+    scale_review_view("scale-ceres-floor-x1", "ceres", 50_000.0, BodySizeScale::X1),
+    scale_review_view(
+        "scale-ceres-floor-x10",
+        "ceres",
+        50_000.0,
+        BodySizeScale::X10,
+    ),
+    scale_review_view(
+        "scale-ceres-floor-x50",
+        "ceres",
+        50_000.0,
+        BodySizeScale::X50,
+    ),
+    scale_review_view(
+        "scale-earth-overview-x1",
+        "earth",
+        340_000.0,
+        BodySizeScale::X1,
+    ),
+    scale_review_view(
+        "scale-earth-overview-x10",
+        "earth",
+        340_000.0,
+        BodySizeScale::X10,
+    ),
+    scale_review_view(
+        "scale-earth-overview-x50",
+        "earth",
+        340_000.0,
+        BodySizeScale::X50,
+    ),
+    scale_review_view(
+        "scale-saturn-rings-x1",
+        "saturn",
+        10_000.0,
+        BodySizeScale::X1,
+    ),
+    scale_review_view(
+        "scale-saturn-rings-x10",
+        "saturn",
+        10_000.0,
+        BodySizeScale::X10,
+    ),
+    scale_review_view(
+        "scale-saturn-rings-x50",
+        "saturn",
+        10_000.0,
+        BodySizeScale::X50,
+    ),
+    scale_review_view("scale-ceres-close-x1", "ceres", 10.0, BodySizeScale::X1),
+    scale_review_view("scale-ceres-close-x10", "ceres", 10.0, BodySizeScale::X10),
+    scale_review_view("scale-ceres-close-x50", "ceres", 10.0, BodySizeScale::X50),
+    scale_review_view("appearance-pluto", "pluto", 10.0, BodySizeScale::X1),
+    scale_review_view("appearance-charon", "charon", 6.0, BodySizeScale::X1),
+];
+
+const fn scale_review_view(
+    slug: &'static str,
+    focus_id: &'static str,
+    distance_units: f64,
+    body_size: BodySizeScale,
+) -> GoldenViewSpec {
+    GoldenViewSpec {
+        slug,
+        focus_id,
+        yaw_rad: 0.16,
+        pitch_rad: 0.18,
+        distance_units: Some(distance_units),
+        face_sun: true,
+        show_ui: false,
+        show_orbits: false,
+        show_asteroids: false,
+        show_comets: false,
+        show_labels: false,
+        show_icons: false,
+        body_size,
+        force_high_rate_emphasis: false,
+    }
+}
+
 pub fn golden_view(slug: &str) -> Option<GoldenViewSpec> {
-    GOLDEN_VIEWS.iter().copied().find(|view| view.slug == slug)
+    GOLDEN_VIEWS
+        .iter()
+        .chain(&ORBIT_REVIEW_VIEWS)
+        .chain(&SCALE_REVIEW_VIEWS)
+        .copied()
+        .find(|view| view.slug == slug)
 }
 
 pub(crate) fn layer_state_for_view(view: GoldenViewSpec) -> LayerState {
     let mut layers = LayerState::default();
     layers.set_visible(LayerId::Orbits, view.show_orbits);
+    layers.set_visible(LayerId::Asteroids, view.show_asteroids);
+    layers.set_visible(LayerId::Comets, view.show_comets);
     layers.set_visible(LayerId::Labels, view.show_labels);
     layers.set_visible(LayerId::Icons, view.show_icons);
     layers
@@ -235,7 +456,8 @@ struct GoldenCaptureInputs<'w, 's> {
 }
 
 pub(crate) fn configure_golden_capture(app: &mut App, options: GoldenCaptureOptions) {
-    let hide_hud = golden_view(&options.view).is_some_and(|view| !view.show_ui);
+    let view = golden_view(&options.view);
+    let hide_hud = view.is_some_and(|view| !view.show_ui);
     let target = app
         .world_mut()
         .resource_mut::<Assets<Image>>()
@@ -254,19 +476,47 @@ pub(crate) fn configure_golden_capture(app: &mut App, options: GoldenCaptureOpti
             requested: false,
         })
         .add_systems(Update, request_golden_capture.in_set(SimulationSet::Render));
-    if hide_hud {
+    if view.is_some_and(|view| view.force_high_rate_emphasis) {
         app.add_systems(
             Update,
-            hide_golden_hud
+            force_golden_orbit_emphasis
                 .in_set(SimulationSet::Render)
-                .before(request_golden_capture),
+                .before(crate::scene_polish::OrbitEmphasisSet),
+        );
+    }
+    if hide_hud {
+        // The normal layer reconciliation owns both HUD surfaces and the
+        // restore affordance. Override it before Bevy prepares UI nodes for
+        // render extraction so `show_ui: false` is actually reviewable.
+        app.add_systems(
+            PostUpdate,
+            hide_golden_hud
+                .after(HudVisibilitySyncSet)
+                .before(UiSystems::Prepare),
         );
     }
 }
 
-fn hide_golden_hud(mut surfaces: Query<&mut Visibility, GoldenHudFilter>) {
-    for mut visibility in &mut surfaces {
-        *visibility = Visibility::Hidden;
+fn force_golden_orbit_emphasis(mut advance: ResMut<SimulationTickAdvance>) {
+    *advance = SimulationTickAdvance::between(
+        0.0,
+        RateIndex::MAX.seconds_per_second() / EMPHASIS_REVIEW_REFERENCE_FPS,
+    );
+}
+
+fn hide_golden_hud(
+    roots: Query<Entity, GoldenHudFilter>,
+    children: Query<&Children>,
+    mut visibility: Query<&mut Visibility>,
+) {
+    let mut pending = roots.iter().collect::<Vec<_>>();
+    while let Some(entity) = pending.pop() {
+        if let Ok(mut entity_visibility) = visibility.get_mut(entity) {
+            *entity_visibility = Visibility::Hidden;
+        }
+        if let Ok(entity_children) = children.get(entity) {
+            pending.extend(entity_children.iter());
+        }
     }
 }
 
@@ -417,6 +667,12 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
 
+    fn show_test_hud(mut surfaces: Query<&mut Visibility, GoldenHudFilter>) {
+        for mut visibility in &mut surfaces {
+            *visibility = Visibility::Visible;
+        }
+    }
+
     #[test]
     fn canonical_golden_views_are_exactly_six_unique_reviewed_scenes() {
         assert_eq!(GOLDEN_VIEWS.len(), 6);
@@ -427,6 +683,111 @@ mod tests {
             assert!(view.distance_units.is_none_or(|distance| distance > 0.0));
         }
         assert!(golden_view("not-a-view").is_none());
+    }
+
+    #[test]
+    fn orbit_review_views_pair_five_scenes_at_normal_and_emphasized_rates() {
+        assert_eq!(ORBIT_REVIEW_VIEWS.len(), 10);
+        let slugs = ORBIT_REVIEW_VIEWS
+            .iter()
+            .map(|view| view.slug)
+            .collect::<HashSet<_>>();
+        assert_eq!(slugs.len(), ORBIT_REVIEW_VIEWS.len());
+        for prefix in [
+            "orbit-full",
+            "orbit-belt",
+            "orbit-jupiter",
+            "orbit-saturn",
+            "orbit-comet",
+        ] {
+            let normal = golden_view(&format!("{prefix}-normal")).unwrap();
+            let emphasized = golden_view(&format!("{prefix}-emphasis")).unwrap();
+            assert!(!normal.force_high_rate_emphasis);
+            assert!(emphasized.force_high_rate_emphasis);
+            assert_eq!(
+                GoldenViewSpec {
+                    slug: emphasized.slug,
+                    force_high_rate_emphasis: false,
+                    ..emphasized
+                },
+                GoldenViewSpec {
+                    slug: emphasized.slug,
+                    ..normal
+                }
+            );
+            assert!(normal.show_orbits);
+            assert!(normal.show_asteroids);
+            assert!(normal.show_comets);
+            assert!(!normal.show_ui);
+        }
+
+        let catalog = crate::load_catalog_text(include_str!("../../../assets/catalog.ron"))
+            .expect("committed catalog must load");
+        let sun = catalog.bodies.iter().find(|body| body.id == "sun").unwrap();
+        let halley = catalog
+            .bodies
+            .iter()
+            .find(|body| body.id == "halley")
+            .unwrap();
+        let halley_period_s = halley
+            .orbit
+            .as_ref()
+            .unwrap()
+            .period_s(sun.gm_km3_s2.unwrap())
+            .unwrap();
+        let reviewed_phase_step = crate::scene_polish::phase_step_rad(
+            RateIndex::MAX.seconds_per_second(),
+            1.0 / EMPHASIS_REVIEW_REFERENCE_FPS,
+            halley_period_s,
+        );
+        assert!(
+            reviewed_phase_step >= crate::scene_polish::EMPHASIS_ENGAGE_PHASE_RAD,
+            "the review cadence must actually engage Halley's orbit emphasis"
+        );
+    }
+
+    #[test]
+    fn scale_review_views_hold_camera_constant_across_one_ten_fifty() {
+        assert_eq!(SCALE_REVIEW_VIEWS.len(), 14);
+        let slugs = SCALE_REVIEW_VIEWS
+            .iter()
+            .map(|view| view.slug)
+            .collect::<HashSet<_>>();
+        assert_eq!(slugs.len(), SCALE_REVIEW_VIEWS.len());
+
+        for prefix in [
+            "scale-ceres-floor",
+            "scale-earth-overview",
+            "scale-saturn-rings",
+            "scale-ceres-close",
+        ] {
+            let x1 = golden_view(&format!("{prefix}-x1")).unwrap();
+            for (suffix, body_size) in [
+                ("x1", BodySizeScale::X1),
+                ("x10", BodySizeScale::X10),
+                ("x50", BodySizeScale::X50),
+            ] {
+                let view = golden_view(&format!("{prefix}-{suffix}")).unwrap();
+                assert_eq!(view.body_size, body_size);
+                assert_eq!(
+                    GoldenViewSpec {
+                        slug: x1.slug,
+                        body_size: BodySizeScale::X1,
+                        ..view
+                    },
+                    x1
+                );
+            }
+        }
+
+        assert_eq!(
+            golden_view("appearance-pluto").unwrap().body_size,
+            BodySizeScale::X1
+        );
+        assert_eq!(
+            golden_view("appearance-charon").unwrap().body_size,
+            BodySizeScale::X1
+        );
     }
 
     #[test]
@@ -482,6 +843,55 @@ mod tests {
     }
 
     #[test]
+    fn ui_free_goldens_hide_hud_and_restore_after_post_update_reconciliation() {
+        let mut app = App::new();
+        app.insert_resource(Assets::<Image>::default());
+        configure_golden_capture(
+            &mut app,
+            GoldenCaptureOptions {
+                view: "orbit-full-normal".into(),
+                backend: "test".into(),
+                output: PathBuf::from("ignored.ppm"),
+                reject_software_adapter: false,
+            },
+        );
+        app.add_systems(PostUpdate, show_test_hud.in_set(HudVisibilitySyncSet));
+        let hud = app
+            .world_mut()
+            .spawn((HudSurface, Visibility::Visible))
+            .id();
+        let hud_child = app.world_mut().spawn(Visibility::Visible).id();
+        app.world_mut().entity_mut(hud).add_child(hud_child);
+        let detached_search_hint = app
+            .world_mut()
+            .spawn((SearchHint, Visibility::Visible))
+            .id();
+        let restore = app
+            .world_mut()
+            .spawn((UiRestoreAffordance, Visibility::Visible))
+            .id();
+
+        app.world_mut().run_schedule(PostUpdate);
+
+        assert_eq!(
+            app.world().get::<Visibility>(hud),
+            Some(&Visibility::Hidden)
+        );
+        assert_eq!(
+            app.world().get::<Visibility>(hud_child),
+            Some(&Visibility::Hidden)
+        );
+        assert_eq!(
+            app.world().get::<Visibility>(detached_search_hint),
+            Some(&Visibility::Hidden)
+        );
+        assert_eq!(
+            app.world().get::<Visibility>(restore),
+            Some(&Visibility::Hidden)
+        );
+    }
+
+    #[test]
     fn view_layer_profiles_keep_full_system_hud_and_isolate_closeups() {
         let full = layer_state_for_view(golden_view("full-system").unwrap());
         assert!(full.is_visible(LayerId::UserInterface));
@@ -491,6 +901,9 @@ mod tests {
         assert!(!golden_view("earth-texture").unwrap().show_ui);
         assert!(!earth.is_visible(LayerId::Orbits));
         assert!(!earth.is_visible(LayerId::Labels));
+        let belt = layer_state_for_view(golden_view("orbit-belt-normal").unwrap());
+        assert!(belt.is_visible(LayerId::Asteroids));
+        assert!(belt.is_visible(LayerId::Comets));
     }
 
     #[test]

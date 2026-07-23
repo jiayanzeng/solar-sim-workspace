@@ -2,10 +2,10 @@
 // Regenerate with: cargo run -p xtask -- gen-catalog --fixtures xtask/fixtures --epoch-jd 2461042
 // Frame: ECLIPJ2000. Units: km, degrees, Julian Date (TDB).
 // Per-body provenance is in each record's `source` field.
-// Generated: 2026-07-22T01:13:30Z
+// Generated: 2026-07-23T12:57:09Z
 Catalog(
   schema_version: 1,
-  generated_utc: "2026-07-22T01:13:30Z",
+  generated_utc: "2026-07-23T12:57:09Z",
   frame: "ECLIPJ2000",
   bodies: [
     BodyRecord(
@@ -21,10 +21,12 @@ Catalog(
       gm_km3_s2: Some(132712440041.27942),
       radius_km: 695700.0,
       color_srgb: (255, 214, 140),
+      orbit_color_srgb: (255, 214, 140),
       texture: Some("textures/sun.ktx2"),
-      description: "The Sun is the star at the center of the solar system, and its gravity holds the system together. Its light and heat power most surface life on Earth and shape the space environment around every cataloged world.",
+      description: "The Sun is the star at the center of the solar system, and its gravity holds the system together. Its light and heat power most surface life on Earth and shape the space environment around every cataloged world. Sun is a self-luminous sphere of hot plasma rather than a solid surface. Energy released by fusion in its interior moves outward and escapes from the visible photosphere, while magnetic activity shapes sunspots, flares, and the extended corona. The reviewed catalog radius is about 695700 kilometers, a physical scale kept separate from the simulator\'s display sizing. Because this body defines the heliocentric frame, every planet, dwarf planet, asteroid, and comet in the catalog is propagated relative to it. Spacecraft and ground observatories examine different wavelengths to connect events near the visible surface with the solar wind farther out. Those measurements matter well beyond astronomy: changing solar radiation and charged particles influence planetary atmospheres, spacecraft operations, and conditions near Earth. The simulation therefore treats Sun as both the system\'s gravitational anchor and the common source of illumination.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Sun"),
       orbit: None,
-      source: "no orbit (heliocentric anchor); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/sun/facts/",
+      source: "no orbit (heliocentric anchor); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/sun/facts/; reference: https://en.wikipedia.org/wiki/Sun; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "earth",
@@ -37,8 +39,10 @@ Catalog(
       gm_km3_s2: Some(398600.435507),
       radius_km: 6371.0,
       color_srgb: (86, 141, 235),
+      orbit_color_srgb: (77, 141, 255),
       texture: Some("textures/earth.ktx2"),
-      description: "Earth is a rocky planet with liquid surface oceans and an atmosphere rich in nitrogen and oxygen. It is the only world currently known to support life, and its active geology continually reshapes the surface.",
+      description: "Earth is a rocky planet with liquid surface oceans and an atmosphere rich in nitrogen and oxygen. It is the only world currently known to support life, and its active geology continually reshapes the surface. As a planet, Earth travels directly around the Sun and has enough mass for gravity to shape it into a rounded world. Its reviewed mean radius in this catalog is about 6371 kilometers; that physical value remains independent of any optional visual exaggeration. JPL ephemeris observations provide the orbital framework used by the simulation, so the displayed path represents a measured dynamical model rather than an illustrative circle. Rotation, seasonal lighting, atmosphere, and surface conditions operate on different time scales, and no single image captures all of them. Telescopes and spacecraft have progressively refined the body\'s mass, shape, environment, and motion, while later missions revisit earlier conclusions with better instruments. Comparing Earth with the other seven planets helps separate traits set by distance from the Sun from those produced by composition, internal evolution, impacts, and satellites. Its appearance here is a navigation aid grounded in reviewed data, not a claim that color alone describes the world.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Earth"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -52,7 +56,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: Some(0.9855999999999767),
       )),
-      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/earth/facts/",
+      source: "orbit: JPL Horizons ELEMENTS heliocentric ECLIPJ2000 (+fitted secular); GM: JPL DE440 (Park et al. 2021); phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/earth/facts/; reference: https://en.wikipedia.org/wiki/Earth; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "moon",
@@ -67,8 +71,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 1737.4,
       color_srgb: (198, 189, 175),
+      orbit_color_srgb: (199, 194, 184),
       texture: Some("textures/moon.ktx2"),
-      description: "Earth\'s Moon is a rocky, airless world whose surface records billions of years of impacts. It stabilizes Earth\'s axial wobble, drives most ocean tides, and remains the only world beyond Earth visited by humans.",
+      description: "Earth\'s Moon is a rocky, airless world whose surface records billions of years of impacts. It stabilizes Earth\'s axial wobble, drives most ocean tides, and remains the only world beyond Earth visited by humans. As a natural satellite, Moon is propagated around its catalog parent and then composed into the parent\'s heliocentric motion. Its reviewed mean or effective radius is about 1737 kilometers. That physical scale remains unchanged when the interface enlarges small bodies for visibility. A moon\'s orbit, rotation, surface, and interior are linked by tides and by the gravitational history of the surrounding planetary system, although the strength of those effects differs greatly between close regular moons and distant captured objects. Scientists combine astrometry with imaging, spectroscopy, gravity measurements, and occultations to refine the satellite\'s path and physical interpretation. Flybys can transform a point of light into a geological world, while long observing campaigns reveal resonances and slow orbital changes that one encounter cannot. The simulation uses parent-centered JPL elements for Moon; it does not infer motion from the rendered sphere. Studying this moon beside its siblings helps distinguish material inherited near the parent from later impacts, capture, exchange, or internal activity.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Moon"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461042.0,
         elements: Elements(
@@ -82,7 +88,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/moon/facts/; display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
+      source: "orbit: JPL Horizons ELEMENTS parent-centric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/moon/facts/; reference: https://en.wikipedia.org/wiki/Moon; display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: WP10 major_moon=true curated under TASKS Q8 (2026-07-13)",
     ),
     BodyRecord(
       id: "ceres",
@@ -96,9 +102,11 @@ Catalog(
       is_major_moon: false,
       gm_km3_s2: None,
       radius_km: 469.7,
-      color_srgb: (186, 156, 255),
-      texture: None,
-      description: "Ceres is the largest object in the main asteroid belt and the only dwarf planet in the inner solar system. Dawn found a mixture of rock and ice, widespread evidence of past water activity, and bright salt deposits in Occator Crater.",
+      color_srgb: (185, 183, 178),
+      orbit_color_srgb: (185, 183, 178),
+      texture: Some("textures/ceres.ktx2"),
+      description: "Ceres is the largest object in the main asteroid belt and the only dwarf planet in the inner solar system. Dawn found a mixture of rock and ice, widespread evidence of past water activity, and bright salt deposits in Occator Crater. This catalog groups Ceres with dwarf planets and other large trans-Neptunian worlds because it is dynamically distinct from the eight planets while still being a substantial, planet-like body. Its reviewed effective radius is about 469.7 kilometers. The object travels directly around the Sun, and JPL small-body data provide the osculating orbit used in the simulation; the path is therefore time-dependent astronomical data, not a decorative ring. At such distances, size, albedo, composition, and rotation are often inferred by combining thermal measurements, stellar occultations, spectroscopy, and sparse resolved imaging. Mission maps are used only when a public, provenance-audited global product exists. Otherwise the displayed material is an explicitly representative albedo color, not a photograph of resolved terrain. Each improved observation can change estimates of shape or surface properties without changing the object\'s identity. Ceres is valuable for comparing the inner asteroid belt, the Kuiper Belt, and more detached populations preserved from the solar system\'s early evolution.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Ceres_(dwarf_planet)"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2461000.5,
         elements: Elements(
@@ -112,7 +120,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/ceres/facts/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/dwarf-planets/ceres/facts/; reference: https://en.wikipedia.org/wiki/Ceres_(dwarf_planet); display: orbit_color_srgb reviewed under Q24 (2026-07-23); display: resolved Dawn global mosaic, audited in assets/textures/ceres.license.json",
     ),
     BodyRecord(
       id: "halley",
@@ -127,8 +135,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 5.5,
       color_srgb: (166, 216, 232),
+      orbit_color_srgb: (120, 217, 242),
       texture: None,
-      description: "1P/Halley is a short-period comet that returns to the inner solar system roughly every 76 years. It is the source of the Eta Aquariid and Orionid meteor showers, and spacecraft imaged its dark nucleus during the 1986 passage.",
+      description: "1P/Halley is a short-period comet that returns to the inner solar system roughly every 76 years. It is the source of the Eta Aquariid and Orionid meteor showers, and spacecraft imaged its dark nucleus during the 1986 passage. The catalog treats 1P/Halley as a comet, with a small solid nucleus whose volatile material can become active when heating permits. Its adopted nucleus radius is about 5.50 kilometers; a surrounding coma and tails can grow vastly larger and are not represented by that number. JPL small-body elements supply the simulated heliocentric trajectory. Periodic comets return on bound ellipses, long-period visitors spend most of their time far from the Sun, and interstellar objects can follow open hyperbolic paths, so the category spans very different dynamical histories. Dust reflects sunlight while ionized gas responds to the solar wind, producing structures that change over hours and days. Imaging, spectroscopy, radar, and spacecraft encounters connect those temporary displays to nucleus shape, rotation, composition, and jets. Because activity can complicate astrometry and brightness estimates, continued observations refine both physical interpretation and orbit. 1P/Halley offers a sample of volatile-rich material preserved, transported, and altered since the solar system formed.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/Halley%27s_Comet"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2446467.395,
         elements: Elements(
@@ -142,7 +152,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/1p-halley/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/1p-halley/; reference: https://en.wikipedia.org/wiki/Halley%27s_Comet; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
     BodyRecord(
       id: "3i_atlas",
@@ -157,8 +167,10 @@ Catalog(
       gm_km3_s2: None,
       radius_km: 0.5,
       color_srgb: (166, 216, 232),
+      orbit_color_srgb: (116, 166, 201),
       texture: None,
-      description: "3I/ATLAS is the third confirmed interstellar object observed passing through the solar system. Its hyperbolic path is not bound to the Sun, and cometary activity revealed an icy body surrounded by a coma.",
+      description: "3I/ATLAS is the third confirmed interstellar object observed passing through the solar system. Its hyperbolic path is not bound to the Sun, and cometary activity revealed an icy body surrounded by a coma. The catalog treats 3I/ATLAS as a comet, with a small solid nucleus whose volatile material can become active when heating permits. Its adopted nucleus radius is about 0.50 kilometers; a surrounding coma and tails can grow vastly larger and are not represented by that number. JPL small-body elements supply the simulated heliocentric trajectory. Periodic comets return on bound ellipses, long-period visitors spend most of their time far from the Sun, and interstellar objects can follow open hyperbolic paths, so the category spans very different dynamical histories. Dust reflects sunlight while ionized gas responds to the solar wind, producing structures that change over hours and days. Imaging, spectroscopy, radar, and spacecraft encounters connect those temporary displays to nucleus shape, rotation, composition, and jets. Because activity can complicate astrometry and brightness estimates, continued observations refine both physical interpretation and orbit. 3I/ATLAS offers a sample of volatile-rich material preserved, transported, and altered since the solar system formed.",
+      wikipedia_url: Some("https://en.wikipedia.org/wiki/3I/ATLAS"),
       orbit: Some(Orbit(
         epoch_jd_tdb: 2460978.0,
         elements: Elements(
@@ -172,7 +184,7 @@ Catalog(
         secular: None,
         mean_motion_deg_per_day: None,
       )),
-      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; nucleus radius adopted 0.5 km; HST constraint 0.16-2.8 km at pV=0.04 (NASA/HST 2025; arXiv:2512.22365); NGA-based estimates ~0.3 km; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/3i-atlas/",
+      source: "orbit: JPL SBDB heliocentric ECLIPJ2000; nucleus radius adopted 0.5 km; HST constraint 0.16-2.8 km at pV=0.04 (NASA/HST 2025; arXiv:2512.22365); NGA-based estimates ~0.3 km; phys: curated radius reviewed 2026-07-13 (docs/wp3-radius-audit-2026-07-13.md); description: https://science.nasa.gov/solar-system/comets/3i-atlas/; reference: https://en.wikipedia.org/wiki/3I/ATLAS; display: orbit_color_srgb reviewed under Q24 (2026-07-23)",
     ),
   ],
 )

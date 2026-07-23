@@ -21,6 +21,34 @@ pub const CANONICAL_VIEW_SLUGS: [&str; 6] = [
     "saturn-rings",
     "sun-bloom",
 ];
+pub const ORBIT_REVIEW_VIEW_SLUGS: [&str; 10] = [
+    "orbit-full-normal",
+    "orbit-full-emphasis",
+    "orbit-belt-normal",
+    "orbit-belt-emphasis",
+    "orbit-jupiter-normal",
+    "orbit-jupiter-emphasis",
+    "orbit-saturn-normal",
+    "orbit-saturn-emphasis",
+    "orbit-comet-normal",
+    "orbit-comet-emphasis",
+];
+pub const SCALE_REVIEW_VIEW_SLUGS: [&str; 14] = [
+    "scale-ceres-floor-x1",
+    "scale-ceres-floor-x10",
+    "scale-ceres-floor-x50",
+    "scale-earth-overview-x1",
+    "scale-earth-overview-x10",
+    "scale-earth-overview-x50",
+    "scale-saturn-rings-x1",
+    "scale-saturn-rings-x10",
+    "scale-saturn-rings-x50",
+    "scale-ceres-close-x1",
+    "scale-ceres-close-x10",
+    "scale-ceres-close-x50",
+    "appearance-pluto",
+    "appearance-charon",
+];
 pub const DEFAULT_MAX_MEAN_DELTA_E: f64 = 1.25;
 pub const DEFAULT_MAX_P99_DELTA_E: f64 = 4.0;
 pub const ATTEMPTS_MANIFEST_FILE: &str = "golden-attempts.txt";
@@ -214,6 +242,33 @@ pub fn capture_golden_views(
     output_root: &Path,
     backend: &str,
 ) -> Result<GoldenCaptureReport, GoldenError> {
+    capture_named_golden_views(application, output_root, backend, &CANONICAL_VIEW_SLUGS)
+}
+
+/// Launches the UIO-2 five-scene normal/emphasis orbit review matrix.
+pub fn capture_orbit_review_views(
+    application: &Path,
+    output_root: &Path,
+    backend: &str,
+) -> Result<GoldenCaptureReport, GoldenError> {
+    capture_named_golden_views(application, output_root, backend, &ORBIT_REVIEW_VIEW_SLUGS)
+}
+
+/// Launches the UIO-3b size-ratio and dwarf-appearance review matrix.
+pub fn capture_scale_review_views(
+    application: &Path,
+    output_root: &Path,
+    backend: &str,
+) -> Result<GoldenCaptureReport, GoldenError> {
+    capture_named_golden_views(application, output_root, backend, &SCALE_REVIEW_VIEW_SLUGS)
+}
+
+fn capture_named_golden_views(
+    application: &Path,
+    output_root: &Path,
+    backend: &str,
+    views: &[&str],
+) -> Result<GoldenCaptureReport, GoldenError> {
     if backend.is_empty()
         || !backend
             .bytes()
@@ -241,8 +296,8 @@ pub fn capture_golden_views(
             message: error.to_string(),
         })?;
     }
-    let mut attempts = Vec::with_capacity(CANONICAL_VIEW_SLUGS.len());
-    for view in CANONICAL_VIEW_SLUGS {
+    let mut attempts = Vec::with_capacity(views.len());
+    for &view in views {
         let path = output.join(format!("{view}.ppm"));
         if path.exists() {
             fs::remove_file(&path).map_err(|error| GoldenError::Read {
@@ -275,7 +330,7 @@ pub fn capture_golden_views(
             })?,
         );
     }
-    validate_view_set(&output)?;
+    validate_view_set(&output, views)?;
     fs::write(&attempts_path, encode_attempt_manifest(&attempts)).map_err(|error| {
         GoldenError::Read {
             path: attempts_path,
@@ -371,7 +426,10 @@ fn encode_attempt_manifest(attempts: &[GoldenAttemptCount]) -> String {
     manifest
 }
 
-fn read_attempt_manifest(directory: &Path) -> Result<Vec<GoldenAttemptCount>, GoldenError> {
+fn read_attempt_manifest(
+    directory: &Path,
+    views: &[&str],
+) -> Result<Vec<GoldenAttemptCount>, GoldenError> {
     let path = directory.join(ATTEMPTS_MANIFEST_FILE);
     let manifest = fs::read_to_string(&path).map_err(|error| GoldenError::Read {
         path: path.clone(),
@@ -386,14 +444,14 @@ fn read_attempt_manifest(directory: &Path) -> Result<Vec<GoldenAttemptCount>, Go
             })?,
         );
     }
-    let missing = CANONICAL_VIEW_SLUGS
+    let missing = views
         .iter()
         .filter(|view| !attempts.iter().any(|count| count.view == **view))
         .copied()
         .collect::<Vec<_>>();
     let unexpected = attempts
         .iter()
-        .filter(|count| !CANONICAL_VIEW_SLUGS.contains(&count.view.as_str()))
+        .filter(|count| !views.contains(&count.view.as_str()))
         .map(|count| count.view.as_str())
         .collect::<Vec<_>>();
     let duplicate = attempts.iter().find_map(|count| {
@@ -439,13 +497,59 @@ pub fn compare_golden_directories(
     threshold: PerceptualThreshold,
     allow_retries: bool,
 ) -> Result<Vec<GoldenComparison>, GoldenError> {
+    compare_named_golden_directories(
+        baseline,
+        candidate,
+        threshold,
+        allow_retries,
+        &CANONICAL_VIEW_SLUGS,
+    )
+}
+
+pub fn compare_orbit_review_directories(
+    baseline: &Path,
+    candidate: &Path,
+    threshold: PerceptualThreshold,
+    allow_retries: bool,
+) -> Result<Vec<GoldenComparison>, GoldenError> {
+    compare_named_golden_directories(
+        baseline,
+        candidate,
+        threshold,
+        allow_retries,
+        &ORBIT_REVIEW_VIEW_SLUGS,
+    )
+}
+
+pub fn compare_scale_review_directories(
+    baseline: &Path,
+    candidate: &Path,
+    threshold: PerceptualThreshold,
+    allow_retries: bool,
+) -> Result<Vec<GoldenComparison>, GoldenError> {
+    compare_named_golden_directories(
+        baseline,
+        candidate,
+        threshold,
+        allow_retries,
+        &SCALE_REVIEW_VIEW_SLUGS,
+    )
+}
+
+fn compare_named_golden_directories(
+    baseline: &Path,
+    candidate: &Path,
+    threshold: PerceptualThreshold,
+    allow_retries: bool,
+    views: &[&str],
+) -> Result<Vec<GoldenComparison>, GoldenError> {
     let threshold = threshold.validate()?;
-    validate_view_set(baseline)?;
-    validate_view_set(candidate)?;
-    let baseline_attempts = read_attempt_manifest(baseline)?;
-    let candidate_attempts = read_attempt_manifest(candidate)?;
-    let mut comparisons = Vec::with_capacity(CANONICAL_VIEW_SLUGS.len());
-    for view in CANONICAL_VIEW_SLUGS {
+    validate_view_set(baseline, views)?;
+    validate_view_set(candidate, views)?;
+    let baseline_attempts = read_attempt_manifest(baseline, views)?;
+    let candidate_attempts = read_attempt_manifest(candidate, views)?;
+    let mut comparisons = Vec::with_capacity(views.len());
+    for &view in views {
         let baseline_image = read_ppm(&baseline.join(format!("{view}.ppm")), view)?;
         let candidate_image = read_ppm(&candidate.join(format!("{view}.ppm")), view)?;
         let baseline_attempts = attempts_for_view(&baseline_attempts, view, baseline)?;
@@ -472,7 +576,7 @@ pub fn compare_golden_directories(
     Ok(comparisons)
 }
 
-fn validate_view_set(directory: &Path) -> Result<(), GoldenError> {
+fn validate_view_set(directory: &Path, views: &[&str]) -> Result<(), GoldenError> {
     let entries = fs::read_dir(directory).map_err(|error| GoldenError::Read {
         path: directory.to_path_buf(),
         message: error.to_string(),
@@ -491,10 +595,7 @@ fn validate_view_set(directory: &Path) -> Result<(), GoldenError> {
         }
     }
     actual.sort();
-    let mut expected: Vec<_> = CANONICAL_VIEW_SLUGS
-        .iter()
-        .map(|slug| (*slug).to_string())
-        .collect();
+    let mut expected: Vec<_> = views.iter().map(|slug| (*slug).to_string()).collect();
     expected.sort();
     let missing = expected
         .iter()
@@ -726,10 +827,10 @@ mod tests {
     fn golden_harness_requires_exactly_the_six_canonical_views() {
         let directory = TestDir::new("set");
         write_view_set(&directory.0, [10, 20, 30]);
-        assert!(validate_view_set(&directory.0).is_ok());
+        assert!(validate_view_set(&directory.0, &CANONICAL_VIEW_SLUGS).is_ok());
         fs::remove_file(directory.0.join("sun-bloom.ppm")).unwrap();
         fs::write(directory.0.join("seventh.ppm"), b"P6\n1 1\n255\n\0\0\0").unwrap();
-        let error = validate_view_set(&directory.0).unwrap_err();
+        let error = validate_view_set(&directory.0, &CANONICAL_VIEW_SLUGS).unwrap_err();
         let GoldenError::ViewSet {
             missing,
             unexpected,

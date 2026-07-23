@@ -1,4 +1,4 @@
-//! WP12/UIP-5 instant catalog search and full-screen browse menu — Rev D §9.
+//! WP12/UIO-4 instant catalog search and fixed full-screen browse menu — Rev E §9.1.
 //!
 //! Search starts with `Catalog::find`, preserving the core's exact contract,
 //! then adds deterministic prefix, alias, and fuzzy candidates. Presentation
@@ -30,14 +30,25 @@ pub(crate) const SEARCH_DROPDOWN_Z_INDEX: i32 = 112;
 pub(crate) const MENU_Z_INDEX: i32 = 114;
 const MAX_DROPDOWN_RESULTS: usize = 8;
 
-const PLANETS_AND_MOONS_SHORTLIST: &[&str] = &[
-    "sun", "mercury", "venus", "earth", "moon", "mars", "jupiter", "io", "europa", "saturn",
-    "titan", "uranus", "neptune",
+const PLANET_IDS: &[&str] = &[
+    "mercury", "venus", "earth", "mars", "jupiter", "saturn", "uranus", "neptune",
 ];
-const DWARFS_AND_ASTEROIDS_SHORTLIST: &[&str] = &[
-    "ceres", "pluto", "eris", "haumea", "makemake", "sedna", "vesta", "psyche",
+const DWARF_PLANET_IDS: &[&str] = &[
+    "ceres", "pluto", "eris", "haumea", "makemake", "gonggong", "quaoar", "orcus", "sedna",
 ];
-const COMETS_SHORTLIST: &[&str] = &["halley", "hale_bopp", "churyumov_gerasimenko", "3i_atlas"];
+const ASTEROID_IDS: &[&str] = &[
+    "pallas", "juno", "vesta", "hygiea", "psyche", "eros", "bennu", "apophis",
+];
+const COMET_IDS: &[&str] = &[
+    "halley",
+    "encke",
+    "tempel_1",
+    "churyumov_gerasimenko",
+    "hartley_2",
+    "hale_bopp",
+    "neowise",
+    "3i_atlas",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SearchMatchKind {
@@ -282,12 +293,6 @@ pub enum BrowseColumnKind {
 }
 
 impl BrowseColumnKind {
-    const ALL: [Self; 3] = [
-        Self::PlanetsAndMoons,
-        Self::DwarfsAndAsteroids,
-        Self::Comets,
-    ];
-
     const fn title(self) -> &'static str {
         match self {
             Self::PlanetsAndMoons => "PLANETS & MOONS",
@@ -304,23 +309,10 @@ impl BrowseColumnKind {
         }
     }
 
-    fn includes(self, category: Category) -> bool {
+    const fn can_expand_moons(self) -> bool {
         match self {
-            Self::PlanetsAndMoons => {
-                matches!(category, Category::Star | Category::Planet | Category::Moon)
-            }
-            Self::DwarfsAndAsteroids => {
-                matches!(category, Category::DwarfPlanet | Category::Asteroid)
-            }
-            Self::Comets => category == Category::Comet,
-        }
-    }
-
-    const fn shortlist_ids(self) -> &'static [&'static str] {
-        match self {
-            Self::PlanetsAndMoons => PLANETS_AND_MOONS_SHORTLIST,
-            Self::DwarfsAndAsteroids => DWARFS_AND_ASTEROIDS_SHORTLIST,
-            Self::Comets => COMETS_SHORTLIST,
+            Self::PlanetsAndMoons | Self::DwarfsAndAsteroids => true,
+            Self::Comets => false,
         }
     }
 }
@@ -334,12 +326,24 @@ pub struct BrowseEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrowseItem {
+    pub entry: BrowseEntry,
+    pub moons: Vec<BrowseEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrowseSection {
+    pub heading: Option<String>,
+    pub items: Vec<BrowseItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BrowseColumn {
     pub kind: BrowseColumnKind,
     pub title: &'static str,
     pub count_label: String,
-    pub shortlist: Vec<BrowseEntry>,
-    pub all: Vec<BrowseEntry>,
+    pub sections: Vec<BrowseSection>,
+    pub moon_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -351,47 +355,91 @@ pub struct BrowseModel {
 impl BrowseModel {
     pub fn from_catalog(catalog: &Catalog) -> Self {
         let counts = BrowseCounts::from_catalog(catalog);
-        let columns = BrowseColumnKind::ALL.map(|kind| {
-            let all = catalog
-                .bodies
-                .iter()
-                .enumerate()
-                .filter(|(_index, body)| kind.includes(body.category))
-                .map(|(body_index, body)| BrowseEntry {
-                    body_index,
-                    body_id: body.id.clone(),
-                    name: body.name.clone(),
-                    category: body.category,
-                })
-                .collect::<Vec<_>>();
-            let shortlist = kind
-                .shortlist_ids()
-                .iter()
-                .filter_map(|id| all.iter().find(|entry| entry.body_id == *id).cloned())
-                .collect();
+        let planet_items = browse_items(catalog, PLANET_IDS, true);
+        let dwarf_items = browse_items(catalog, DWARF_PLANET_IDS, true);
+        let planet_moons = planet_items.iter().map(|item| item.moons.len()).sum();
+        let dwarf_moons = dwarf_items.iter().map(|item| item.moons.len()).sum();
+        let columns = [
             BrowseColumn {
-                kind,
-                title: kind.title(),
-                count_label: count_label(kind, counts),
-                shortlist,
-                all,
-            }
-        });
+                kind: BrowseColumnKind::PlanetsAndMoons,
+                title: BrowseColumnKind::PlanetsAndMoons.title(),
+                count_label: format!("{} PLANETS · {planet_moons} MOONS", counts.planets),
+                sections: vec![BrowseSection {
+                    heading: None,
+                    items: planet_items,
+                }],
+                moon_count: planet_moons,
+            },
+            BrowseColumn {
+                kind: BrowseColumnKind::DwarfsAndAsteroids,
+                title: BrowseColumnKind::DwarfsAndAsteroids.title(),
+                count_label: format!(
+                    "{} DWARF PLANETS · {} ASTEROIDS · {dwarf_moons} MOONS",
+                    counts.dwarf_planets, counts.asteroids
+                ),
+                sections: vec![
+                    BrowseSection {
+                        heading: Some(format!("DWARF PLANETS ({})", counts.dwarf_planets)),
+                        items: dwarf_items,
+                    },
+                    BrowseSection {
+                        heading: Some(format!("ASTEROIDS ({})", counts.asteroids)),
+                        items: browse_items(catalog, ASTEROID_IDS, false),
+                    },
+                ],
+                moon_count: dwarf_moons,
+            },
+            BrowseColumn {
+                kind: BrowseColumnKind::Comets,
+                title: BrowseColumnKind::Comets.title(),
+                count_label: format!("{} COMETS", counts.comets),
+                sections: vec![BrowseSection {
+                    heading: None,
+                    items: browse_items(catalog, COMET_IDS, false),
+                }],
+                moon_count: 0,
+            },
+        ];
         Self { counts, columns }
     }
 }
 
-fn count_label(kind: BrowseColumnKind, counts: BrowseCounts) -> String {
-    match kind {
-        BrowseColumnKind::PlanetsAndMoons => format!(
-            "{} STAR · {} PLANETS · {} MOONS",
-            counts.stars, counts.planets, counts.moons
-        ),
-        BrowseColumnKind::DwarfsAndAsteroids => format!(
-            "{} DWARF PLANETS · {} ASTEROIDS",
-            counts.dwarf_planets, counts.asteroids
-        ),
-        BrowseColumnKind::Comets => format!("{} COMETS", counts.comets),
+fn browse_items(catalog: &Catalog, ids: &[&str], include_moons: bool) -> Vec<BrowseItem> {
+    ids.iter()
+        .filter_map(|id| {
+            let (body_index, body) = catalog
+                .bodies
+                .iter()
+                .enumerate()
+                .find(|(_, body)| body.id == *id)?;
+            let moons = if include_moons {
+                catalog
+                    .bodies
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, candidate)| {
+                        candidate.category == Category::Moon
+                            && candidate.parent.as_deref() == Some(body.id.as_str())
+                    })
+                    .map(|(index, candidate)| browse_entry(index, candidate))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            Some(BrowseItem {
+                entry: browse_entry(body_index, body),
+                moons,
+            })
+        })
+        .collect()
+}
+
+fn browse_entry(body_index: usize, body: &BodyRecord) -> BrowseEntry {
+    BrowseEntry {
+        body_index,
+        body_id: body.id.clone(),
+        name: body.name.clone(),
+        category: body.category,
     }
 }
 
@@ -425,6 +473,13 @@ struct BrowseScrollColumn(u8);
 #[cfg(test)]
 #[derive(Component, Debug, Clone, Copy)]
 struct BrowseColumnTitle;
+
+#[cfg(test)]
+#[derive(Component, Debug, Clone, Copy)]
+struct BrowseGroupHeading;
+
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+struct BrowseFooter(u8);
 
 #[cfg(test)]
 #[derive(Component, Debug, Clone, Copy)]
@@ -513,6 +568,9 @@ pub(crate) fn consume_search_command(command: &SimCommand, state: &mut BrowseUiS
         }
         SimCommand::SetBrowseColumnExpanded { column, expanded } => {
             let column = usize::from(*column);
+            if column >= BrowseColumnKind::Comets.index() {
+                return;
+            }
             if let Some(value) = state.expanded.get_mut(column) {
                 if *value == *expanded {
                     return;
@@ -1380,47 +1438,130 @@ fn spawn_browse_column(
         BackgroundColor(theme.colors.separator.color()),
         ChildOf(list),
     ));
-    let entries = if expanded {
-        &column.all
-    } else {
-        &column.shortlist
-    };
-    for (row, entry) in entries.iter().enumerate() {
-        spawn_button(
-            commands,
-            list,
-            theme,
-            font,
-            BrowseButtonSpec {
-                label: &format!("{} →", entry.name),
-                accessible_label: &format!("Select and travel to {}", entry.name),
-                action: BrowseAction::TravelTo(entry.body_index),
-                tab_index: 30 + (column.kind.index() * 100 + row) as i32,
-            },
-        );
+    let mut row = 0;
+    for section in &column.sections {
+        if let Some(heading) = section.heading.as_deref() {
+            spawn_browse_group_heading(commands, list, theme, font, heading);
+        }
+        for item in &section.items {
+            spawn_button(
+                commands,
+                list,
+                theme,
+                font,
+                BrowseButtonSpec {
+                    label: &format!("{} →", item.entry.name),
+                    accessible_label: &format!("Select and travel to {}", item.entry.name),
+                    action: BrowseAction::TravelTo(item.entry.body_index),
+                    tab_index: 30 + (column.kind.index() * 100 + row) as i32,
+                },
+            );
+            row += 1;
+            if expanded && !item.moons.is_empty() {
+                spawn_browse_group_heading(
+                    commands,
+                    list,
+                    theme,
+                    font,
+                    &format!(
+                        "{} MOONS ({})",
+                        item.entry.name.to_uppercase(),
+                        item.moons.len()
+                    ),
+                );
+                for moon in &item.moons {
+                    spawn_button(
+                        commands,
+                        list,
+                        theme,
+                        font,
+                        BrowseButtonSpec {
+                            label: &format!("  {} →", moon.name),
+                            accessible_label: &format!(
+                                "Select and travel to {}, moon of {}",
+                                moon.name, item.entry.name
+                            ),
+                            action: BrowseAction::TravelTo(moon.body_index),
+                            tab_index: 30 + (column.kind.index() * 100 + row) as i32,
+                        },
+                    );
+                    row += 1;
+                }
+            }
+        }
     }
-    if column.shortlist.len() < column.all.len() {
+    let footer = commands
+        .spawn((
+            BrowseFooter(column.kind.index() as u8),
+            Node {
+                width: percent(100),
+                min_height: px(40),
+                padding: UiRect::top(px(theme.spacing.xs_px)),
+                border: UiRect::top(px(theme.spacing.hairline_px)),
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BorderColor::all(theme.colors.separator.color()),
+            BackgroundColor(theme.colors.panel.color()),
+            Pickable::IGNORE,
+            ChildOf(column_root),
+        ))
+        .id();
+    if column.kind.can_expand_moons() {
         spawn_button(
             commands,
-            column_root,
+            footer,
             theme,
             font,
             BrowseButtonSpec {
                 label: if expanded {
-                    "SHOW CURATED LIST"
+                    "HIDE MOONS"
                 } else {
-                    "SHOW ALL"
+                    "SHOW ALL MOONS"
                 },
                 accessible_label: if expanded {
-                    "Collapse to curated shortlist"
+                    "Hide grouped moons"
                 } else {
-                    "Expand the complete category list"
+                    "Show all moons grouped under their catalog parents"
                 },
                 action: BrowseAction::ToggleExpanded(column.kind.index()),
                 tab_index: 390 + column.kind.index() as i32,
             },
         );
     }
+}
+
+fn spawn_browse_group_heading(
+    commands: &mut Commands,
+    parent: Entity,
+    theme: UiTheme,
+    font: &Handle<Font>,
+    value: &str,
+) {
+    let heading = spawn_text(
+        commands,
+        parent,
+        font,
+        value,
+        theme.type_scale.caption_px,
+        theme.colors.text_muted.color(),
+        true,
+    );
+    commands.entity(heading).insert((
+        LetterSpacing::Px(theme.type_scale.uppercase_tracking_px * 0.5),
+        TextLayout {
+            linebreak: LineBreak::AnyCharacter,
+            ..default()
+        },
+        Node {
+            width: percent(100),
+            min_width: px(0),
+            margin: UiRect::top(px(theme.spacing.xs_px)),
+            ..default()
+        },
+    ));
+    #[cfg(test)]
+    commands.entity(heading).insert(BrowseGroupHeading);
 }
 
 fn scroll_browse_column(
@@ -1547,24 +1688,29 @@ mod tests {
     use crate::input_intent::InputIntentPlugin;
     use crate::load_catalog_text;
     use crate::ui_kit::test_layout;
-    use crate::{AppSettings, PresentationState};
+    use crate::{AppSettings, HeadlessSimulation, PresentationState};
     use bevy::{
         app::TaskPoolPlugin,
         asset::{AssetApp, AssetPlugin},
+        camera::NormalizedRenderTarget,
         ecs::system::SystemState,
         input::{keyboard::Key, InputPlugin},
         input_focus::{
             tab_navigation::{NavAction, TabNavigation, TabNavigationPlugin},
             InputDispatchPlugin, InputFocusPlugin,
         },
-        picking::events::{Pointer, Release},
         picking::hover::HoverMap,
+        picking::{
+            backend::HitData,
+            events::{Click, Pointer, Press, Release},
+            pointer::{Location, PointerId},
+        },
         text::{Font, TextLayoutInfo, TextPlugin},
         ui::UiScale,
         ui_widgets::{ButtonPlugin, EditableTextInputPlugin},
-        window::{Ime, PrimaryWindow, WindowPlugin},
+        window::{Ime, PrimaryWindow, WindowPlugin, WindowRef},
     };
-    use std::cmp::Ordering;
+    use std::{cmp::Ordering, time::Duration};
 
     const REAL_CATALOG: &str = include_str!("../../../assets/catalog.ron");
 
@@ -1673,7 +1819,7 @@ mod tests {
     }
 
     #[test]
-    fn browse_counts_and_expandable_lists_come_from_the_catalog() {
+    fn browse_model_pins_fixed_orders_and_parent_grouped_moon_sets() {
         let catalog = real_catalog();
         let model = BrowseModel::from_catalog(&catalog);
         assert_eq!(
@@ -1687,18 +1833,96 @@ mod tests {
                 comets: 8,
             }
         );
-        assert_eq!(model.columns[0].all.len(), 41);
-        assert_eq!(model.columns[1].all.len(), 17);
-        assert_eq!(model.columns[2].all.len(), 8);
-        for column in &model.columns {
-            assert!(!column.shortlist.is_empty());
-            assert!(column.shortlist.len() < column.all.len());
-            assert!(column
-                .shortlist
+        let base_ids = |column: &BrowseColumn| {
+            column
+                .sections
                 .iter()
-                .all(|entry| column.all.contains(entry)));
-            assert_eq!(column.shortlist.len(), column.kind.shortlist_ids().len());
-        }
+                .flat_map(|section| &section.items)
+                .map(|item| item.entry.body_id.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            base_ids(&model.columns[0]),
+            PLANET_IDS
+                .iter()
+                .map(|id| (*id).to_string())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            base_ids(&model.columns[1]),
+            DWARF_PLANET_IDS
+                .iter()
+                .chain(ASTEROID_IDS)
+                .map(|id| (*id).to_string())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            base_ids(&model.columns[2]),
+            COMET_IDS
+                .iter()
+                .map(|id| (*id).to_string())
+                .collect::<Vec<_>>()
+        );
+        assert!(!model
+            .columns
+            .iter()
+            .flat_map(&base_ids)
+            .any(|id| id == "sun"));
+        assert_eq!(
+            model.columns[1]
+                .sections
+                .iter()
+                .map(|section| section.heading.as_deref())
+                .collect::<Vec<_>>(),
+            [Some("DWARF PLANETS (9)"), Some("ASTEROIDS (8)")]
+        );
+
+        let moon_groups = |column: &BrowseColumn| {
+            column
+                .sections
+                .iter()
+                .flat_map(|section| &section.items)
+                .filter(|item| !item.moons.is_empty())
+                .map(|item| {
+                    format!(
+                        "{}:{}",
+                        item.entry.body_id,
+                        item.moons
+                            .iter()
+                            .map(|moon| moon.body_id.as_str())
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            moon_groups(&model.columns[0]),
+            [
+                "earth:moon",
+                "mars:phobos,deimos",
+                "jupiter:io,europa,ganymede,callisto,amalthea,himalia",
+                "saturn:mimas,enceladus,tethys,dione,rhea,titan,hyperion,iapetus,phoebe",
+                "uranus:miranda,ariel,umbriel,titania,oberon",
+                "neptune:triton,nereid,proteus",
+            ]
+            .map(str::to_string)
+        );
+        assert_eq!(
+            moon_groups(&model.columns[1]),
+            [
+                "pluto:charon,nix,hydra",
+                "eris:dysnomia",
+                "haumea:hiiaka,namaka",
+            ]
+            .map(str::to_string)
+        );
+        assert_eq!(
+            model
+                .columns
+                .map(|column| (base_ids(&column).len(), column.moon_count)),
+            [(8, 26), (17, 6), (8, 0)]
+        );
     }
 
     #[test]
@@ -1718,7 +1942,7 @@ mod tests {
     }
 
     #[test]
-    fn browse_menu_renders_curated_then_complete_accessible_entry_sets() {
+    fn browse_menu_renders_fixed_lists_grouped_moons_and_inert_comet_footer() {
         let catalog = real_catalog();
         let mut app = App::new();
         app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default()))
@@ -1776,7 +2000,7 @@ mod tests {
                 .set(next, FocusCause::Navigated);
             assert!(is_descendant_of(world, next, browse_root));
         }
-        let curated_entries = world
+        let base_entries = world
             .query::<(&BrowseAction, &AccessibleLabel)>()
             .iter(world)
             .filter(|(action, label)| {
@@ -1784,11 +2008,55 @@ mod tests {
             })
             .count();
         assert_eq!(
-            curated_entries,
-            PLANETS_AND_MOONS_SHORTLIST.len()
-                + DWARFS_AND_ASTEROIDS_SHORTLIST.len()
-                + COMETS_SHORTLIST.len()
+            base_entries,
+            PLANET_IDS.len() + DWARF_PLANET_IDS.len() + ASTEROID_IDS.len() + COMET_IDS.len()
         );
+        let base_headings = world
+            .query::<(&BrowseGroupHeading, &Text)>()
+            .iter(world)
+            .map(|(_, text)| text.0.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(base_headings, ["DWARF PLANETS (9)", "ASTEROIDS (8)"]);
+        let footers = world
+            .query::<(Entity, &BrowseFooter)>()
+            .iter(world)
+            .map(|(entity, footer)| (entity, footer.0))
+            .collect::<Vec<_>>();
+        assert_eq!(footers.len(), 3);
+        for (footer, column) in footers {
+            let actions = world
+                .get::<Children>(footer)
+                .into_iter()
+                .flatten()
+                .filter(|child| world.get::<BrowseAction>(**child).is_some())
+                .count();
+            assert_eq!(actions, usize::from(column < 2), "footer column {column}");
+            if column == 2 {
+                assert!(world.get::<TabIndex>(footer).is_none());
+                assert!(world.get::<AccessibleLabel>(footer).is_none());
+            }
+        }
+        let toggle_entities = world
+            .query::<(Entity, &BrowseAction)>()
+            .iter(world)
+            .filter_map(|(entity, action)| {
+                matches!(action, BrowseAction::ToggleExpanded(_)).then_some(entity)
+            })
+            .collect::<Vec<_>>();
+        let toggle_labels = toggle_entities
+            .iter()
+            .map(|entity| {
+                world
+                    .get::<Children>(*entity)
+                    .unwrap()
+                    .iter()
+                    .find_map(|child| world.get::<Text>(child))
+                    .unwrap()
+                    .0
+                    .as_str()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(toggle_labels, ["SHOW ALL MOONS", "SHOW ALL MOONS"]);
         let region_entries = world
             .query::<(&BrowseAction, &AccessibleLabel)>()
             .iter(world)
@@ -1800,7 +2068,7 @@ mod tests {
 
         {
             let mut state = world.resource_mut::<BrowseUiState>();
-            state.expanded = [true; 3];
+            state.expanded = [true, true, false];
             state.dirty = true;
         }
         app.update();
@@ -1810,15 +2078,57 @@ mod tests {
             .iter(world)
             .filter(|action| matches!(action, BrowseAction::TravelTo(_)))
             .count();
-        assert_eq!(all_entries, 66);
+        assert_eq!(all_entries, 65);
         assert_eq!(
             world
                 .query::<&BrowseAction>()
                 .iter(world)
                 .filter(|action| matches!(action, BrowseAction::ToggleExpanded(_)))
                 .count(),
-            3
+            2
         );
+        let grouped_headings = world
+            .query::<(&BrowseGroupHeading, &Text)>()
+            .iter(world)
+            .map(|(_, text)| text.0.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            grouped_headings,
+            [
+                "EARTH MOONS (1)",
+                "MARS MOONS (2)",
+                "JUPITER MOONS (6)",
+                "SATURN MOONS (9)",
+                "URANUS MOONS (5)",
+                "NEPTUNE MOONS (3)",
+                "DWARF PLANETS (9)",
+                "PLUTO MOONS (3)",
+                "ERIS MOONS (1)",
+                "HAUMEA MOONS (2)",
+                "ASTEROIDS (8)",
+            ]
+        );
+        let toggle_entities = world
+            .query::<(Entity, &BrowseAction)>()
+            .iter(world)
+            .filter_map(|(entity, action)| {
+                matches!(action, BrowseAction::ToggleExpanded(_)).then_some(entity)
+            })
+            .collect::<Vec<_>>();
+        let toggle_labels = toggle_entities
+            .iter()
+            .map(|entity| {
+                world
+                    .get::<Children>(*entity)
+                    .unwrap()
+                    .iter()
+                    .find_map(|child| world.get::<Text>(child))
+                    .unwrap()
+                    .0
+                    .as_str()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(toggle_labels, ["HIDE MOONS", "HIDE MOONS"]);
 
         let menu = world.spawn(MenuBrowseButton).id();
         consume_search_command(
@@ -1890,6 +2200,14 @@ mod tests {
             &SimCommand::SetBrowseColumnExpanded {
                 column: 0,
                 expanded: false,
+            },
+            &mut app.world_mut().resource_mut::<BrowseUiState>(),
+        );
+        assert_eq!(*app.world().resource::<BrowseUiState>(), before);
+        consume_search_command(
+            &SimCommand::SetBrowseColumnExpanded {
+                column: 2,
+                expanded: true,
             },
             &mut app.world_mut().resource_mut::<BrowseUiState>(),
         );
@@ -1970,6 +2288,113 @@ mod tests {
 
     #[test]
     fn editable_keystrokes_publish_jupit_results_and_activate_jupiter_once() {
+        #[derive(Debug, Clone, Copy)]
+        enum RecentlyClosed {
+            None,
+            Menu,
+            Help,
+            Settings,
+        }
+
+        fn close_surface_and_restore_search(app: &mut App, input: Entity, surface: RecentlyClosed) {
+            app.world_mut().resource_mut::<InputFocus>().clear();
+            match surface {
+                RecentlyClosed::None => {}
+                RecentlyClosed::Menu => {
+                    consume_search_command(
+                        &SimCommand::SetBrowseOpen(true),
+                        &mut app.world_mut().resource_mut::<BrowseUiState>(),
+                    );
+                    app.update();
+                    consume_search_command(
+                        &SimCommand::SetBrowseOpen(false),
+                        &mut app.world_mut().resource_mut::<BrowseUiState>(),
+                    );
+                }
+                RecentlyClosed::Help => {
+                    app.world_mut()
+                        .resource_mut::<PresentationState>()
+                        .open_help();
+                    app.update();
+                    app.world_mut()
+                        .resource_mut::<PresentationState>()
+                        .close_help();
+                }
+                RecentlyClosed::Settings => {
+                    app.world_mut()
+                        .resource_mut::<PresentationState>()
+                        .open_settings();
+                    app.update();
+                    app.world_mut()
+                        .resource_mut::<PresentationState>()
+                        .close_settings();
+                }
+            }
+            app.world_mut()
+                .entity_mut(input)
+                .insert(EditableText::new(""));
+            *app.world_mut().resource_mut::<SearchUiState>() = SearchUiState::default();
+            app.world_mut()
+                .resource_mut::<InputFocus>()
+                .set(input, FocusCause::Navigated);
+            app.update();
+        }
+
+        fn pointer_click(app: &mut App, window: Entity, target: Entity) {
+            let location = Location {
+                target: NormalizedRenderTarget::Window(
+                    WindowRef::Entity(window).normalize(None).unwrap(),
+                ),
+                position: Vec2::new(100.0, 100.0),
+            };
+            let hit = HitData {
+                camera: Entity::PLACEHOLDER,
+                depth: 0.0,
+                position: None,
+                normal: None,
+                extra: None,
+            };
+            app.world_mut().trigger(Pointer::new(
+                PointerId::Mouse,
+                location.clone(),
+                Press {
+                    button: PointerButton::Primary,
+                    hit: hit.clone(),
+                    count: 1,
+                },
+                target,
+            ));
+            app.world_mut().flush();
+            app.world_mut().trigger(Pointer::new(
+                PointerId::Mouse,
+                location.clone(),
+                Click {
+                    button: PointerButton::Primary,
+                    hit: hit.clone(),
+                    duration: Duration::ZERO,
+                    count: 1,
+                },
+                target,
+            ));
+            app.world_mut().flush();
+            app.world_mut().trigger(Pointer::new(
+                PointerId::Mouse,
+                location,
+                Release {
+                    button: PointerButton::Primary,
+                    hit,
+                },
+                target,
+            ));
+            app.world_mut().flush();
+        }
+
+        let catalog = real_catalog();
+        let jupiter_index = catalog
+            .bodies
+            .iter()
+            .position(|body| body.id == "jupiter")
+            .unwrap();
         let mut app = App::new();
         app.add_plugins((
             MinimalPlugins,
@@ -1984,12 +2409,15 @@ mod tests {
             TextPlugin,
             EditableTextInputPlugin,
         ))
+        .add_plugins(ButtonPlugin)
         .add_message::<Ime>()
         .add_message::<Pointer<Release>>()
         .init_resource::<UiScale>()
-        .insert_resource(LoadedCatalog::new(real_catalog()))
+        .insert_resource(LoadedCatalog::new(catalog.clone()))
         .insert_resource(UiTheme::default())
         .init_resource::<SearchUiState>()
+        .init_resource::<BrowseUiState>()
+        .init_resource::<PresentationState>()
         .init_resource::<SimCommandQueue>()
         .add_systems(
             Update,
@@ -2010,98 +2438,117 @@ mod tests {
             .id();
 
         app.update();
-        app.world_mut()
-            .resource_mut::<InputFocus>()
-            .set(input, FocusCause::Navigated);
-        app.update();
-
-        for (key_code, text, expected_query) in [
-            (KeyCode::KeyJ, "j", "j"),
-            (KeyCode::KeyU, "u", "ju"),
-            (KeyCode::KeyP, "p", "jup"),
-            (KeyCode::KeyI, "i", "jupi"),
-            (KeyCode::KeyT, "t", "jupit"),
+        for surface in [
+            RecentlyClosed::None,
+            RecentlyClosed::Menu,
+            RecentlyClosed::Help,
+            RecentlyClosed::Settings,
         ] {
+            close_surface_and_restore_search(&mut app, input, surface);
+
+            for (key_code, text, expected_query) in [
+                (KeyCode::KeyJ, "j", "j"),
+                (KeyCode::KeyU, "u", "ju"),
+                (KeyCode::KeyP, "p", "jup"),
+                (KeyCode::KeyI, "i", "jupi"),
+                (KeyCode::KeyT, "t", "jupit"),
+            ] {
+                app.world_mut().write_message(KeyboardInput {
+                    key_code,
+                    logical_key: Key::Character(text.into()),
+                    state: ButtonState::Pressed,
+                    text: Some(text.into()),
+                    repeat: false,
+                    window,
+                });
+                app.update();
+                assert_eq!(
+                    app.world().get::<EditableText>(input).unwrap().value(),
+                    expected_query,
+                    "editable text after {surface:?}"
+                );
+
+                app.update();
+                let state = app.world().resource::<SearchUiState>();
+                assert_eq!(state.query, expected_query, "query after {surface:?}");
+                assert_eq!(state.active_input, Some(input), "focus after {surface:?}");
+                assert_eq!(
+                    state.hits[0].body_id, "jupiter",
+                    "top hit after {surface:?}"
+                );
+                let dropdown_root = state.dropdown_root.unwrap();
+                assert_eq!(
+                    app.world().get::<GlobalZIndex>(dropdown_root),
+                    Some(&GlobalZIndex(SEARCH_DROPDOWN_Z_INDEX)),
+                    "dropdown z-order after {surface:?}"
+                );
+                assert_eq!(
+                    app.world().resource::<InputFocus>().get(),
+                    Some(input),
+                    "input focus after {surface:?}"
+                );
+            }
+
+            // The newly rebuilt result rows receive their observers on the
+            // next frame, matching the earliest frame on which a user can
+            // click them.
+            app.update();
+            let jupiter_result = {
+                let world = app.world_mut();
+                world
+                    .query::<(Entity, &SearchResultAction)>()
+                    .iter(world)
+                    .find_map(|(entity, action)| (action.0 == jupiter_index).then_some(entity))
+                    .unwrap()
+            };
+            pointer_click(&mut app, window, jupiter_result);
+            app.update();
+
+            let queued = app
+                .world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .collect::<Vec<_>>();
+            assert_eq!(
+                queued,
+                vec![SimCommand::TravelToBody("jupiter".into())],
+                "pointer command after {surface:?}"
+            );
+            assert_eq!(app.world().resource::<InputFocus>().get(), Some(input));
+            assert_eq!(app.world().resource::<SearchUiState>().dropdown_root, None);
+            assert!(app.world().resource::<SearchUiState>().suppress_dropdown);
+
+            let mut navigation = HeadlessSimulation::new(&catalog).unwrap();
+            navigation
+                .step_with_wall_time(0.0, 0.0, &queued, None)
+                .unwrap();
+            navigation.step_with_wall_time(2.0, 2.0, &[], None).unwrap();
+            assert_eq!(
+                navigation.camera().focus_body_index(),
+                jupiter_index,
+                "navigation result after {surface:?}"
+            );
+
+            // Pointer activation must leave a committed focused field inert:
+            // an immediately repeated Enter cannot enqueue a second travel.
             app.world_mut().write_message(KeyboardInput {
-                key_code,
-                logical_key: Key::Character(text.into()),
+                key_code: KeyCode::Enter,
+                logical_key: Key::Enter,
                 state: ButtonState::Pressed,
-                text: Some(text.into()),
+                text: None,
                 repeat: false,
                 window,
             });
             app.update();
             assert_eq!(
-                app.world().get::<EditableText>(input).unwrap().value(),
-                expected_query
+                app.world_mut()
+                    .resource_mut::<SimCommandQueue>()
+                    .drain()
+                    .count(),
+                0,
+                "repeated Enter after {surface:?}"
             );
-
-            app.update();
-            let state = app.world().resource::<SearchUiState>();
-            assert_eq!(state.query, expected_query);
-            assert_eq!(state.active_input, Some(input));
-            assert_eq!(state.hits[0].body_id, "jupiter");
-            let dropdown_root = state.dropdown_root.unwrap();
-            assert_eq!(
-                app.world().get::<GlobalZIndex>(dropdown_root),
-                Some(&GlobalZIndex(SEARCH_DROPDOWN_Z_INDEX))
-            );
-            assert_eq!(app.world().resource::<InputFocus>().get(), Some(input));
         }
-
-        // The newly rebuilt result rows receive their observers on the next
-        // frame, matching the earliest frame on which a user can click them.
-        app.update();
-        let jupiter_result = {
-            let jupiter_index = app
-                .world()
-                .resource::<LoadedCatalog>()
-                .catalog
-                .bodies
-                .iter()
-                .position(|body| body.id == "jupiter")
-                .unwrap();
-            let world = app.world_mut();
-            world
-                .query::<(Entity, &SearchResultAction)>()
-                .iter(world)
-                .find_map(|(entity, action)| (action.0 == jupiter_index).then_some(entity))
-                .unwrap()
-        };
-        app.world_mut().trigger(Activate {
-            entity: jupiter_result,
-        });
-        app.update();
-
-        assert_eq!(
-            app.world_mut()
-                .resource_mut::<SimCommandQueue>()
-                .drain()
-                .collect::<Vec<_>>(),
-            vec![SimCommand::TravelToBody("jupiter".into())]
-        );
-        assert_eq!(app.world().resource::<InputFocus>().get(), Some(input));
-        assert_eq!(app.world().resource::<SearchUiState>().dropdown_root, None);
-        assert!(app.world().resource::<SearchUiState>().suppress_dropdown);
-
-        // Pointer activation must leave a committed focused field inert: an
-        // immediately repeated Enter cannot enqueue a second travel.
-        app.world_mut().write_message(KeyboardInput {
-            key_code: KeyCode::Enter,
-            logical_key: Key::Enter,
-            state: ButtonState::Pressed,
-            text: None,
-            repeat: false,
-            window,
-        });
-        app.update();
-        assert_eq!(
-            app.world_mut()
-                .resource_mut::<SimCommandQueue>()
-                .drain()
-                .count(),
-            0
-        );
     }
 
     #[test]
@@ -2476,6 +2923,7 @@ mod tests {
             .insert_resource(search)
             .insert_resource(BrowseUiState {
                 open: true,
+                expanded: [true, false, false],
                 dirty: true,
                 ..default()
             })
@@ -2774,7 +3222,7 @@ mod tests {
                 .insert_resource(LoadedCatalog::new(real_catalog()))
                 .insert_resource(BrowseUiState {
                     open: true,
-                    expanded: [true; 3],
+                    expanded: [true, true, false],
                     dirty: true,
                     ..default()
                 })
@@ -2820,7 +3268,7 @@ mod tests {
                 .query_filtered::<Entity, With<BrowseActionLabel>>()
                 .iter(world)
                 .collect();
-            assert_eq!(action_labels.len(), 74);
+            assert_eq!(action_labels.len(), 72);
             for label in action_labels {
                 assert_text_fits_parent_horizontally(
                     world,

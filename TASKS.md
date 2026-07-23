@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 416 passing** (53 `sim-core` · 306 `solar-sim` · 54 `xtask`
+**Test baseline: 433 passing** (56 `sim-core` · 315 `solar-sim` · 59 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -729,6 +729,11 @@ accepted while its documentation-only commit is prepared.
    authorized.
 8. WP16 Steam work remains deferred and untouched. Continue WP16 and dependent
    WP17 only under their existing human authorization and hardware gates.
+9. [ ] **Q28 — redundant Bevy schedule membership.** Keep the question open
+   and defer source action until the human explicitly schedules it. The future
+   task is to choose between mechanically removing the three redundant
+   `Rebuild`/`Render` memberships and documenting the non-fatal diagnostic as
+   accepted framework noise; do not resolve that choice implicitly.
 
 ## Open questions (humans close these)
 
@@ -1153,7 +1158,280 @@ The maintainer explicitly authorized the agent to apply the six exact
 architecture amendments despite the repository's default agent prohibition.
 The approved text is now incorporated in `ARCHITECTURE.md`.
 
+### Q28 — OPEN.
+
+Metal golden launches report Bevy's non-fatal schedule-hierarchy diagnostic
+for three modal rebuild systems that are members of both the `Rebuild` and
+`Render` sets even though the set graph already provides the longer path.
+Should the modal scheduling be mechanically split to remove the redundant
+membership before integrated UIO-7 acceptance, or should the diagnostic be
+documented as accepted framework noise? This is outside UIO-2/WP6; captures,
+tests, and runtime behavior remain successful.
+
 ## Change log (append-only; newest first)
+
+- **2026-07-23** — Added open Q28 as an explicit unchecked **Next up** item
+  at the maintainer's request. Q28 remains unresolved, no recommendation was
+  selected, and no source, generated asset, work-package status, test baseline,
+  or protected file changed. This is a documentation-only queue update, so the
+  previously recorded green gates were not rerun; `git diff --check` passes.
+
+- **2026-07-23** — Completed every executable Rev E UIO-7 acceptance gate
+  and returned WP17 to **todo**, as required by the hardware-last ruling.
+  The full default suite passes **433 tests** and the Steam-feature suite
+  passes **434**; warning-denied debug/release clippy, format check, catalog
+  dry-run, exact six-body partial-fixture reproduction, 19-texture metadata
+  audit, and `git diff --check` pass. Focused replay/state-hash, reset,
+  settings-migration, keyboard, AccessKit, and all eight
+  800/960×600-by-0.75/1/1.5/2 responsive combinations pass.
+
+  Two independent M2 Pro/Metal captures of each current matrix completed on
+  first attempts: six canonical views pass with maximum mean ΔE **0.0006**
+  and p99 **0.0000**; all ten orbit normal/emphasis views and all fourteen
+  size/appearance views compare at mean/p99 ΔE **0.0000**. The real release
+  walkthrough verified reset at launch and after changed navigation/search/
+  size state, the ruled three-column Menu grouping, rendered `jupit` →
+  Jupiter travel, ×1/×10/×50 behavior, the exact Jupiter AccessKit reference
+  label, and native opening of `https://en.wikipedia.org/wiki/Jupiter`;
+  the mock-platform gate separately verifies visible-URL plus **COPY LINK**
+  fallback on spawn failure.
+
+  Current 5120×2880 High/4× Metal measured **9.812 ms / 101.9 fps** versus
+  the last same-resolution pre-playability High/4× capture's **10.572 ms /
+  94.6 fps** (−7.2% mean frame time, +7.7% fps; five-second-run variance
+  applies), so the thicker paths and larger apparent-size floors show no
+  local regression. The formally named Wave-0 Ultra-effective row
+  (**8.782 ms / 113.9 fps**) was also compared with the current Ultra-
+  effective row (**9.716 ms / 102.9 fps**), but its 2560×1440 versus current
+  5120×2880 resolution mismatch is recorded and is not treated as a
+  like-for-like claim. Formal WP17 two-reference-machine/CI/demo/licensing
+  acceptance remains parked and unchecked. Q28 remains the sole human
+  decision before final UIO-7 sign-off: every Metal launch reproduced the
+  non-fatal three-edge Bevy schedule diagnostic while all captures and
+  runtime behavior succeeded. No dependency, protected file, catalog
+  identity/order, orbital truth, or persisted user setting changed.
+
+- **2026-07-23** — Opened WP17 as the sole **in-progress** coordination
+  package for Rev E UIO-7's hardware-independent integrated acceptance.
+  Scope is the complete default/Steam/fmt/clippy/catalog/replay/settings/
+  responsive/accessibility/golden matrix plus an M2 Pro walkthrough and a
+  Wave-0-comparable before/after frame-stats capture. The ruling explicitly
+  keeps WP16, the formal two-reference-machine WP17 gates, CI evidence, and
+  human licensing sign-off parked; WP17 will return to **todo** after this
+  bounded acceptance package. Pre-change `cargo test` passes all **433
+  tests**, and `cargo test --workspace --features steam` passes **434**.
+
+- **2026-07-23** — Completed Rev E UIO-6 and returned WP10 to **✅ done**.
+  Every production body now has 174–204 words of body-specific,
+  provenance-checked reader copy assembled from its reviewed NASA/JPL opening
+  and original neutral Solar Sim context; the deterministic 66-row audit is
+  recorded in `docs/body-description-review-2026-07-23.md`. The Info panel
+  exposes an exact, scroll-reachable **Wikipedia ↗** action with pointer,
+  keyboard, and AccessKit coverage. `OpenBodyReference(body_id)` and
+  `CopyBodyReference(body_id)` round-trip through replay as headless no-ops,
+  resolve only the loaded catalog's revalidated URL at the platform boundary,
+  and use dependency-free native services. Browser failure shows the full URL
+  and a focusable **COPY LINK** fallback; golden, measurement, and headless
+  runs select the no-op service. Production and sample catalogs were
+  regenerated only through `xtask`; deterministic report and catalog
+  regeneration diffs are empty. Full default `cargo test` passes all **433
+  tests** (56 `sim-core` · 315 `solar-sim` · 59 `xtask` lib · 2 smoke · 1
+  spot-check), and the Steam-feature suite passes all **434** (one additional
+  Steam test). Formatting, warning-denied debug/release clippy, catalog
+  reproducibility, and `git diff --check` pass. No dependency, catalog
+  identity/order, orbital truth, protected fixture, or architecture file
+  changed.
+
+- **2026-07-23** — Reopened WP10 as the sole **in-progress** package for
+  the remaining Rev E UIO-6 implementation. Scope is 150–220-word original,
+  provenance-checked descriptions for all 66 production bodies; a scrollable,
+  keyboard/pointer/accessibility-tested **Wikipedia ↗** Info action; semantic
+  `OpenBodyReference(body_id)` replay routing; URL resolution exclusively
+  from the validated loaded catalog through `PlatformServices`; dependency-
+  free desktop opening; deterministic no-op behavior in headless/golden/replay
+  execution; visible URL plus **COPY LINK** fallback on launch failure; and a
+  source/word-count/reference audit artifact. Pre-change `cargo test` passes
+  all **427 tests**.
+
+- **2026-07-23** — Completed the Rev E UIO-6 schema slice and returned WP3
+  to **✅ done**. `BodyRecord.wikipedia_url` is additive and serde-defaulted
+  so pre-Rev-E fixtures remain readable. Catalog validation now collect-all
+  rejects any provided target outside exact HTTPS
+  `en.wikipedia.org/wiki/` article paths, including empty slugs, whitespace,
+  query strings, and fragments. The hand-authored manifest supplies exactly
+  one unique reviewed URL for each of the 66 production bodies, generator
+  provenance records it, and both catalogs were regenerated only through
+  `xtask` (66 production / six sample URLs). Focused legacy, adversarial,
+  uniqueness, and emission tests pass. Full `cargo test` passes all **427
+  tests** (56 `sim-core` · 310 `solar-sim` · 58 `xtask` lib · 2 smoke · 1
+  spot-check); formatting, warning-denied workspace clippy, dry-run, and
+  `git diff --check` pass. No dependency, catalog identity/order, orbital
+  truth, protected fixture, or architecture file changed.
+
+- **2026-07-23** — Reopened WP3 as the sole **in-progress** package for
+  the Rev E UIO-6 schema slice. Scope is the second approved schema addition:
+  an optional, backward-compatible `wikipedia_url` on manifest/catalog body
+  records; strict generated-catalog validation for HTTPS English-Wikipedia
+  article paths with non-empty slugs; exactly one reviewed URL per production
+  body; generator emission and corrupt-input tests. Description length/copy
+  and the Info-panel/`PlatformServices` action remain a subsequent WP10 slice.
+  Pre-change `cargo test` passes all **424 tests**.
+
+- **2026-07-23** — Completed Rev E Wave 1 UIO-4 and returned WP12 to
+  **✅ done**. Replaced the generic curated-shortlist/complete-category Menu
+  model with fixed catalog-backed sections: exactly eight planets (no Sun),
+  all nine dwarf planets plus all eight asteroids under visible subgroup
+  headings, and all eight comets. The first **SHOW ALL MOONS** inserts the 26
+  planet moons in exact catalog order under their six non-empty parents; the
+  second inserts only Charon/Nix/Hydra, Dysnomia, and Hiʻiaka/Namaka under
+  Pluto/Eris/Haumea. Both become **HIDE MOONS**. The comet column now has a
+  fixed styled footer with no text, button role, hover target, accessibility
+  label, tab index, or action, and column-2 expansion commands are ignored.
+  Each list remains independently scrollable with a fixed footer; grouped
+  headings are presentation-only, visual/tab order is pinned, focus survives
+  expansion rebuilds, and pointer/keyboard body activation still queues
+  exactly one `TravelToBody` plus Menu close. Exact model/render tests pin
+  8/17/8 base rows, 26/6 moon counts and order, absence of Sun, footer
+  inertness, toggle labels, responsive 800×600/960×600 reachability at all
+  four UI scales, and unchanged region preset rows. Final `cargo test` passes
+  all **424 tests**; the Steam suite passes **425**; formatting and
+  warning-denied workspace clippy pass in debug and release. No dependency,
+  catalog, search-engine, architecture, settings, or protected fixture truth
+  changed.
+
+- **2026-07-23** — Reopened WP12 as the sole **in-progress** package for
+  Rev E Wave 1 UIO-4. Scope is the approved catalog-derived Menu replacement:
+  exact 8/17/8 fixed base orders without the Sun; 26 planet moons and six
+  dwarf-planet moons grouped under their catalog parents behind the two
+  **SHOW ALL MOONS** toggles; an inert, non-focusable comet footer; unchanged
+  command-routed travel, replayable expansion, independent scrolling, focus
+  restoration, and region presets. Search behavior, catalog composition,
+  dependencies, and protected architecture/fixture truth are unchanged.
+  Pre-change `cargo test` passes all **424 tests**.
+
+- **2026-07-23** — Completed Rev E Wave 1 UIO-3b and returned WP10 to
+  **✅ done**. The render-only apparent-size pass now enforces ×1 category
+  diameter floors of 12 logical px for planets, 8 for dwarf planets, and 3
+  for moons/asteroids/comets, with only unselected crowded planets/dwarfs
+  continuously relaxing toward 8/6 px. The formula is
+  `max(true_radius, floor) × body_size`, so bodies and Saturn's child ring
+  aggregate preserve exact 1:10:50 projected ratios while catalog radii,
+  propagated centers, orbit geometry, picking truth, and replay hashes remain
+  unchanged. Added public-domain resolved global mosaics for Ceres, Pluto,
+  and same-pass Charon, with exact source/output SHA-256 sidecars; the
+  19-asset metadata audit passes. Seven unresolved dwarf planets now use
+  distinct flat representative albedo colors, explicitly labelled as
+  non-imagery in catalog provenance and reviewed with scientific sources in
+  `docs/dwarf-surface-appearance-2026-07-23.md`. Both catalogs were regenerated
+  only through `xtask`; fresh complete-capture and partial-smoke generations
+  reproduce them exactly except timestamps. Added a 14-view
+  `capture-scale-goldens`/`compare-scale-goldens` matrix covering the
+  floor-dominated Ceres and Earth, Saturn and rings, true-radius-dominated
+  close Ceres, and Pluto/Charon appearance. Two independent release Metal
+  captures under `target/goldens/uio3b-accepted-{a,b}/metal` took one attempt
+  per view and compare at mean/p99 ΔE **0.0000** for all 14. Final
+  `cargo test` passes all **424 tests** (54 `sim-core` · 310 `solar-sim` · 57
+  `xtask` lib · 2 smoke · 1 spot-check); the Steam suite passes **425** total
+  (**311** `solar-sim`). Formatting, warning-denied workspace clippy in debug
+  and release, offline dry-run, texture audit, and generator reproducibility
+  all pass. No dependency, catalog composition, protected architecture, or
+  captured/spot-check fixture truth changed. The pre-existing Q28 schedule
+  diagnostic remains non-fatal and unchanged.
+
+- **2026-07-23** — Reopened WP10 as the sole **in-progress** package for
+  Rev E Wave 1 UIO-3b. Scope is render-only 12/8/3-logical-pixel category
+  floors, floor-before-×1/×10/×50 exaggeration for bodies and Saturn's ring
+  aggregate, the approved unselected-body density fallback, Ceres/Pluto and
+  cheap-same-pass Charon appearance assets through the existing public-domain
+  texture/provenance audit pipeline, documented representative albedo for
+  unresolved dwarf planets, and 1:10:50 projected-diameter/golden acceptance.
+  Physics, propagated centers, catalog radii, picking/orbits, dependencies,
+  catalog composition, and protected architecture/fixture truth remain
+  unchanged. Pre-change `cargo test` passes all **421 tests**.
+
+- **2026-07-23** — Completed Rev E Wave 1 UIO-2 and returned WP6 to
+  **✅ done**. Added manifest-backed `orbit_color_srgb` to all 65 orbiting
+  production bodies, collect-all missing/duplicate validation, exact-RGB and
+  dependency-free CIE76 gates (all-body ΔE ≥ 4; planet ΔE ≥ 25), the four
+  mandated planet corrections, and family-preserving near-collision fixes.
+  `docs/orbit-palette-review-2026-07-23.md` records minimum all-body ΔE
+  **4.33** (`rhea`/`dysnomia`) and minimum planet ΔE **29.58**
+  (`earth`/`neptune`) plus contrast and three simulated color-vision audits.
+  Orbit rendering now derives 4.5/3.0/1.5-logical-pixel widths from
+  `Category` outside the geometry cache and consumes the catalog orbit color;
+  all 65 retained paths are covered while `Elements`, body `color_srgb`,
+  propagation truth, catalog order/count, and picking remain unchanged. Both
+  committed catalogs were regenerated through `xtask`; fresh captured and
+  partial fixture runs reproduce them exactly except for generated
+  timestamps, and the immutable spot-check truth remains green. Added
+  `capture-orbit-goldens`/`compare-orbit-goldens` for UI-free full-system,
+  belt, Jupiter, Saturn, and Halley normal/emphasis pairs. Two independent
+  release Metal runs under `target/goldens/uio2-accepted-{a,b}/metal` captured
+  all ten views in one attempt each, every corresponding mean/p99 ΔE is
+  **0.0000**, and every normal/emphasis pair has distinct bytes; the
+  catalog-backed cadence assertion proves Halley crosses the emphasis
+  threshold. Final `cargo test` passes all **421 tests** (54 `sim-core` · 308
+  `solar-sim` · 56 `xtask` lib · 2 smoke · 1 spot-check);
+  `cargo test --workspace --features steam` passes **422**; formatting and
+  warning-denied workspace clippy pass in debug and release. No dependency,
+  protected architecture, generated-fixture truth, or catalog-composition
+  change. The unrelated Bevy redundant-set diagnostic observed during GPU
+  launches is recorded as Q28.
+
+- **2026-07-23** — Reopened WP6 as the sole **in-progress** package for Rev
+  E–gated Wave 1 UIO-2. Scope is the reviewed manifest-backed
+  `orbit_color_srgb` schema field, missing/duplicate and CIE76 gates, corrected
+  65-body palette and generated review report, category-derived
+  4.5/3.0/1.5-logical-pixel widths outside the geometry cache, generator-only
+  catalog regeneration, and orbit/golden regressions. Propagation, orbital
+  elements, catalog identity/order/count, body `color_srgb`, dependencies, and
+  protected architecture/fixture truth data remain unchanged. Pre-change
+  `cargo test` passes all **416 tests**.
+
+- **2026-07-23** — Closed the Wave 0 Reset Interface persistence audit gap and
+  returned WP5 to **✅ done** without changing production behavior. The
+  full-process settings regression now persists a runtime layer profile,
+  performs `ResetInterface` to a deliberately different launch presentation,
+  exercises ordinary deferred convergence and synchronous window-close
+  persistence, compares the actual `settings.toml` bytes before and after, and
+  relaunches to prove the pre-reset persisted profile remains exact.
+  Post-change `cargo test` passes all **416 tests**; `cargo fmt --all --
+  --check` and warning-denied workspace clippy pass. No dependency, settings
+  schema, architecture, replay, or reset semantic changed.
+
+- **2026-07-23** — Reopened WP5 as the sole **in-progress** package to close
+  the Wave 0 Reset Interface persistence audit gap. Scope is one integration
+  regression proving the actual persisted `settings.toml` bytes remain
+  identical when `ResetInterface` restores a presentation that differs from
+  current runtime state and normal deferred/close persistence systems run.
+  Reset semantics, settings schema, dependencies, and production behavior
+  remain unchanged. Pre-change `cargo test` passes all **416 tests**.
+
+- **2026-07-23** — Closed the Wave 0 Search audit evidence gap and returned
+  WP12 to **✅ done** without changing production Search behavior. The existing
+  `jupit` regression now repeats after Menu, Help, and Settings have each
+  opened and closed; every pass types through the real editable-input plugin,
+  verifies live query/rank/focus/z-order state, follows Bevy's button
+  Press → Click → Release dispatch, emits exactly one Jupiter travel command,
+  and advances the shared headless navigation reducer through arrival at
+  Jupiter. Post-change `cargo test` passes all **416 tests**;
+  `cargo fmt --all -- --check` and warning-denied workspace clippy pass. No
+  dependency, catalog, replay, architecture, or production source behavior
+  changed.
+
+- **2026-07-23** — Reopened WP12 as the sole **in-progress** package to close
+  the Wave 0 Search audit evidence gap. Scope is the existing `jupit`
+  integration trace only: exercise Bevy's real button pointer dispatch,
+  verify the emitted command reaches Jupiter navigation state, and repeat
+  search after Menu, Help, and Settings have each opened and closed. Search
+  ranking, catalog data, Menu replacement, dependencies, and production
+  behavior remain unchanged. Pre-change `cargo test` passes all **416 tests**.
+
+- **2026-07-23** — Corrected the README's stale human-question summary after
+  the Wave 0 audit: Q12 and Q19–Q21 were already closed by the delegated
+  rulings recorded in this ledger, leaving Q13 as the only open question in
+  that README list. Evidence: `TASKS.md` Q12/Q19–Q21 closure review and
+  `git diff --check`; no executable code changed, so tests were not run.
 
 - **2026-07-23** — Moved the duplicated schema amendment from the §5
   introduction to the end of §5, after §5.6 and immediately before §6, matching

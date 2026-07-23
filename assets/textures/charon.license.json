@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "asset": "charon.ktx2",
+  "title": "Charon global surface map",
+  "body_ids": [
+    "charon"
+  ],
+  "usage": "sphere",
+  "creator": "NASA",
+  "source_page": "https://github.com/nasa/NASA-3D-Resources/tree/master/Images%20and%20Textures/Pluto%20-%20Charon",
+  "source_file": "https://raw.githubusercontent.com/nasa/NASA-3D-Resources/master/Images%20and%20Textures/Pluto%20-%20Charon/Pluto%20-%20Charon.jpg",
+  "source_sha256": "c1fb3c19d448c82b9cc29c769d0875250cb2731cab0bb7c8d67243cd2272570b",
+  "source_dimensions": [
+    720,
+    360
+  ],
+  "retrieved_utc": "2026-07-23",
+  "license_spdx": "LicenseRef-Public-Domain-USGov",
+  "license_name": "Public Domain - U.S. Government Work",
+  "license_url": "https://github.com/nasa/NASA-3D-Resources",
+  "transform": "Pillow RGB Lanczos resize to 2048x1024 PPM; cargo run -p xtask -- convert-texture --source charon-2048.ppm --out assets/textures/charon.ktx2",
+  "output_dimensions": [
+    2048,
+    1024
+  ],
+  "asset_sha256": "48a52e461021e8747417254df66c5aa58c2255f85966fc63136bfb1901724822"
+}

@@ -21,7 +21,7 @@
 use sim_core::catalog::{Catalog, Category};
 use sim_core::kepler::state_at;
 use sim_core::time::t_from_jd_tdb;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 #[derive(serde::Deserialize)]
@@ -47,7 +47,22 @@ fn horizons_position_spot_check() {
         return;
     }
 
-    let catalog = Catalog::from_ron_str(&std::fs::read_to_string(&catalog_path).unwrap()).unwrap();
+    let mut catalog =
+        Catalog::from_ron_str(&std::fs::read_to_string(&catalog_path).unwrap()).unwrap();
+    // The captured fixture is immutable orbital truth predating Rev E's
+    // display-only field. Enrich it in memory from the reviewed manifest
+    // rather than rewriting the capture or weakening production validation.
+    let reviewed_colors = xtask::manifest::entries()
+        .into_iter()
+        .map(|entry| (entry.id, entry.orbit_color))
+        .collect::<HashMap<_, _>>();
+    for body in &mut catalog.bodies {
+        if body.orbit_color_srgb == (0, 0, 0) {
+            body.orbit_color_srgb = *reviewed_colors
+                .get(body.id.as_str())
+                .expect("captured body must retain a reviewed manifest identity");
+        }
+    }
     catalog.validate().expect("captured catalog must validate");
     let index = catalog.id_index();
 

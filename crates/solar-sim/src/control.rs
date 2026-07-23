@@ -88,6 +88,11 @@ impl RegionPreset {
 pub enum SimCommand {
     SelectBody(String),
     TravelToBody(String),
+    /// Request the reviewed catalog reference for a body through the platform
+    /// boundary. The command carries only a stable id, never a raw URL.
+    OpenBodyReference(String),
+    /// Retry the reference fallback by copying the same catalog-resolved URL.
+    CopyBodyReference(String),
     TravelToRegionPreset(RegionPreset),
     Orbit {
         delta_yaw: f64,
@@ -584,6 +589,8 @@ pub(crate) fn consume_sim_command_with_startup(
             });
         }
         SimCommand::SetLayerVisibility { .. }
+        | SimCommand::OpenBodyReference(_)
+        | SimCommand::CopyBodyReference(_)
         | SimCommand::SetLayersPanelOpen(_)
         | SimCommand::SetBodySize(_)
         | SimCommand::SetMoonVisibility { .. }
@@ -628,6 +635,7 @@ pub(crate) fn consume_presentation_command(
         SimCommand::OpenSettings => presentation.open_settings(),
         SimCommand::CloseSettings => presentation.close_settings(),
         SimCommand::SimulateDeviceLoss | SimCommand::ToggleDiagnosticsOverlay => {}
+        SimCommand::OpenBodyReference(_) | SimCommand::CopyBodyReference(_) => {}
         SimCommand::SetBodySize(_)
         | SimCommand::SetMoonVisibility { .. }
         | SimCommand::SetLocalOrbitVisibility { .. }
@@ -1595,6 +1603,8 @@ fn serialize_entry(entry: &StampedCommand) -> String {
     match &entry.command {
         SimCommand::SelectBody(id) => format!("{prefix}|select|{id}"),
         SimCommand::TravelToBody(id) => format!("{prefix}|travel|{id}"),
+        SimCommand::OpenBodyReference(id) => format!("{prefix}|open-reference|{id}"),
+        SimCommand::CopyBodyReference(id) => format!("{prefix}|copy-reference|{id}"),
         SimCommand::TravelToRegionPreset(preset) => {
             format!("{prefix}|travel-region|{}", preset.replay_slug())
         }
@@ -1847,6 +1857,8 @@ fn parse_entry(line: &str) -> Result<StampedCommand, String> {
     let command = match fields[2] {
         "select" => SimCommand::SelectBody(parse_body_id(&fields, 4)?),
         "travel" => SimCommand::TravelToBody(parse_body_id(&fields, 4)?),
+        "open-reference" => SimCommand::OpenBodyReference(parse_body_id(&fields, 4)?),
+        "copy-reference" => SimCommand::CopyBodyReference(parse_body_id(&fields, 4)?),
         "travel-region" if fields.len() == 4 => SimCommand::TravelToRegionPreset(
             RegionPreset::from_replay_slug(fields[3]).ok_or("unknown region preset")?,
         ),
@@ -3046,6 +3058,50 @@ mod tests {
         assert!(ReplayStream::from_text(&format!(
             "solar-sim-replay-v2\n{without_retina}|not-a-bool\n"
         ))
+        .is_err());
+    }
+
+    #[test]
+    fn body_reference_commands_round_trip_by_catalog_id_and_are_headless_noops() {
+        let catalog = catalog();
+        let mut original = HeadlessSimulation::new(&catalog).unwrap();
+        let mut no_op_baseline = HeadlessSimulation::new(&catalog).unwrap();
+        let mut recording = CommandRecording::default();
+        original
+            .step_with_wall_time(
+                0.0,
+                0.0,
+                &[SimCommand::OpenBodyReference("earth".into())],
+                Some(&mut recording),
+            )
+            .unwrap();
+        original
+            .step_with_wall_time(
+                0.0,
+                1.0,
+                &[SimCommand::CopyBodyReference("earth".into())],
+                Some(&mut recording),
+            )
+            .unwrap();
+        no_op_baseline
+            .step_with_wall_time(0.0, 0.0, &[], None)
+            .unwrap();
+        no_op_baseline
+            .step_with_wall_time(0.0, 1.0, &[], None)
+            .unwrap();
+        assert_eq!(original.state_hash(), no_op_baseline.state_hash());
+
+        let encoded = recording.stream().to_text();
+        assert!(encoded.contains("|open-reference|earth"));
+        assert!(encoded.contains("|copy-reference|earth"));
+        let decoded = ReplayStream::from_text(&encoded).unwrap();
+        assert_eq!(&decoded, recording.stream());
+        let replayed = replay_headless(&catalog, &decoded, 2, FRAME_DT_S).unwrap();
+        assert_eq!(replayed.state_hash(), original.state_hash());
+
+        assert!(ReplayStream::from_text(
+            "solar-sim-replay-v1\n0|0000000000000000|open-reference|Earth\n"
+        )
         .is_err());
     }
 

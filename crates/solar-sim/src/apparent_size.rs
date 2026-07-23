@@ -1,14 +1,19 @@
-//! UIP-2 — render-only minimum apparent body size (Rev D §10.1).
+//! UIO-3b — render-only category apparent size and density fallback (Rev E §10.1).
 //!
 //! The catalog radius and f64 propagated state remain authoritative. This
-//! module composes the selected visual exaggeration with a projection-derived
-//! floor only when writing a sphere's render transform.
+//! module applies a projection-derived ×1 floor before optional visual
+//! exaggeration, only when writing a sphere's render transform.
 
 use bevy::prelude::*;
+use sim_core::catalog::Category;
 
 use crate::{rendered_body_radius_units, BodyVisual, LoadedCatalog, ViewOptionsState};
 
-pub const MIN_BODY_DIAMETER_LOGICAL_PX: f64 = 3.0;
+pub const PLANET_MIN_BODY_DIAMETER_LOGICAL_PX: f64 = 12.0;
+pub const DWARF_PLANET_MIN_BODY_DIAMETER_LOGICAL_PX: f64 = 8.0;
+pub const OTHER_MIN_BODY_DIAMETER_LOGICAL_PX: f64 = 3.0;
+pub const DENSE_PLANET_MIN_BODY_DIAMETER_LOGICAL_PX: f64 = 8.0;
+pub const DENSE_DWARF_PLANET_MIN_BODY_DIAMETER_LOGICAL_PX: f64 = 6.0;
 
 type ApparentSizeCameraQuery<'w, 's> = Query<
     'w,
@@ -16,8 +21,47 @@ type ApparentSizeCameraQuery<'w, 's> = Query<
     (&'static Camera, &'static Projection, &'static Transform),
     (With<Camera3d>, Without<BodyVisual>),
 >;
-type ApparentSizeBodyQuery<'w, 's> =
-    Query<'w, 's, (&'static BodyVisual, &'static mut Transform), Without<Camera3d>>;
+type ApparentSizeBodyQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static BodyVisual,
+        &'static mut Transform,
+        Option<&'static Visibility>,
+    ),
+    Without<Camera3d>,
+>;
+
+pub const fn category_min_body_diameter_logical_px(category: Category) -> f64 {
+    match category {
+        Category::Star => 0.0,
+        Category::Planet => PLANET_MIN_BODY_DIAMETER_LOGICAL_PX,
+        Category::DwarfPlanet => DWARF_PLANET_MIN_BODY_DIAMETER_LOGICAL_PX,
+        Category::Asteroid | Category::Comet | Category::Moon => OTHER_MIN_BODY_DIAMETER_LOGICAL_PX,
+    }
+}
+
+/// Reduces only an unselected planet/dwarf floor when projected centers
+/// converge. The nearest-center distance makes the transition continuous;
+/// the reviewed 8/6 px lower bounds prevent disappearance in dense overviews.
+pub fn density_adjusted_body_diameter_logical_px(
+    category: Category,
+    selected: bool,
+    nearest_center_distance_logical_px: Option<f64>,
+) -> f64 {
+    let base = category_min_body_diameter_logical_px(category);
+    let dense_minimum = match category {
+        Category::Planet => DENSE_PLANET_MIN_BODY_DIAMETER_LOGICAL_PX,
+        Category::DwarfPlanet => DENSE_DWARF_PLANET_MIN_BODY_DIAMETER_LOGICAL_PX,
+        _ => return base,
+    };
+    if selected {
+        return base;
+    }
+    nearest_center_distance_logical_px
+        .filter(|distance| distance.is_finite() && *distance >= 0.0)
+        .map_or(base, |distance| distance.clamp(dense_minimum, base))
+}
 
 /// Projected diameter for a centered sphere under the app's perspective
 /// projection. `None` means the inputs cannot describe a visible projection.
@@ -46,39 +90,48 @@ pub fn projected_body_diameter_logical_px(
     Some(radius_units * viewport_height_logical_px / (camera_distance_units * half_fov_tangent))
 }
 
-/// Applies the continuous 3-logical-pixel diameter floor after visual
-/// exaggeration. Non-perspective or invalid projection inputs preserve the
-/// supplied render radius rather than inventing a fallback camera model.
+/// Applies the ×1 logical-pixel diameter floor before visual exaggeration.
+/// Non-perspective or invalid projection inputs preserve the physical render
+/// radius times the requested multiplier rather than inventing a camera model.
 pub fn clamped_body_radius_units(
-    exaggerated_radius_units: f64,
+    physical_radius_units: f64,
+    visual_multiplier: f64,
+    minimum_diameter_logical_px: f64,
     camera_distance_units: f64,
     projection: &Projection,
     viewport_height_logical_px: f64,
 ) -> f64 {
+    let physical_render_radius = physical_radius_units * visual_multiplier;
     let Projection::Perspective(perspective) = projection else {
-        return exaggerated_radius_units;
+        return physical_render_radius;
     };
-    if !exaggerated_radius_units.is_finite()
-        || exaggerated_radius_units <= 0.0
+    if !physical_radius_units.is_finite()
+        || physical_radius_units <= 0.0
+        || !visual_multiplier.is_finite()
+        || visual_multiplier <= 0.0
+        || !minimum_diameter_logical_px.is_finite()
+        || minimum_diameter_logical_px < 0.0
         || !camera_distance_units.is_finite()
         || camera_distance_units <= 0.0
         || !viewport_height_logical_px.is_finite()
         || viewport_height_logical_px <= 0.0
     {
-        return exaggerated_radius_units;
+        return physical_render_radius;
     }
     let half_fov_tangent = (f64::from(perspective.fov) * 0.5).tan();
     if !half_fov_tangent.is_finite() || half_fov_tangent <= 0.0 {
-        return exaggerated_radius_units;
+        return physical_render_radius;
     }
-    let minimum_radius = MIN_BODY_DIAMETER_LOGICAL_PX * camera_distance_units * half_fov_tangent
-        / viewport_height_logical_px;
-    exaggerated_radius_units.max(minimum_radius)
+    let minimum_radius_at_x1 =
+        minimum_diameter_logical_px * camera_distance_units * half_fov_tangent
+            / viewport_height_logical_px;
+    physical_radius_units.max(minimum_radius_at_x1) * visual_multiplier
 }
 
 pub(crate) fn apply_minimum_apparent_body_size(
     settings: Res<ViewOptionsState>,
     loaded: Option<Res<LoadedCatalog>>,
+    camera_controller: Option<Res<crate::CameraController>>,
     cameras: ApparentSizeCameraQuery,
     mut bodies: ApparentSizeBodyQuery,
 ) {
@@ -92,25 +145,61 @@ pub(crate) fn apply_minimum_apparent_body_size(
         return;
     };
     let viewport_height = f64::from(viewport_size.y);
+    let camera_global = GlobalTransform::from(*camera_transform);
+    let projected_density_centers = bodies
+        .iter_mut()
+        .filter_map(|(visual, transform, visibility)| {
+            if visibility.is_some_and(|visibility| *visibility == Visibility::Hidden) {
+                return None;
+            }
+            let body = loaded.catalog.bodies.get(visual.index)?;
+            if !matches!(body.category, Category::Planet | Category::DwarfPlanet) {
+                return None;
+            }
+            camera
+                .world_to_viewport(&camera_global, transform.translation)
+                .ok()
+                .map(|center| (visual.index, center.as_dvec2()))
+        })
+        .collect::<Vec<_>>();
+    let selected_body_index = camera_controller.map(|controller| controller.selected_body_index());
     // Bodies and the camera are expressed relative to the same identity focus
     // anchor during Update, after the Origin and Camera sets have run. Using
     // local translations here therefore avoids consulting or mutating f64
     // simulation truth and still reflects the current frame's camera motion.
-    for (visual, mut transform) in &mut bodies {
+    for (visual, mut transform, _) in &mut bodies {
         let Some(body) = loaded.catalog.bodies.get(visual.index) else {
             continue;
         };
-        let exaggerated_radius = f64::from(rendered_body_radius_units(
+        let physical_radius = f64::from(rendered_body_radius_units(
             body.radius_km,
-            settings.body_size(),
+            crate::BodySizeScale::X1,
         ));
-        let desired_radius = if body.id == "sun" {
-            exaggerated_radius
+        let multiplier = f64::from(settings.body_size().multiplier());
+        let desired_radius = if body.category == Category::Star {
+            physical_radius * multiplier
         } else {
             let camera_distance =
                 f64::from(camera_transform.translation.distance(transform.translation));
+            let nearest_center_distance = projected_density_centers
+                .iter()
+                .find(|(index, _)| *index == visual.index)
+                .and_then(|(_, center)| {
+                    projected_density_centers
+                        .iter()
+                        .filter(|(index, _)| *index != visual.index)
+                        .map(|(_, other)| center.distance(*other))
+                        .reduce(f64::min)
+                });
+            let minimum_diameter = density_adjusted_body_diameter_logical_px(
+                body.category,
+                selected_body_index == Some(visual.index),
+                nearest_center_distance,
+            );
             clamped_body_radius_units(
-                exaggerated_radius,
+                physical_radius,
+                multiplier,
+                minimum_diameter,
                 camera_distance,
                 projection,
                 viewport_height,
@@ -131,6 +220,7 @@ mod tests {
     use super::*;
     use crate::control::{full_system_framing_distance_units, HeadlessSimulation};
     use crate::labels::inflated_pick_radius;
+    use crate::surface_textures::SATURN_RING_OUTER_RADIUS;
     use crate::{
         load_catalog_text, propagate_catalog, rebase_position, BodySizeScale, CameraController,
         KM_PER_RENDER_UNIT,
@@ -166,60 +256,122 @@ mod tests {
     }
 
     #[test]
-    fn clamp_is_continuous_at_the_three_pixel_boundary() {
+    fn category_floors_and_density_fallback_are_exact_and_selection_safe() {
+        assert_eq!(category_min_body_diameter_logical_px(Category::Star), 0.0);
+        assert_eq!(
+            category_min_body_diameter_logical_px(Category::Planet),
+            12.0
+        );
+        assert_eq!(
+            category_min_body_diameter_logical_px(Category::DwarfPlanet),
+            8.0
+        );
+        for category in [Category::Moon, Category::Asteroid, Category::Comet] {
+            assert_eq!(category_min_body_diameter_logical_px(category), 3.0);
+        }
+
+        assert_eq!(
+            density_adjusted_body_diameter_logical_px(Category::Planet, false, None),
+            12.0
+        );
+        assert_eq!(
+            density_adjusted_body_diameter_logical_px(Category::Planet, false, Some(10.0)),
+            10.0
+        );
+        assert_eq!(
+            density_adjusted_body_diameter_logical_px(Category::Planet, false, Some(0.0)),
+            8.0
+        );
+        assert_eq!(
+            density_adjusted_body_diameter_logical_px(Category::Planet, true, Some(0.0)),
+            12.0
+        );
+        assert_eq!(
+            density_adjusted_body_diameter_logical_px(Category::DwarfPlanet, false, Some(7.0)),
+            7.0
+        );
+        assert_eq!(
+            density_adjusted_body_diameter_logical_px(Category::DwarfPlanet, false, Some(0.0)),
+            6.0
+        );
+        assert_eq!(
+            density_adjusted_body_diameter_logical_px(Category::DwarfPlanet, true, Some(0.0)),
+            8.0
+        );
+        assert_eq!(
+            density_adjusted_body_diameter_logical_px(Category::Moon, false, Some(0.0)),
+            3.0
+        );
+    }
+
+    #[test]
+    fn floor_before_exaggeration_is_continuous_and_preserves_one_ten_fifty() {
         let projection = perspective();
         let distance = 1_000.0;
         let viewport_height = 600.0;
+        let minimum_diameter = DWARF_PLANET_MIN_BODY_DIAMETER_LOGICAL_PX;
         let Projection::Perspective(perspective) = &projection else {
             unreachable!();
         };
-        let boundary =
-            MIN_BODY_DIAMETER_LOGICAL_PX * distance * (f64::from(perspective.fov) * 0.5).tan()
-                / viewport_height;
+        let boundary = minimum_diameter * distance * (f64::from(perspective.fov) * 0.5).tan()
+            / viewport_height;
 
         assert_eq!(
-            clamped_body_radius_units(boundary * 0.5, distance, &projection, viewport_height)
-                .to_bits(),
+            clamped_body_radius_units(
+                boundary * 0.5,
+                1.0,
+                minimum_diameter,
+                distance,
+                &projection,
+                viewport_height
+            )
+            .to_bits(),
             boundary.to_bits()
         );
         assert_eq!(
-            clamped_body_radius_units(boundary, distance, &projection, viewport_height).to_bits(),
+            clamped_body_radius_units(
+                boundary,
+                1.0,
+                minimum_diameter,
+                distance,
+                &projection,
+                viewport_height
+            )
+            .to_bits(),
             boundary.to_bits()
         );
         assert_eq!(
-            clamped_body_radius_units(boundary * 2.0, distance, &projection, viewport_height)
-                .to_bits(),
+            clamped_body_radius_units(
+                boundary * 2.0,
+                1.0,
+                minimum_diameter,
+                distance,
+                &projection,
+                viewport_height
+            )
+            .to_bits(),
             (boundary * 2.0).to_bits()
         );
         let diameter =
             projected_body_diameter_logical_px(boundary, distance, &projection, viewport_height)
                 .unwrap();
-        assert!((diameter - MIN_BODY_DIAMETER_LOGICAL_PX).abs() < 1.0e-12);
-    }
-
-    #[test]
-    fn exaggeration_multiplies_the_physical_radius_beneath_the_clamp() {
-        let projection = perspective();
-        let viewport_height = 600.0;
-        let Projection::Perspective(perspective) = &projection else {
-            unreachable!();
-        };
-        let distance = 5.0 * viewport_height
-            / (MIN_BODY_DIAMETER_LOGICAL_PX * (f64::from(perspective.fov) * 0.5).tan());
+        assert!((diameter - minimum_diameter).abs() < 1.0e-12);
 
         let outputs = BodySizeScale::ALL.map(|scale| {
             clamped_body_radius_units(
+                boundary * 0.5,
                 f64::from(scale.multiplier()),
+                minimum_diameter,
                 distance,
                 &projection,
                 viewport_height,
             )
         });
-        assert_eq!(outputs, [5.0, 10.0, 50.0]);
+        assert_eq!(outputs, [boundary, boundary * 10.0, boundary * 50.0]);
     }
 
     #[test]
-    fn every_non_sun_catalog_body_reaches_three_pixels_in_the_full_system_view() {
+    fn every_non_sun_catalog_body_reaches_its_category_floor_in_the_full_system_view() {
         let catalog = load_catalog_text(REAL_CATALOG).unwrap();
         let loaded = LoadedCatalog::new(catalog.clone());
         let t = t_from_jd_tdb(DEFAULT_START_EPOCH_JD_TDB);
@@ -239,8 +391,15 @@ mod tests {
             let body_position =
                 rebase_position(states.0[index].position_km, states.0[sun].position_km);
             let camera_distance = f64::from(camera_position.distance(body_position));
-            let rendered_radius =
-                clamped_body_radius_units(physical_radius, camera_distance, &projection, 600.0);
+            let minimum_diameter = category_min_body_diameter_logical_px(body.category);
+            let rendered_radius = clamped_body_radius_units(
+                physical_radius,
+                1.0,
+                minimum_diameter,
+                camera_distance,
+                &projection,
+                600.0,
+            );
             let diameter = projected_body_diameter_logical_px(
                 rendered_radius,
                 camera_distance,
@@ -249,9 +408,58 @@ mod tests {
             )
             .unwrap();
             assert!(
-                diameter + 1.0e-12 >= MIN_BODY_DIAMETER_LOGICAL_PX,
-                "{} projected to {diameter} logical px",
+                diameter + 1.0e-12 >= minimum_diameter,
+                "{} projected to {diameter} logical px, below its {minimum_diameter} px floor",
                 body.id
+            );
+        }
+    }
+
+    #[test]
+    fn reviewed_bodies_and_saturn_rings_preserve_one_ten_fifty_projected_diameters() {
+        let catalog = load_catalog_text(REAL_CATALOG).unwrap();
+        let loaded = LoadedCatalog::new(catalog);
+        let projection = perspective();
+        let viewport_height = 600.0;
+        let full_system_distance = full_system_framing_distance_units(&loaded);
+        let cases = [
+            ("ceres", full_system_distance, 1.0),
+            ("earth", full_system_distance, 1.0),
+            ("saturn", 430.0, f64::from(SATURN_RING_OUTER_RADIUS)),
+            ("earth", 100.0, 1.0),
+        ];
+
+        for (body_id, camera_distance, aggregate_radius_multiplier) in cases {
+            let index = loaded.index_of(body_id).unwrap();
+            let body = &loaded.catalog.bodies[index];
+            let physical_radius = body.radius_km / KM_PER_RENDER_UNIT;
+            let minimum_diameter = category_min_body_diameter_logical_px(body.category);
+            let projected = BodySizeScale::ALL.map(|scale| {
+                let rendered_radius = clamped_body_radius_units(
+                    physical_radius,
+                    f64::from(scale.multiplier()),
+                    minimum_diameter,
+                    camera_distance,
+                    &projection,
+                    viewport_height,
+                ) * aggregate_radius_multiplier;
+                projected_body_diameter_logical_px(
+                    rendered_radius,
+                    camera_distance,
+                    &projection,
+                    viewport_height,
+                )
+                .unwrap()
+            });
+            assert!(
+                (projected[1] / projected[0] - 10.0).abs() < 1.0e-12,
+                "{body_id} ×10 ratio was {}",
+                projected[1] / projected[0]
+            );
+            assert!(
+                (projected[2] / projected[0] - 50.0).abs() < 1.0e-12,
+                "{body_id} ×50 ratio was {}",
+                projected[2] / projected[0]
             );
         }
     }
@@ -316,7 +524,7 @@ mod tests {
             600.0,
         )
         .unwrap();
-        assert!(diameter >= MIN_BODY_DIAMETER_LOGICAL_PX - 1.0e-6);
+        assert!(diameter >= OTHER_MIN_BODY_DIAMETER_LOGICAL_PX - 1.0e-6);
     }
 
     #[test]
@@ -328,8 +536,14 @@ mod tests {
         let physical_radius = 0.25;
         let camera_distance = 10_000.0;
 
-        let rendered_radius =
-            clamped_body_radius_units(physical_radius, camera_distance, &projection, 600.0);
+        let rendered_radius = clamped_body_radius_units(
+            physical_radius,
+            50.0,
+            OTHER_MIN_BODY_DIAMETER_LOGICAL_PX,
+            camera_distance,
+            &projection,
+            600.0,
+        );
         assert!(rendered_radius > physical_radius);
         let Projection::Perspective(perspective) = &projection else {
             unreachable!();
@@ -340,7 +554,7 @@ mod tests {
             inflated_pick_radius(physical_radius, camera_distance, &projection, 600.0),
             expected_pick_radius,
         );
-        assert!(expected_pick_radius > rendered_radius);
+        assert!(rendered_radius > expected_pick_radius);
         assert_eq!(simulation.state_hash(), hash_before);
     }
 }

@@ -110,6 +110,7 @@ pub struct BodyInfoViewModel {
     pub orbital_period: OrbitalPeriodViewModel,
     pub parent: Option<BodyLinkViewModel>,
     pub description: DescriptionViewModel,
+    pub wikipedia_url: Option<String>,
     pub collection: Option<MoonCollectionViewModel>,
     pub tabs: Vec<LeftPanelTab>,
 }
@@ -265,6 +266,7 @@ pub fn body_info_view_model_with_units(
         orbital_period,
         parent,
         description,
+        wikipedia_url: body.wikipedia_url.clone(),
         collection,
         tabs,
     })
@@ -564,6 +566,7 @@ enum PanelAction {
         mode: MoonVisibilityMode,
     },
     ToggleLocalOrbit(usize),
+    OpenReference(usize),
 }
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1178,6 +1181,19 @@ fn spawn_info_page(
         .entity(description)
         .insert(AccessibleLabel::new(model.description.text().to_string()));
 
+    if model.wikipedia_url.is_some() {
+        spawn_action_button(
+            commands,
+            content,
+            theme,
+            font,
+            "Wikipedia ↗",
+            &format!("Open the Wikipedia article for {}.", model.body.name),
+            PanelAction::OpenReference(model.body.body_index),
+            false,
+        );
+    }
+
     if let Some(collection) = &model.collection {
         spawn_action_button(
             commands,
@@ -1540,6 +1556,7 @@ fn panel_tab_index(action: PanelAction) -> i32 {
             ..
         } => 211,
         PanelAction::ToggleLocalOrbit(_) => 220,
+        PanelAction::OpenReference(_) => 230,
     }
 }
 
@@ -1728,6 +1745,11 @@ fn activate_panel_action(
                     body_id: body.id.clone(),
                     visible,
                 });
+            }
+        }
+        PanelAction::OpenReference(body_index) => {
+            if let Some(body) = loaded.catalog.bodies.get(body_index) {
+                sim_commands.push(SimCommand::OpenBodyReference(body.id.clone()));
             }
         }
     }
@@ -2092,6 +2114,7 @@ mod tests {
             } else {
                 assert_eq!(model.description.text(), body.description.trim());
             }
+            assert_eq!(model.wikipedia_url, body.wikipedia_url);
         }
     }
 
@@ -2194,6 +2217,52 @@ mod tests {
         assert!(page_actions
             .into_iter()
             .all(|entity| descendant_of(world, entity, content)));
+    }
+
+    #[test]
+    fn wikipedia_action_is_accessible_and_pointer_or_keyboard_queues_one_body_id() {
+        let loaded = LoadedCatalog::new(catalog());
+        let earth = loaded.index_of("earth").unwrap();
+        let mut app = rendered_panel_app(earth);
+        app.insert_resource(SimCommandQueue::default());
+        let button = app
+            .world_mut()
+            .query::<(Entity, &PanelAction)>()
+            .iter(app.world())
+            .find_map(|(entity, action)| {
+                (*action == PanelAction::OpenReference(earth)).then_some(entity)
+            })
+            .expect("Earth Wikipedia action");
+        assert_eq!(
+            app.world().get::<AccessibleLabel>(button).unwrap().0,
+            "Open the Wikipedia article for Earth."
+        );
+        assert_eq!(app.world().get::<TabIndex>(button).unwrap().0, 230);
+
+        app.world_mut().trigger(Activate { entity: button });
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .collect::<Vec<_>>(),
+            [SimCommand::OpenBodyReference("earth".into())]
+        );
+
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(button, FocusCause::Navigated);
+        app.world_mut().trigger(Activate { entity: button });
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .collect::<Vec<_>>(),
+            [SimCommand::OpenBodyReference("earth".into())]
+        );
+        assert_eq!(
+            app.world().resource::<LeftPanelUiState>().restore_focus,
+            Some(PanelAction::OpenReference(earth))
+        );
     }
 
     #[test]
@@ -2344,11 +2413,13 @@ mod tests {
                 "{width}×{height} scale {scale}: description top {description_top:?} is not scroll-reachable inside {content_rect:?}"
             );
 
+            let description_rect = layout_node_rect(app.world(), description);
+            let content_rect = layout_node_rect(app.world(), content);
             app.world_mut()
                 .entity_mut(content)
                 .get_mut::<ScrollPosition>()
                 .unwrap()
-                .y = f32::MAX;
+                .y += (description_rect.max.y - content_rect.max.y) / scale;
             test_layout::settle(&mut app);
             let description_rect = layout_node_rect(app.world(), description);
             let content_rect = layout_node_rect(app.world(), content);
@@ -2358,6 +2429,27 @@ mod tests {
                     && description_rect.min.x >= content_rect.min.x - 1.0
                     && description_rect.max.x <= content_rect.max.x + 1.0,
                 "{width}×{height} scale {scale}: description bottom {description_rect:?} is not scroll-reachable inside {content_rect:?}"
+            );
+
+            app.world_mut()
+                .entity_mut(content)
+                .get_mut::<ScrollPosition>()
+                .unwrap()
+                .y = f32::MAX;
+            test_layout::settle(&mut app);
+            let reference = app
+                .world_mut()
+                .query::<(Entity, &PanelAction)>()
+                .iter(app.world())
+                .find_map(|(entity, action)| {
+                    (*action == PanelAction::OpenReference(longest)).then_some(entity)
+                })
+                .unwrap();
+            let reference_rect = layout_node_rect(app.world(), reference);
+            let content_rect = layout_node_rect(app.world(), content);
+            assert!(
+                layout_rect_contains(content_rect, reference_rect),
+                "{width}×{height} scale {scale}: Wikipedia action {reference_rect:?} is not scroll-reachable inside {content_rect:?}"
             );
         }
     }
@@ -2383,6 +2475,7 @@ mod tests {
                 mode: MoonVisibilityMode::All,
             },
             PanelAction::ToggleLocalOrbit(5),
+            PanelAction::OpenReference(5),
         ];
         let indices: HashSet<_> = actions.into_iter().map(panel_tab_index).collect();
         assert_eq!(indices.len(), actions.len());

@@ -6,6 +6,7 @@
 
 use crate::control::{InterfaceResetSignal, SimCommand, SimCommandQueue};
 use crate::layers::HudSurface;
+use crate::platform::BodyReferenceNotice;
 use crate::scene_polish::OrbitEmphasisSet;
 use crate::ui_kit::{toast, UiColorToken, UiTheme, WidgetSpec, WidgetVisualState};
 use crate::{
@@ -35,6 +36,7 @@ use sim_core::time::{
 pub const TIME_BAR_HEIGHT_PX: f32 = 104.0;
 const TIME_DOCK_MAX_WIDTH_PX: f32 = 640.0;
 const TOAST_LIFETIME_S: f32 = 4.0;
+const REFERENCE_TOAST_LIFETIME_S: f32 = 12.0;
 const SLIDER_LIMIT: f32 = 12.0;
 
 #[derive(Component, Debug, Clone, Copy, Default, FromTemplate)]
@@ -82,6 +84,16 @@ struct TimeToastStack;
 #[derive(Component, Debug, Clone, Copy)]
 struct TimeToast {
     remaining_s: f32,
+}
+
+#[derive(Component, Debug, Clone, PartialEq, Eq)]
+struct ReferenceFallbackToast {
+    body_id: String,
+}
+
+#[derive(Component, Debug, Clone, PartialEq, Eq)]
+struct CopyReferenceAction {
+    body_id: String,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -204,6 +216,12 @@ pub struct TimeBarPlugin;
 
 impl Plugin for TimeBarPlugin {
     fn build(&self, app: &mut App) {
+        if !app
+            .world()
+            .contains_resource::<Messages<BodyReferenceNotice>>()
+        {
+            app.add_message::<BodyReferenceNotice>();
+        }
         app.add_plugins(TabNavigationPlugin)
             .init_resource::<InterfaceResetSignal>()
             .init_resource::<TimeEditFocus>()
@@ -219,6 +237,7 @@ impl Plugin for TimeBarPlugin {
                     update_slider_thumb,
                     consume_tick_reports,
                     consume_orbit_emphasis_onsets.after(OrbitEmphasisSet),
+                    consume_body_reference_notices,
                     expire_time_toasts,
                 )
                     .chain()
@@ -902,6 +921,160 @@ fn spawn_time_toast(commands: &mut Commands, stack: Entity, theme: UiTheme, noti
         ));
 }
 
+fn consume_body_reference_notices(
+    mut notices: MessageReader<BodyReferenceNotice>,
+    stacks: Query<Entity, With<TimeToastStack>>,
+    existing_fallbacks: Query<(Entity, &ReferenceFallbackToast)>,
+    theme: Res<UiTheme>,
+    assets: Res<AssetServer>,
+    mut commands: Commands,
+) {
+    let Ok(stack) = stacks.single() else {
+        notices.clear();
+        return;
+    };
+    for notice in notices.read() {
+        match notice {
+            BodyReferenceNotice::Copied { body_name, url } => {
+                spawn_text_notice(
+                    &mut commands,
+                    stack,
+                    *theme,
+                    format!("LINK COPIED · {body_name} · {url}"),
+                    format!("Wikipedia link copied for {body_name}: {url}"),
+                    TOAST_LIFETIME_S,
+                );
+            }
+            BodyReferenceNotice::OpenFailed {
+                body_id,
+                body_index,
+                body_name,
+                url,
+                error,
+            }
+            | BodyReferenceNotice::CopyFailed {
+                body_id,
+                body_index,
+                body_name,
+                url,
+                error,
+            } => {
+                for (entity, fallback) in &existing_fallbacks {
+                    if fallback.body_id == *body_id {
+                        commands.entity(entity).despawn();
+                    }
+                }
+                spawn_reference_fallback(
+                    &mut commands,
+                    stack,
+                    *theme,
+                    &assets,
+                    body_id,
+                    *body_index,
+                    body_name,
+                    url,
+                    error,
+                );
+            }
+        }
+    }
+}
+
+fn spawn_text_notice(
+    commands: &mut Commands,
+    stack: Entity,
+    theme: UiTheme,
+    text: String,
+    accessible_label: String,
+    lifetime_s: f32,
+) -> Entity {
+    commands
+        .spawn_scene(toast(
+            theme,
+            WidgetSpec::new(text, accessible_label, WidgetVisualState::Default),
+        ))
+        .insert((
+            ChildOf(stack),
+            TimeToast {
+                remaining_s: lifetime_s,
+            },
+        ))
+        .id()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_reference_fallback(
+    commands: &mut Commands,
+    stack: Entity,
+    theme: UiTheme,
+    assets: &AssetServer,
+    body_id: &str,
+    body_index: usize,
+    body_name: &str,
+    url: &str,
+    error: &str,
+) {
+    let root = spawn_text_notice(
+        commands,
+        stack,
+        theme,
+        format!("COULD NOT OPEN {body_name} · {url}"),
+        format!(
+            "Could not open the Wikipedia article for {body_name}. Link: {url}. Copy Link is available. {error}"
+        ),
+        REFERENCE_TOAST_LIFETIME_S,
+    );
+    commands.entity(root).insert(ReferenceFallbackToast {
+        body_id: body_id.to_string(),
+    });
+    let button = commands
+        .spawn((
+            bevy::ui_widgets::Button,
+            CopyReferenceAction {
+                body_id: body_id.to_string(),
+            },
+            AccessibleLabel::new(format!("Copy the Wikipedia link for {body_name}.")),
+            TabIndex(5_000 + body_index as i32),
+            Node {
+                min_width: px(92),
+                min_height: px(30),
+                margin: UiRect::left(px(theme.spacing.sm_px)),
+                padding: UiRect::horizontal(px(theme.spacing.sm_px)),
+                border: UiRect::all(px(theme.spacing.hairline_px)),
+                border_radius: BorderRadius::all(px(theme.spacing.radius_px)),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(theme.colors.panel_elevated.color()),
+            BorderColor::all(theme.colors.accent.color()),
+            ChildOf(root),
+        ))
+        .observe(activate_copy_reference)
+        .id();
+    commands.spawn((
+        Text::new("COPY LINK"),
+        TextFont {
+            font: assets.load::<Font>(INTER_FONT_ASSET).into(),
+            font_size: theme.type_scale.caption_px.into(),
+            ..default()
+        },
+        TextColor(theme.colors.text_primary.color()),
+        Pickable::IGNORE,
+        ChildOf(button),
+    ));
+}
+
+fn activate_copy_reference(
+    activate: On<Activate>,
+    actions: Query<&CopyReferenceAction>,
+    mut commands: ResMut<SimCommandQueue>,
+) {
+    if let Ok(action) = actions.get(activate.entity) {
+        commands.push(SimCommand::CopyBodyReference(action.body_id.clone()));
+    }
+}
+
 fn expire_time_toasts(
     time: Res<Time>,
     mut commands: Commands,
@@ -1188,6 +1361,65 @@ mod tests {
         app.update();
         assert!(app.world().get_entity(toast).is_err());
         assert_eq!(app.world().resource::<TimeEditFocus>().original_t_s, None);
+    }
+
+    #[test]
+    fn failed_reference_toast_keeps_the_url_visible_and_copy_link_command_routed() {
+        let mut app = App::new();
+        app.add_plugins((
+            TaskPoolPlugin::default(),
+            AssetPlugin::default(),
+            ScenePlugin,
+        ))
+        .init_asset::<Font>()
+        .add_message::<BodyReferenceNotice>()
+        .init_resource::<SimCommandQueue>()
+        .insert_resource(UiTheme::default())
+        .add_systems(Update, consume_body_reference_notices);
+        let theme = *app.world().resource::<UiTheme>();
+        let _ = app.world_mut().spawn_scene(toast_stack(theme));
+        app.world_mut()
+            .write_message(BodyReferenceNotice::OpenFailed {
+                body_id: "earth".into(),
+                body_index: 3,
+                body_name: "Earth".into(),
+                url: "https://en.wikipedia.org/wiki/Earth".into(),
+                error: "synthetic opener failure".into(),
+            });
+        app.update();
+
+        let fallback = app
+            .world_mut()
+            .query_filtered::<Entity, With<ReferenceFallbackToast>>()
+            .single(app.world())
+            .unwrap();
+        assert_eq!(
+            app.world().get::<AccessibleLabel>(fallback).unwrap().0,
+            "Could not open the Wikipedia article for Earth. Link: https://en.wikipedia.org/wiki/Earth. Copy Link is available. synthetic opener failure"
+        );
+        assert!(app
+            .world_mut()
+            .query::<&Text>()
+            .iter(app.world())
+            .any(|text| text.0.contains("https://en.wikipedia.org/wiki/Earth")));
+
+        let copy = app
+            .world_mut()
+            .query_filtered::<Entity, With<CopyReferenceAction>>()
+            .single(app.world())
+            .unwrap();
+        assert_eq!(
+            app.world().get::<AccessibleLabel>(copy).unwrap().0,
+            "Copy the Wikipedia link for Earth."
+        );
+        app.world_mut().trigger(Activate { entity: copy });
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<SimCommandQueue>()
+                .drain()
+                .collect::<Vec<_>>(),
+            [SimCommand::CopyBodyReference("earth".into())]
+        );
     }
 
     #[test]

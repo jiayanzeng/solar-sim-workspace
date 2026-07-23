@@ -3,13 +3,25 @@
 //!   cargo run -p xtask -- gen-catalog --fixtures xtask/fixtures --allow-partial --out assets/catalog.sample.ron
 //!   cargo run -p xtask --features online -- gen-catalog --online --capture xtask/fixtures/captured-YYYY-MM --out assets/catalog.ron
 //!   cargo run -p xtask -- bake-starfield --source bsc5p.vot --out assets/starfield.bsc
+//!   cargo run -p xtask -- orbit-palette-report --out docs/orbit-palette-review-2026-07-23.md
+//!   cargo run -p xtask -- description-review-report --out docs/body-description-review-2026-07-23.md
+//!   cargo run -p xtask -- capture-orbit-goldens --app target/release/solar-sim --out target/goldens/uio2-a --backend metal
+//!   cargo run -p xtask -- capture-scale-goldens --app target/release/solar-sim --out target/goldens/uio3b-a --backend metal
 //!   cargo run -p xtask -- prepare-steam-dev --app target/release/solar-sim
 
 use anyhow::{bail, Result};
 use std::path::PathBuf;
 use xtask::{
-    emit, fetch, golden, perf, plan, starfield, steam, texture, GenOptions, DEFAULT_EPOCH_JD_TDB,
+    emit, fetch, golden, manifest, palette, perf, plan, starfield, steam, texture, GenOptions,
+    DEFAULT_EPOCH_JD_TDB,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GoldenSet {
+    Canonical,
+    OrbitReview,
+    ScaleReview,
+}
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -18,16 +30,67 @@ fn main() -> Result<()> {
         Some("bake-starfield") => bake_starfield(&args[1..]),
         Some("convert-texture") => convert_texture(&args[1..]),
         Some("check-texture-metadata") => check_texture_metadata(&args[1..]),
-        Some("capture-goldens") => capture_goldens(&args[1..]),
-        Some("compare-goldens") => compare_goldens(&args[1..]),
+        Some("capture-goldens") => capture_goldens(&args[1..], GoldenSet::Canonical),
+        Some("capture-orbit-goldens") => capture_goldens(&args[1..], GoldenSet::OrbitReview),
+        Some("capture-scale-goldens") => capture_goldens(&args[1..], GoldenSet::ScaleReview),
+        Some("compare-goldens") => compare_goldens(&args[1..], GoldenSet::Canonical),
+        Some("compare-orbit-goldens") => compare_goldens(&args[1..], GoldenSet::OrbitReview),
+        Some("compare-scale-goldens") => compare_goldens(&args[1..], GoldenSet::ScaleReview),
+        Some("orbit-palette-report") => orbit_palette_report(&args[1..]),
+        Some("description-review-report") => description_review_report(&args[1..]),
         Some("perf-report") => perf_report(&args[1..]),
         Some("prepare-steam-dev") => prepare_steam_dev(&args[1..]),
         Some("steam-release-preflight") => steam_release_preflight(&args[1..]),
         _ => {
-            eprintln!("usage:\n  xtask gen-catalog [--out PATH] [--epoch-jd F] [--dry-run] [--fixtures DIR [--allow-partial]] [--online [--capture DIR]]\n  xtask bake-starfield --source PATH --out PATH [--limit N]\n  xtask convert-texture --source PATH.ppm --out PATH.ktx2 [--alpha-from-luminance]\n  xtask check-texture-metadata [--dir assets/textures]\n  xtask capture-goldens --app PATH --out DIR --backend TAG\n  xtask compare-goldens --baseline DIR --candidate DIR [--max-mean F] [--max-p99 F] [--allow-retries]\n  xtask perf-report STATS.json [STATS.json ...]\n  xtask prepare-steam-dev --app PATH\n  xtask steam-release-preflight --action package|depot");
+            eprintln!("usage:\n  xtask gen-catalog [--out PATH] [--epoch-jd F] [--dry-run] [--fixtures DIR [--allow-partial]] [--online [--capture DIR]]\n  xtask bake-starfield --source PATH --out PATH [--limit N]\n  xtask convert-texture --source PATH.ppm --out PATH.ktx2 [--alpha-from-luminance]\n  xtask check-texture-metadata [--dir assets/textures]\n  xtask capture-goldens --app PATH --out DIR --backend TAG\n  xtask capture-orbit-goldens --app PATH --out DIR --backend TAG\n  xtask capture-scale-goldens --app PATH --out DIR --backend TAG\n  xtask compare-goldens --baseline DIR --candidate DIR [--max-mean F] [--max-p99 F] [--allow-retries]\n  xtask compare-orbit-goldens --baseline DIR --candidate DIR [--max-mean F] [--max-p99 F] [--allow-retries]\n  xtask compare-scale-goldens --baseline DIR --candidate DIR [--max-mean F] [--max-p99 F] [--allow-retries]\n  xtask orbit-palette-report --out PATH\n  xtask description-review-report --out PATH\n  xtask perf-report STATS.json [STATS.json ...]\n  xtask prepare-steam-dev --app PATH\n  xtask steam-release-preflight --action package|depot");
             std::process::exit(2);
         }
     }
+}
+
+fn orbit_palette_report(args: &[String]) -> Result<()> {
+    let mut output: Option<PathBuf> = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--out" => {
+                index += 1;
+                output = Some(PathBuf::from(
+                    args.get(index)
+                        .ok_or_else(|| anyhow::anyhow!("--out needs a path"))?,
+                ));
+            }
+            other => bail!("unknown orbit-palette-report flag: {other}"),
+        }
+        index += 1;
+    }
+    let output = output.ok_or_else(|| anyhow::anyhow!("--out is required"))?;
+    let report = palette::format_review_report(&manifest::entries()).map_err(anyhow::Error::msg)?;
+    std::fs::write(&output, report)?;
+    println!("wrote {}", output.display());
+    Ok(())
+}
+
+fn description_review_report(args: &[String]) -> Result<()> {
+    let mut output: Option<PathBuf> = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--out" => {
+                index += 1;
+                output = Some(PathBuf::from(
+                    args.get(index)
+                        .ok_or_else(|| anyhow::anyhow!("--out needs a path"))?,
+                ));
+            }
+            other => bail!("unknown description-review-report flag: {other}"),
+        }
+        index += 1;
+    }
+    let output = output.ok_or_else(|| anyhow::anyhow!("--out is required"))?;
+    std::fs::write(&output, manifest::format_description_review_report())?;
+    println!("wrote {}", output.display());
+    Ok(())
 }
 
 fn perf_report(args: &[String]) -> Result<()> {
@@ -162,7 +225,7 @@ fn check_texture_metadata(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn capture_goldens(args: &[String]) -> Result<()> {
+fn capture_goldens(args: &[String], set: GoldenSet) -> Result<()> {
     let mut application: Option<PathBuf> = None;
     let mut output: Option<PathBuf> = None;
     let mut backend: Option<String> = None;
@@ -195,11 +258,18 @@ fn capture_goldens(args: &[String]) -> Result<()> {
         }
         i += 1;
     }
-    let report = golden::capture_golden_views(
-        &application.ok_or_else(|| anyhow::anyhow!("--app is required"))?,
-        &output.ok_or_else(|| anyhow::anyhow!("--out is required"))?,
-        &backend.ok_or_else(|| anyhow::anyhow!("--backend is required"))?,
-    )?;
+    let application = application.ok_or_else(|| anyhow::anyhow!("--app is required"))?;
+    let output = output.ok_or_else(|| anyhow::anyhow!("--out is required"))?;
+    let backend = backend.ok_or_else(|| anyhow::anyhow!("--backend is required"))?;
+    let report = match set {
+        GoldenSet::Canonical => golden::capture_golden_views(&application, &output, &backend)?,
+        GoldenSet::OrbitReview => {
+            golden::capture_orbit_review_views(&application, &output, &backend)?
+        }
+        GoldenSet::ScaleReview => {
+            golden::capture_scale_review_views(&application, &output, &backend)?
+        }
+    };
     println!(
         "golden attempts: {}",
         report
@@ -210,14 +280,23 @@ fn capture_goldens(args: &[String]) -> Result<()> {
             .join(", ")
     );
     println!(
-        "captured {} canonical views in {}",
-        golden::CANONICAL_VIEW_SLUGS.len(),
+        "captured {} {} views in {}",
+        match set {
+            GoldenSet::Canonical => golden::CANONICAL_VIEW_SLUGS.len(),
+            GoldenSet::OrbitReview => golden::ORBIT_REVIEW_VIEW_SLUGS.len(),
+            GoldenSet::ScaleReview => golden::SCALE_REVIEW_VIEW_SLUGS.len(),
+        },
+        match set {
+            GoldenSet::Canonical => "canonical",
+            GoldenSet::OrbitReview => "orbit-review",
+            GoldenSet::ScaleReview => "scale-review",
+        },
         report.directory.display()
     );
     Ok(())
 }
 
-fn compare_goldens(args: &[String]) -> Result<()> {
+fn compare_goldens(args: &[String], set: GoldenSet) -> Result<()> {
     let mut baseline: Option<PathBuf> = None;
     let mut candidate: Option<PathBuf> = None;
     let mut threshold = golden::PerceptualThreshold::default();
@@ -260,7 +339,24 @@ fn compare_goldens(args: &[String]) -> Result<()> {
     }
     let baseline = baseline.ok_or_else(|| anyhow::anyhow!("--baseline is required"))?;
     let candidate = candidate.ok_or_else(|| anyhow::anyhow!("--candidate is required"))?;
-    match golden::compare_golden_directories(&baseline, &candidate, threshold, allow_retries) {
+    let comparison = match set {
+        GoldenSet::Canonical => {
+            golden::compare_golden_directories(&baseline, &candidate, threshold, allow_retries)
+        }
+        GoldenSet::OrbitReview => golden::compare_orbit_review_directories(
+            &baseline,
+            &candidate,
+            threshold,
+            allow_retries,
+        ),
+        GoldenSet::ScaleReview => golden::compare_scale_review_directories(
+            &baseline,
+            &candidate,
+            threshold,
+            allow_retries,
+        ),
+    };
+    match comparison {
         Ok(comparisons) => {
             print_golden_comparisons(&comparisons);
             Ok(())
