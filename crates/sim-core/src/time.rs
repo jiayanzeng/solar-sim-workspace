@@ -168,29 +168,6 @@ impl RateIndex {
         RateIndex(i.clamp(-12, 12) as i8)
     }
 
-    // -- symmetric-log slider mapping (detents at every step, center = REAL) --
-
-    /// Slider position in [−1, 1]. Ladder steps are near-multiplicative, so
-    /// uniform detent spacing *is* the symmetric-log layout.
-    pub fn slider_pos(self) -> f32 {
-        self.0 as f32 / 12.0
-    }
-
-    /// Nearest detent for a raw slider position (drag → `SimCommand::SetRate`).
-    pub fn from_slider_pos(p: f32) -> RateIndex {
-        let i = (p.clamp(-1.0, 1.0) * 12.0).round() as i8;
-        RateIndex::new(if i == 0 {
-            if p < 0.0 {
-                -1
-            } else {
-                1
-            }
-        } else {
-            i
-        })
-        .unwrap()
-    }
-
     /// All 24 detents, left to right — the WP8 slider builds from this.
     pub fn detents() -> impl Iterator<Item = RateIndex> {
         (-12..=12).filter(|&i| i != 0).map(RateIndex)
@@ -630,24 +607,6 @@ mod tests {
             RateIndex::new(2).unwrap().stepped(-3),
             RateIndex::new(-2).unwrap()
         );
-    }
-
-    #[test]
-    fn slider_round_trips_every_detent() {
-        let mut count = 0;
-        for idx in RateIndex::detents() {
-            assert_eq!(RateIndex::from_slider_pos(idx.slider_pos()), idx);
-            count += 1;
-        }
-        assert_eq!(count, 24);
-        // dead-center drag resolves to +REAL; slightly-left to −REAL
-        assert_eq!(RateIndex::from_slider_pos(0.0), RateIndex::REAL);
-        assert_eq!(
-            RateIndex::from_slider_pos(-0.02),
-            RateIndex::new(-1).unwrap()
-        );
-        // extremes clamp
-        assert_eq!(RateIndex::from_slider_pos(9.0), RateIndex::new(12).unwrap());
     }
 
     // ---- calendar and round-trips ----

@@ -2091,6 +2091,27 @@ mod tests {
     }
 
     #[test]
+    fn update_schedule_builds_without_redundant_set_membership() {
+        use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
+
+        let mut app = App::new();
+        configure_frame_flow(&mut app);
+        add_architecture_plugins(&mut app);
+        app.configure_schedules(ScheduleBuildSettings {
+            hierarchy_detection: LogLevel::Error,
+            ..default()
+        });
+        let mut schedule = app
+            .world_mut()
+            .resource_mut::<Schedules>()
+            .remove(Update)
+            .expect("Update schedule must exist");
+        schedule
+            .initialize(app.world_mut())
+            .expect("Update schedule must build without redundant hierarchy edges");
+    }
+
+    #[test]
     fn smoke_readiness_timeout_fails_loudly_before_any_readback_request() {
         assert_eq!(
             smoke_readiness_gate(

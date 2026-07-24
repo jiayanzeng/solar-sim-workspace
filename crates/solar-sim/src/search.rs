@@ -620,13 +620,15 @@ impl Plugin for SearchMenuPlugin {
             )
             .add_systems(
                 Update,
-                (
-                    reset_search_interface,
-                    rebuild_search_dropdown,
-                    rebuild_browse_menu.in_set(ModalSurfaceSet::Rebuild),
-                )
+                (reset_search_interface, rebuild_search_dropdown)
                     .chain()
                     .in_set(SimulationSet::Render),
+            )
+            .add_systems(
+                Update,
+                rebuild_browse_menu
+                    .after(rebuild_search_dropdown)
+                    .in_set(ModalSurfaceSet::Rebuild),
             );
     }
 }

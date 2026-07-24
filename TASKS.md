@@ -51,7 +51,7 @@ brief leaves ambiguous becomes an Open question, not an improvisation.
 | 17 | QA: replay suite, perf gates, demo script, licensing audit | todo |
 | 18 | *Optional:* Compare Size mode | deferred |
 
-**Test baseline: 433 passing** (56 `sim-core` · 315 `solar-sim` · 59 `xtask`
+**Test baseline: 434 passing** (55 `sim-core` · 317 `solar-sim` · 59 `xtask`
 lib · 2 xtask smoke · 1 spot-check gate, active). Any change that lowers
 this number without an accompanying change-log justification is a regression.
 The number may only go up.
@@ -61,11 +61,12 @@ The number may only go up.
 ## Done (evidence)
 
 ### WP1 — `sim-core::time` ✅
-`crates/sim-core/src/time.rs` (22 tests). RateIndex ±1..±12 (no zero), 24
-detents, Eyes labels, symmetric-log slider mapping; SimClock with
-caller-supplied wall clock; range pins with transition-only `TickReport`;
-eased snap-to-LIVE; exact-integer calendar with leap-rule round-trips;
-strict date/time parsers; `StartMode` serde-ready for WP14.
+`crates/sim-core/src/time.rs` (21 tests). RateIndex ±1..±12 (no zero), 24
+detents, and Eyes labels; the f32 widget mapping and its migrated boundary test
+live in WP8. SimClock has caller-supplied wall clock; range pins with
+transition-only `TickReport`; eased snap-to-LIVE; exact-integer calendar with
+leap-rule round-trips; strict date/time parsers; `StartMode` serde-ready for
+WP14.
 
 ### WP2 — `sim-core::kepler` ✅
 `crates/sim-core/src/kepler.rs` (14 tests). Newton + guaranteed bisection
@@ -337,22 +338,24 @@ don't drift silently); breadcrumb model unit test (push/pop/truncate).
 
 ### WP8 — Time bar
 
-**Goal.** The Eyes-style time bar, binding WP1's API one-to-one: editable
-date and clock, play/pause, the 24-detent symmetric-log rate slider, the
-LIVE chip, and toasts consuming `TickReport` transitions.
+**Goal.** The Eyes-style time bar, binding WP1's time semantics while owning
+the f32 widget mapping at the application boundary: editable date and clock,
+play/pause, the 24-detent symmetric-log rate slider, the LIVE chip, and toasts
+consuming `TickReport` transitions.
 
 **Depends on.** WP7 (widgets), WP1 (API, done).
 
 **Read first.** ARCHITECTURE §4.2 (the exact API: `RateIndex::detents`,
-`slider_pos`/`from_slider_pos`, `parse_date`/`parse_time`,
+`RateIndex::new`/`RateIndex::get`, `parse_date`/`parse_time`,
 `format_date_eyes`, `TickReport`), §7, §9.5–§9.6.
 
 **Build.**
 - Date ("JUL 11, 2026"), rate label, clock as click-to-edit
   `EditableText`; strict parse via WP1 parsers; invalid input reverts the
   field and leaves the clock untouched.
-- Detented slider mapped through `slider_pos`/`from_slider_pos`; drag
-  emits `SimCommand::SetRate` — the same path as keyboard rate stepping.
+- Detented f32 widget values are clamped and rounded at the application
+  boundary, then mapped through `RateIndex::new`/`RateIndex::get`; drag emits
+  `SimCommand::SetRate` — the same path as keyboard rate stepping.
 - Play/pause; center detent = paused (RateIndex has no zero).
 - LIVE chip: green dot + text when `is_live`, dimmed pill otherwise;
   click → `snap_to_live` command.
@@ -729,11 +732,18 @@ accepted while its documentation-only commit is prepared.
    authorized.
 8. WP16 Steam work remains deferred and untouched. Continue WP16 and dependent
    WP17 only under their existing human authorization and hardware gates.
-9. [ ] **Q28 — redundant Bevy schedule membership.** Keep the question open
-   and defer source action until the human explicitly schedules it. The future
-   task is to choose between mechanically removing the three redundant
-   `Rebuild`/`Render` memberships and documenting the non-fatal diagnostic as
-   accepted framework noise; do not resolve that choice implicitly.
+9. [x] **Q28 ruled — remove redundant Bevy schedule membership under WP4.**
+   Execute Block A exactly as approved, preserve every ordering edge, keep
+   production hierarchy diagnostics enabled, and complete the UIO-7 closeout
+   evidence before checking this item.
+10. [ ] **D6 — 1.0 repository-visibility decision.** The proprietary root
+    `LICENSE` exists and the earlier license gap is closed. Keep the repository
+    source-visible proprietary through beta. At the 1.0 release decision, make
+    an explicit go/no-go on privatising the repository and budget paid macOS CI
+    minutes if it becomes private.
+11. [x] **Q29 ruled — remove the `sim-core` slider API under WP1.** Execute
+    Block C as a separate work package after the human-controlled architecture
+    amendment. This P3 cleanup must not be bundled with or delay Q28/UIO-7.
 
 ## Open questions (humans close these)
 
@@ -808,6 +818,25 @@ both-platform dev-branch install evidence, and WP17 reference hardware remain
 deferred to the existing "before packaging begins" decision deadline. This
 narrows Q13 but leaves its hardware-purchase half open; no affected acceptance
 criterion is closed by the ruling.
+
+Decision D4 in `docs/decision-record-2026-07-22.md` supersedes the remaining
+hardware-choice uncertainty: acquire both reference machines as written rather
+than amend WP17's brief. The targets are a used GTX 1650-class Windows laptop
+with 16 GB RAM, a 1920×1080 display, an NVMe SSD, and Windows 11 Home; and a
+base M1 MacBook Air with a 7-core GPU and 8 GB RAM, explicitly not upgraded.
+This makes Q13's hardware half **decided and awaiting execution**, but it checks
+no WP16 or WP17 acceptance box. Q13 remains **OPEN** for purchase-execution
+evidence and for its credential half: the Steam partner account, real App ID,
+Apple Developer ID, and protected environments.
+
+Human execution update (2026-07-24): procurement of both D4 reference machines
+and Steam partner-account onboarding are scheduled for 2026-07-31 and are
+currently pending. No hardware, credential, installation, or acceptance
+evidence is claimed, and no WP16 or WP17 box is checked. WP16 source/package
+work, formal WP17 acceptance, and Q21's conditional internal-render-scale
+trigger remain parked until reference-hardware evidence exists. Apple
+Developer ID enrollment and the protected Steam/Apple environments still
+require explicit owners and target dates; Q13 remains **OPEN**.
 
 ### Q14 — CLOSED (human, 2026-07-16).
 
@@ -1158,7 +1187,7 @@ The maintainer explicitly authorized the agent to apply the six exact
 architecture amendments despite the repository's default agent prohibition.
 The approved text is now incorporated in `ARCHITECTURE.md`.
 
-### Q28 — OPEN.
+### Q28 — CLOSED (explicit human authorization, 2026-07-24).
 
 Metal golden launches report Bevy's non-fatal schedule-hierarchy diagnostic
 for three modal rebuild systems that are members of both the `Rebuild` and
@@ -1168,7 +1197,150 @@ membership before integrated UIO-7 acceptance, or should the diagnostic be
 documented as accepted framework noise? This is outside UIO-2/WP6; captures,
 tests, and runtime behavior remain successful.
 
+Human ruling: select the mechanical cleanup and coordinate it under WP4,
+following the AC-2 frame-schedule precedent. Remove only the three redundant
+direct `SimulationSet::Render` memberships while retaining
+`ModalSurfaceSet::Rebuild` membership and every existing ordering edge. Add a
+schedule-wide hierarchy regression. Production hierarchy diagnostics remain
+enabled; no suppression is authorized. This resolves the decision only: the
+Q28 Next up item remains unchecked until Block A passes its complete acceptance
+gate.
+
+### Q29 — CLOSED (explicit human authorization, 2026-07-24).
+
+`crates/sim-core/src/time.rs` exposes `RateIndex::slider_pos` and
+`RateIndex::from_slider_pos` using `f32`, and the latter ends in a non-test
+`unwrap()`. These are the only `f32` lines and the only non-test
+`unwrap()`/`expect()` in `sim-core`, conflicting with nested agent rules 4–6.
+
+Human ruling: remove both public methods under WP1 and move the widget mapping
+to the Bevy application boundary through `RateIndex::new` and
+`RateIndex::get`. This is an explicitly approved breaking change to the frozen
+API. Preserve all 24 detents bit-exactly, move the zero/clamping coverage to
+`time_bar.rs`, do not reduce the workspace test count, and do not touch any
+other public signature, solver, dependency, or catalog code. The corresponding
+human-controlled ARCHITECTURE §4.2 and WP8 brief wording must be amended before
+Block C begins.
+
+### Q30 — CLOSED (explicit human authorization, 2026-07-24).
+
+`docs/decision-record-2026-07-22.md` contains two unrelated sections numbered
+D5: the Q18 primary-surface amendment at line 70 and the final-stage on-site
+Windows test plan at line 121. `TASKS.md` citations in the Q18 record and
+related entries at the former lines 945–1013 mean the first D5, while the
+2026-07-23 change-log entry beginning “Closed the three UIP-9 conformance-audit
+findings” (formerly line 1618) means the second. Should the human renumber the
+second decision to D9, add a “formerly the second D5” note, and correct that
+`TASKS.md` citation, or retain the collision and disambiguate every citation?
+Agents must not renumber the human authority document without that ruling.
+
+Human ruling: select the first option. Renumber the second D5 in
+`docs/decision-record-2026-07-22.md` to D9, label it “formerly the second D5,”
+and correct the corresponding citation in the 2026-07-23 change-log entry
+beginning “Closed the three UIP-9 conformance-audit findings.” Leave the Q18 D5
+heading and every citation that means the Q18 amendment unchanged.
+
 ## Change log (append-only; newest first)
+
+- **2026-07-24** — Completed Q29/Block C and returned WP1 to **✅ done** under
+  the maintainer's ARCHITECTURE §4.2 amendment. Removed the public
+  `RateIndex::slider_pos`/`RateIndex::from_slider_pos` pair and its unreachable
+  non-test `unwrap()` from `sim-core`; the application now maps its integral
+  f32 widget detents directly through `RateIndex::new`/`RateIndex::get`.
+  `sim-core/src` contains no `f32`, and every remaining
+  `unwrap()`/`expect()` is inside the crate's three `#[cfg(test)]` modules.
+  The existing application test still round-trips all 24 detents bit-exactly,
+  and a new boundary regression covers rounding, zero rejection, and both
+  clamped edges. Moving the former core test into that application boundary
+  preserves the workspace baseline at **434 tests** (55 `sim-core` · 317
+  `solar-sim` · 59 `xtask` lib · 2 smoke · 1 spot-check); the Steam-feature
+  suite passes **435** with its additional platform test.
+
+  The focused 500+-command portable replay/state-hash test remains green.
+  Formatting and warning-denied workspace/all-target clippy pass in debug and
+  release. Two independent Metal captures under
+  `target/goldens/q29-{a,b}/metal` completed all six canonical views on the
+  first attempt; both compare against the immediate pre-Block-C
+  `q28-b/metal` baseline, and against each other, at exact maximum mean/p99 ΔE
+  **0.0000/0.0000**. No golden baseline, replay hash, solver, tolerance,
+  dependency, generated asset, catalog code, or other public signature
+  changed. `git diff --check` passes.
+
+- **2026-07-24** — Reopened WP1 as the sole **in-progress** package for the
+  human-ruled Q29 cleanup after the maintainer amended ARCHITECTURE §4.2.
+  Scope is limited to removing `RateIndex::slider_pos` and
+  `RateIndex::from_slider_pos`, moving their integral detent mapping and
+  zero/clamping coverage to `time_bar.rs`, and preserving every 24-detent
+  result, replay hash, golden, and workspace test. The WP8 brief now reflects
+  the human-controlled contract without changing any acceptance criterion.
+  Solvers, tolerances, other public signatures, dependencies, catalog code,
+  generated assets, and Q28 remain out of scope. The immediately preceding
+  Q28 closeout supplies the pre-change baseline: **434 default tests**, **435
+  Steam-feature tests**, clean formatting, and warning-denied debug/release
+  clippy.
+
+- **2026-07-24** — Completed the Q28 mechanical cleanup and returned WP4 to
+  **✅ done**, closing the final hardware-independent UIO-7 issue. The Help,
+  Search/Menu, and Settings modal rebuild systems now inherit
+  `SimulationSet::Render` membership only through
+  `ModalSurfaceSet::Rebuild`; the Search and Settings chain boundaries retain
+  their exact predecessor edges explicitly. Production hierarchy diagnostics,
+  the modal set graph, `layers.rs`, and all runtime behavior remain unchanged.
+  New regression
+  `update_schedule_builds_without_redundant_set_membership` builds the complete
+  Update schedule with hierarchy detection promoted to `Error`, raising the
+  workspace baseline to **434 tests** (56 `sim-core` · 316 `solar-sim` · 59
+  `xtask` lib · 2 smoke · 1 spot-check); the Steam-feature suite passes **435**
+  with its additional platform test. Formatting and warning-denied
+  workspace/all-target clippy pass in debug and release.
+
+  The exact real-hardware smoke command passed on Apple M2 Pro/Metal at 120.0
+  fps with Tier-1 surface readiness, a nonblack 3200×1800 readback, and none of
+  the former three schedule-hierarchy diagnostics. Two independent six-view
+  Metal captures under `target/goldens/q28-{a,b}/metal` completed every view on
+  the first attempt. Both pass against the accepted
+  `uio7-integrated-b/metal` baseline: run A's maximum mean/p99 ΔE is
+  **0.0050/0.0000** (`full-system`), while run B is **0.0000/0.0000** for all
+  six views; A↔B also passes at maximum **0.0050/0.0000**. No baseline was
+  changed. WP17 remains **todo**, WP16 remains deferred, no generated asset or
+  dependency changed, and no architecture file was edited. `git diff --check`
+  passes.
+
+- **2026-07-24** — Reopened WP4 as the sole **in-progress** coordinating
+  package for the human-ruled Q28 mechanical cleanup. Scope is limited to
+  removing the three redundant direct `SimulationSet::Render` memberships
+  while preserving `ModalSurfaceSet::Rebuild` membership and every ordering
+  edge, plus one schedule-wide hierarchy regression. Production diagnostics,
+  `input_intent.rs` set configuration, `layers.rs`, `sim-core`, dependencies,
+  generated assets, and all other behavior remain out of scope. Pre-change
+  `cargo test` passes the recorded **433 tests** (56 `sim-core` · 315
+  `solar-sim` · 59 `xtask` lib · 2 smoke · 1 spot-check).
+
+- **2026-07-24** — Recorded the maintainer's explicit acceptance of every
+  recommended sign-off option: Q28 is closed in favor of mechanical cleanup
+  under WP4; Q29 is filed and closed in favor of removing the two frozen
+  `sim-core` slider methods under WP1 after the required human-controlled
+  architecture amendment; and Q30 is closed in favor of renumbering the
+  Windows on-site plan from the second D5 to D9. The D9 heading and its sole
+  `TASKS.md` citation were corrected without changing the Q18 D5. Q13 records
+  D4 procurement and Steam onboarding as pending for 2026-07-31 while Apple
+  Developer ID/protected-environment ownership remains outstanding; WP16,
+  WP17, and the Q21 conditional trigger remain parked. This decision-ledger
+  update is documentation-only; no source, generated asset, work-package
+  status, or test baseline changed, so the previously recorded green gates
+  were not re-run. No architecture file was edited; `git diff --check` passes.
+
+- **2026-07-24** — Reconciled this ledger with decisions D4 and D6 from
+  `docs/decision-record-2026-07-22.md` under its human-delegated transcription
+  authority. Q13 now records that both reference-machine targets are decided
+  and awaiting purchase execution while credentials and execution evidence
+  remain open; no WP16 or WP17 acceptance box was checked. The status board
+  now retains D6's source-visible-proprietary-through-beta posture and its
+  unchecked 1.0 privatisation/paid-macOS-CI decision. Filed the duplicate-D5
+  collision as open Q30 without changing the authority document or resolving
+  any Open question. This was documentation-only: no source, generated asset,
+  work-package status, or test baseline changed, so the previously recorded
+  green gates were not re-run. `git diff --check` passes.
 
 - **2026-07-23** — Added open Q28 as an explicit unchecked **Next up** item
   at the maintainer's request. Q28 remains unresolved, no recommendation was
@@ -1615,7 +1787,7 @@ tests, and runtime behavior remain successful.
   `git diff --check` passed.
 
 - **2026-07-23** — Closed the three **UIP-9 conformance-audit findings**.
-  The WP15 operator procedure now uses D5's exact real-GPU command including
+  The WP15 operator procedure now uses D9's exact real-GPU command including
   `--reject-software-adapter`; WP15 and README now agree with the explicit
   human closure of Q18; and the readback spawn path uses a tested one-shot
   transition rather than relying only on the outer system guard. New regression

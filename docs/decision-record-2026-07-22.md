@@ -118,7 +118,8 @@ it.
 > amendment redefining the window check as a composite) requires a further
 > human ruling.
 
-## D5 — Final-stage on-site Windows test plan (hardware TBD accepted)
+## D9 — Final-stage on-site Windows test plan
+   (formerly the second D5; hardware TBD accepted)
 
 Since on-site Windows testing is scheduled for the final stage, the plan is
 written to be executable in one day on the D4 machine, in this order, with

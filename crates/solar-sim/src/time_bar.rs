@@ -1,8 +1,9 @@
-//! WP8 Eyes-style time bar — Rev C §§4.2, 7, and 9.5–9.6.
+//! WP8 Eyes-style time bar — Rev E §§4.2, 7, and 9.5–9.6.
 //!
-//! Presentation binds directly to WP1's clock API. Edits and controls enqueue
-//! `SimCommand`s, while toasts consume transition-only `TickReport`s; neither
-//! path reimplements clock levels or time arithmetic.
+//! Presentation binds directly to WP1's clock API and owns the f32 widget's
+//! integral detent mapping through `RateIndex::new`/`RateIndex::get`. Edits and
+//! controls enqueue `SimCommand`s, while toasts consume transition-only
+//! `TickReport`s; neither path reimplements clock levels or time arithmetic.
 
 use crate::control::{InterfaceResetSignal, SimCommand, SimCommandQueue};
 use crate::layers::HudSurface;
@@ -157,15 +158,11 @@ pub fn commit_time_edit(current_t_s: f64, field: TimeEditField, input: &str) -> 
 /// the separate paused position and therefore has no `RateIndex` value.
 pub fn rate_for_slider_value(value: f32) -> Option<RateIndex> {
     let detent = value.clamp(-SLIDER_LIMIT, SLIDER_LIMIT).round();
-    if detent == 0.0 {
-        None
-    } else {
-        Some(RateIndex::from_slider_pos(detent / SLIDER_LIMIT))
-    }
+    RateIndex::new(detent as i8)
 }
 
 pub fn slider_value_for_rate(rate: RateIndex) -> f32 {
-    rate.slider_pos() * SLIDER_LIMIT
+    f32::from(rate.get())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1328,7 +1325,23 @@ mod tests {
             .collect();
 
         assert_eq!(actual, expected);
+        for rate in expected {
+            assert_eq!(
+                slider_value_for_rate(rate).to_bits(),
+                f32::from(rate.get()).to_bits()
+            );
+        }
         assert_eq!(rate_for_slider_value(0.0), None);
+    }
+
+    #[test]
+    fn slider_boundary_rounding_rejects_zero_and_clamps_at_both_edges() {
+        assert_eq!(rate_for_slider_value(-0.49), None);
+        assert_eq!(rate_for_slider_value(0.49), None);
+        assert_eq!(rate_for_slider_value(-0.51), RateIndex::new(-1));
+        assert_eq!(rate_for_slider_value(0.51), Some(RateIndex::REAL));
+        assert_eq!(rate_for_slider_value(-f32::MAX), RateIndex::new(-12));
+        assert_eq!(rate_for_slider_value(f32::MAX), RateIndex::new(12));
     }
 
     #[test]

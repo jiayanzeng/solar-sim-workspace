@@ -153,9 +153,10 @@ reads the system clock (invariant 7).
   unambiguous). Magnitudes: REAL, 1 MIN/S, 1 HR/S, 1 DAY/S, 1 WK/S,
   1 MTH/S, 6 MTHS/S, 1 YR/S, 3 YRS/S, 10 YRS/S, 30 YRS/S, 100 YRS/S —
   months are **mean months** (Julian year / 12). Labels follow the Eyes
-  convention (`"REAL RATE"`, `"6 MTHS/S"`, `"−3 YRS/S"`). 24 detents;
-  `slider_pos()`/`from_slider_pos()` implement the symmetric-log mapping
-  (uniform detent spacing); `stepped()` skips zero (+REAL → −REAL is one
+  convention (`"REAL RATE"`, `"6 MTHS/S"`, `"−3 YRS/S"`). 24 detents.
+  The application owns any f32 widget mapping and maps integer
+  detents directly through `RateIndex::get` and `RateIndex::new`; `sim-core`
+  exposes no f32 slider API. `stepped()` skips zero (+REAL → −REAL is one
   step) and saturates at ±12.
 - **Range.** Soft range 1800-01-01T00:00 … 2300-12-31T23:59:59 TDB
   (`T_MIN_S = −6_311_390_400`, `T_MAX_S = 9_498_599_999`). Clamping

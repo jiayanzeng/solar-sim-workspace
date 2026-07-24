@@ -812,10 +812,15 @@ impl Plugin for SettingsUiPlugin {
                     sync_settings_screen,
                     sync_external_presentation_to_settings,
                     persist_requested_settings,
-                    rebuild_settings_screen.in_set(ModalSurfaceSet::Rebuild),
                 )
                     .chain()
                     .in_set(SimulationSet::Render),
+            )
+            .add_systems(
+                Update,
+                rebuild_settings_screen
+                    .after(persist_requested_settings)
+                    .in_set(ModalSurfaceSet::Rebuild),
             )
             .add_systems(Update, save_settings_on_window_close);
     }

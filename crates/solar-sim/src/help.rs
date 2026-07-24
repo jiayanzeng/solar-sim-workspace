@@ -8,7 +8,6 @@ use crate::control::{SimCommand, SimCommandQueue};
 use crate::input_intent::{ModalSurfaceSet, UiScrollSurface};
 use crate::layers::{HudSurface, PresentationState};
 use crate::ui_kit::{UiTheme, INTER_FONT_ASSET};
-use crate::SimulationSet;
 use bevy::{
     input::mouse::MouseScrollUnit,
     input_focus::{
@@ -106,12 +105,8 @@ pub(crate) struct HelpPlugin;
 
 impl Plugin for HelpPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<HelpUiState>().add_systems(
-            Update,
-            rebuild_help_modal
-                .in_set(ModalSurfaceSet::Rebuild)
-                .in_set(SimulationSet::Render),
-        );
+        app.init_resource::<HelpUiState>()
+            .add_systems(Update, rebuild_help_modal.in_set(ModalSurfaceSet::Rebuild));
     }
 }
 
