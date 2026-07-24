@@ -1242,6 +1242,30 @@ heading and every citation that means the Q18 amendment unchanged.
 
 ## Change log (append-only; newest first)
 
+- **2026-07-24** — Completed a final architecture and Phase 0–4 closure-plan
+  audit. Updated the review plan's stale human checklist to reflect the
+  already-recorded Q28, Q29, Q30, and Block B completions and added an explicit
+  phase status: Phases 0–3 are complete, while Phase 4 remains open for the
+  2026-07-31 D4 procurement and Steam onboarding, the subsequent real App ID,
+  and unassigned Apple Developer ID/protected-environment ownership and dates.
+  WP16, WP17, Q13, and the Q21 conditional trigger remain in their recorded
+  states; no Open question was closed by this audit.
+
+  No source, generated asset, protected truth data, dependency, work-package
+  status, acceptance criterion, replay hash, golden baseline, or test baseline
+  changed. The audit found no current architecture violation: `sim-core`
+  retains only `serde` and `ron`, contains no production filesystem, network,
+  environment, wall-clock, RNG, `f32`, or non-test `unwrap()`/`expect()` use;
+  the removed slider API has no live code reference; hierarchy detection
+  remains enabled; and the catalog dry-run still reports the frozen 66-body
+  plan without network access. Fresh verification passes **434** default tests
+  and **435** Steam-feature tests, formatting, warning-denied debug/release
+  workspace/all-target clippy, the focused 500+-command portable replay/state-
+  hash test, catalog dry-run, and `git diff --check`. Fresh comparisons of both
+  Q29 Metal captures against the immediate Q28 baseline and against each other
+  pass all six canonical views at exact maximum mean/p99 ΔE
+  **0.0000/0.0000**.
+
 - **2026-07-24** — Completed Q29/Block C and returned WP1 to **✅ done** under
   the maintainer's ARCHITECTURE §4.2 amendment. Removed the public
   `RateIndex::slider_pos`/`RateIndex::from_slider_pos` pair and its unreachable

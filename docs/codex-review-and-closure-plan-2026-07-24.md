@@ -415,20 +415,42 @@ question is closed in `TASKS.md` by the human.** Block B is safe to issue immedi
 
 ## 6. Human sign-off checklist
 
-- [ ] **Q28 ruling.** Mechanical cleanup (recommended) or accepted framework noise. If
-      accepted: confirm the ruling text prohibits global `hierarchy_detection` suppression and
-      requires a `docs/` record instead.
-- [ ] **Q28 owner.** WP4 as coordinating package (recommended, per the AC-2 precedent), or an
-      alternative.
-- [ ] **File Q29** for the `sim-core` slider API, and rule: remove the two methods
-      (recommended), retype them to `f64`, or grant a documented exception to nested rule 5.
-- [ ] **Q30 / D5 collision.** Renumber the second D5 to D9 and fix `TASKS.md:1618`, or keep the
-      collision and disambiguate citations.
-- [ ] **Authorise Block B** (ledger reconciliation) for immediate execution.
+- [x] **Q28 ruling.** Mechanical cleanup selected and completed without globally suppressing
+      `hierarchy_detection`.
+- [x] **Q28 owner.** WP4 selected as the coordinating package.
+- [x] **File Q29** for the `sim-core` slider API. The recommended removal was selected and
+      completed after the human-controlled ARCHITECTURE §4.2 amendment.
+- [x] **Q30 / D5 collision.** The second D5 was renumbered to D9 with the required
+      “formerly the second D5” note, and its `TASKS.md` citation was corrected.
+- [x] **Authorise Block B.** The decision-ledger reconciliation is complete.
 - [ ] **Execute D4.** Confirm the purchase is proceeding, or state the date it will be
-      reconsidered. Nothing downstream of WP16 moves until these machines exist.
+      reconsidered. Procurement of both ruled reference machines is scheduled for
+      2026-07-31 and remains pending. Nothing downstream of WP16 moves until these machines
+      exist, and no WP16 or WP17 acceptance box is checked by the schedule.
 - [ ] **Steam partner account / real App ID / Apple Developer ID / protected environments.**
       Confirm who owns each and the expected date; this is the other long-lead item and it
-      gates step 8 of the on-site Windows day.
-- [ ] Confirm that Codex's items 3, 4, and 5 (WP16, WP17, the Q21 conditional render-scale
+      gates step 8 of the on-site Windows day. Steam partner onboarding is scheduled for
+      2026-07-31 and remains pending; the real App ID follows it. Apple Developer ID and
+      protected-environment ownership/dates remain outstanding.
+- [x] Confirm that Codex's items 3, 4, and 5 (WP16, WP17, the Q21 conditional render-scale
       trigger) stay parked exactly as written until hardware lands.
+
+---
+
+## 7. Execution status (2026-07-24)
+
+- [x] **Phase 0 — decision-ledger checkpoint.** Block B is complete and the resulting
+      documentation changes are committed.
+- [x] **Phase 1 — human decisions and architecture gate.** The human selected the first
+      recommended option for Q28, Q29, and Q30 and amended ARCHITECTURE §4.2 for Q29.
+- [x] **Phase 2 — Block A / Q28.** The redundant schedule memberships were removed under WP4,
+      ordering was preserved, and the schedule-wide hierarchy regression, real-Metal smoke,
+      tests, lint, and golden comparisons passed.
+- [x] **Phase 3 — Block C / Q29.** The public float slider API and non-test `unwrap()` were
+      removed from `sim-core`; application-boundary detent mapping and regression coverage
+      landed, with replay hashes, tests, lint, and golden comparisons unchanged.
+- [ ] **Phase 4 — long-lead external execution.** The D4 hardware purchase and Steam partner
+      onboarding are scheduled for 2026-07-31. The real App ID follows onboarding; Apple
+      Developer ID and protected-environment owners/dates still require human assignment.
+      WP16, WP17, and the Q21 conditional render-scale trigger remain parked until their
+      stated prerequisites exist.
